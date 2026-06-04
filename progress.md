@@ -142,6 +142,42 @@ thermal-state / measurement-chain limited, not under-modeling.** Confirmed three
   have not yet collected **homodyne** data (complex-field linear ID) with better readout +
   thermal control + structured sweeps. That data collection is the next step (live, tomorrow).
 
+## ⭐ Can we PROVE a hardware limit? — identifiability result (`scripts/prove_hardware_limit.py`)
+
+The better-physics RESULT above is *empirical* ("capacity doesn't move the ceiling"). Asked to
+**prove** a hardware ceiling. The rigorous, model-free statement: for ANY predictor g(V),
+`MSE ≥ E[Var(Y|V)]`, so `R²_max = 1 − E[Var(Y|V)]/Var(Y)`. Estimating `E[Var(Y|V)]` from the 100k set:
+
+- **(C) Dark-PD readout floor = 5.8 mV** (the 4 damaged PDs, pooled). If readout/ADC/DAC noise
+  were the only limiter the ceiling would be **~0.95–0.99**. → **Readout noise is NOT the limiter.**
+  Kills the simplest "it's just ADC noise" hypothesis.
+- **(A) Exact-duplicate test: ZERO repeated input vectors** (random sampling on a 9⁶⁴ grid never
+  repeats). So we cannot measure irreducible noise directly offline.
+- **(B) Per-PD within-cell spread** (spread of Y among rows sharing the 2–3 dominant channels;
+  well-populated cells, no overfit): PD12/13 = **1.4–1.6× floor** (≈ fully determined by 2 channels —
+  *these are characterizable now*); PD4/6/9 = **6.6–8.5× floor** with peak few-channel R²≈0.05
+  (their variance lives in *no small channel set*). Reproduces the learnability table exactly.
+- **(D) Row order is ~iid** (consec-row channel match 0.195 vs 0.111 baseline; weak block
+  structure, no clean trajectory) → no usable time axis → can't test drift offline either.
+
+**Verdict — the honest answer to "can we prove it":**
+1. **NOT from this dataset.** It has *zero input repeats* and *one shot per input*. That design makes
+   **reducible** variance (crosstalk / high-order interference a richer model could capture) and
+   **irreducible** variance (thermal/temporal hidden state) **mathematically unidentifiable** — you
+   cannot separate "model too weak" from "hardware too noisy" without repeats. The 0.55→0.95 gap is
+   confounded. (Note PD4/6/9 being invisible to *main-effect* η² yet high-variance is consistent with
+   *interference-determined* = possibly **reducible** with a coherent model — so don't call them
+   "noise" yet; homodyne may rescue them.)
+2. **What IS proven offline:** 4 PDs dead (Tier 0); readout noise is not the bottleneck (Tier C);
+   learnability is sharply per-PD.
+3. **The decisive test is cheap (Tier 2, hardware, ~15 min):** *(i) Repeat test* — pick ~20
+   representative V, measure each N≈50× back-to-back. Within-V variance = irreducible noise with **all
+   channels fixed** (crosstalk confound gone). If ≈ dark floor → ceiling is reducible → characterization
+   IS possible (better model wins). If ≈ the 38–50 mV within-cell spreads → **proven irreducible** →
+   capped. *(ii) Drift/soak* — same V once/min for ~30–60 min (± heating neighbors); drift beyond the
+   repeat noise → **thermal hidden state proven** → a static V→PD map is provably insufficient
+   (needs temperature as an input / closed-loop). **Repeats break the confound.** Script this for the live session.
+
 ## Modeling verdict & plan
 
 - A **naïve memoryless model — physics OR black-box NN — caps ~0.5 R²** on data like this and
