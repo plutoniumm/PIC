@@ -276,6 +276,7 @@ model-free conditional drift 5–13 mV ≫ 0.3 mV error). This is the hardware i
 
 - Python work uses the **`pic`** conda env (Python 3.14): `conda activate pic` or
   `/usr/local/Caskroom/miniconda/base/envs/pic/bin/python`. Installed: numpy, pandas, scipy,
-  scikit-learn, openpyxl, **pyserial**, olefile. Dataset cached `/tmp/pic_100k.npz`;
+  scikit-learn, openpyxl, **pyserial**, olefile, **sympy** + jupyter (nbformat/nbconvert/ipykernel,
+  for the unitarity notebook). Dataset cached `/tmp/pic_100k.npz`;
   influence matrix `/tmp/dac_pd_influence.npy`.
 - Theory refs in `References/`: `1603.08788` (Clements mesh), `2210.09171` (Cem data-driven OMM).
