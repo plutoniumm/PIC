@@ -4,7 +4,6 @@ Living log of findings for the photonic matrix-multiplier work. Newest section l
 Goal: program the splitting-tree 6×6 to do optical matmul (A = U·E·V via SVD), with
 heater voltages in and photodiode voltages out; homodyne (bypass readouts) for phase/sign.
 
----
 
 ## Hardware / device facts (confirmed)
 
@@ -45,10 +44,15 @@ The PCB is a **passive fan-out board** (no active parts):
   + dataset). The DAC-channel→heater map is only needed to attach *physical-mesh meaning* for
   the SAM physics model — it's reconstructable but multi-hop & geometric (no ready label table):
   net → chip-side pad XY (`Pads6`) → nearest GDS heater; and net → FPC pin → DAC chan (firmware).
+0
 
----
+## The datasets
 
-## The dataset: `100k_data_original.xlsx` (the only dataset we have)
+Two sources, both Section-A power-only on the 0.5 V grid: `100k_data_original.xlsx` (single
+session, analysed below) and **`pic_data/` — 7 multi-session runs (15july/22july)** that enabled
+the drift proof (see "DRIFT PROVEN" below). Findings below are on the 100k unless noted.
+
+### `100k_data_original.xlsx`
 
 - 100,000 rows. **Col 0 = 64 input voltages (string); cols 1–14 = the 14 raw PD outputs.**
 - This is the **OLD Section-A, power-only** path (no homodyne), NOT the splitting-tree 6×6.
@@ -88,7 +92,6 @@ Raw inputs (0–4 V). Two model classes agree → this is a real, model-independ
   structured per-heater model + topology. Smooth bases all plateau ~0.42 linearly (vs 0.55
   black-box) → most "easy" variance is smooth; the rest needs true interference modeling.
 
----
 
 ## Physical map decode (PCB + data-driven)
 
@@ -178,6 +181,46 @@ The better-physics RESULT above is *empirical* ("capacity doesn't move the ceili
    repeat noise → **thermal hidden state proven** → a static V→PD map is provably insufficient
    (needs temperature as an input / closed-loop). **Repeats break the confound.** Script this for the live session.
 
+## ⭐⭐ DRIFT PROVEN — `pic_data/` multi-session data (`scripts/drift_analysis.py`)
+
+New data arrived: 7 sessions in `pic_data/` ("testing_working_ps_hybrid_64", 10k–25k rows each),
+**same internal format** as the 100k (header row added) and **same 0.5 V grid / Section-A path**,
+collected on **two days (15july, 22july)** with 4 same-day repeat runs on 22july. They sample the
+**identical input distribution** (per-channel grand mean 1.124 ± 0.005 across all files) at different
+times — the **distribution-matched analogue of "measure the same V at different times."** This is
+exactly the confound-breaker the 100k lacked, and it **proves the hidden state offline.**
+
+- **Input dist matched** (guard passed) ⇒ any marginal PD-mean shift across runs = **drift**
+  (sampling error on a 25k mean ≈ 0.3 mV, so mV-level shifts are real).
+- **`25k_15july(2)` is a DUD:** all 14 channels flat at ~14.5 mV (live-PD std 4.9 ≈ dark 4.8) =
+  laser off / fiber decoupled. Excluded from drift stats; kept as a 14-ch electronic-baseline snapshot.
+- **(1) Same-day drift (22july, 4 runs):** monotonic, e.g. **PD1 101→90→86→88 mV, PD6 68→54, PD4 48→38**.
+  mean |Δ| live = 5.9 mV, dark(electronic) = 3.7 mV ⇒ **optical drift ≈ 2.2 mV excess + 3.7 mV electronic
+  baseline drift, within a single day.** (Dark PDs drift too ⇒ part is ADC/bias baseline, not optics.)
+- **(1) Week-scale drift (15→22july): CATASTROPHIC, 20–60 %** response collapse — PD8 −60 %, PD6 −44 %,
+  PD4 −41 %, PD9 −37 %, PD1 −26 %, PD12 −27 %, PD13 −19 %. The whole chip's gain fell over a week.
+- **(2) Conditional drift** (cell-mean shift at identical top-2 driving volts, controls for input)
+  ≈ marginal drift (PD1 12.8 vs 13.7 mV; all live PDs 5–13 mV same-day) ⇒ **genuine drift, not an
+  input-sampling artifact.**
+- **(3) Cross-session generalization gap = 0.328 (the proof):** a black box trained on the first
+  22july run scores R² up to 0.98 on its own holdout, drops ~0.05–0.3 on **later same-day runs**, and
+  goes **NEGATIVE (worse than predicting the mean) on the other week** — PD1 0.81→−0.18, PD8 0.31→−1.5,
+  PD12 0.95→−0.29 (only PD13 survives, 0.33). A model characterized one day is **worse than useless**
+  the next week.
+
+**RESOLUTION of "can we prove characterization is impossible":** YES — proven three independent ways
+(marginal, conditional, cross-session R²). Precisely: **a *time-invariant* V→PD map does not exist.**
+The chip is strongly **non-stationary** (few-mV/hours, 20–60 %/week). Characterization is only valid
+**within a thermal session**; a static calibration is provably insufficient (cross-session R² ≤ 0,
+model-free conditional drift 5–13 mV ≫ 0.3 mV error). This is the hardware issue, demonstrated.
+- *Within a session, characterization IS possible* (holdout R² 0.95–0.98 for PD12/13) — physics not
+  dead, the **operating point** drifts. This is **why the original design is hardware-in-the-loop /
+  re-measure-every-iteration**: an offline model goes stale.
+- **Likely root cause = thermal:** same-day drift = heater self-heating accumulating over a 25k run;
+  week-scale = ambient/TEC baseline. **The chip HAS a TEC + thermistor** (Description_eng.pdf) — if it
+  wasn't actively controlled during these runs, that is the fix. ⇒ next-session action: **enable/verify
+  TEC control**, and add a **start-of-session reference probe** to fit a drift correction.
+
 ## Modeling verdict & plan
 
 - A **naïve memoryless model — physics OR black-box NN — caps ~0.5 R²** on data like this and
@@ -192,7 +235,9 @@ The better-physics RESULT above is *empirical* ("capacity doesn't move the ceili
   2. **+ learned residual / probabilistic head** for the genuinely stochastic part (drift,
      ambient, crosstalk) — the "fuzzier" model.
   3. **+ low-rank (LoRA) adapter** for session-to-session drift (validate rank by SVD of
-     repeated-characterization offset variation).
+     repeated-characterization offset variation). **Now empirically mandated:** cross-session
+     R² goes ≤ 0 (DRIFT PROVEN), so a static model is unusable across sessions — a per-session
+     drift correction (or live TEC control + start-of-session reference probe) is *required*, not optional.
 - **Homodyne is also the precision/SNR lever**, not just phase: coherent gain (weak signal ×
   strong LO) lifts small-signal PDs off the ADC floor — exactly where this dataset collapses.
 - **Characterization must control thermal state** (full settle, fixed approach direction,
