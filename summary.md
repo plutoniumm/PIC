@@ -1,131 +1,121 @@
 # PIC — Results Summary
 
-Scan-friendly digest of every key finding. Each block: a **table with the actual numbers**,
-**Look** (what to read in the table), **Means** (the conclusion), **Fix** (what to do).
-Full detail + methods in `progress.md`; reproduce with `scripts/*.py`.
-
-**TL;DR:** 4 of 14 photodiodes are dead. Of the rest, ~2 are perfectly predictable and ~3 are
-nearly unpredictable. The single biggest problem is **drift** — the same voltages give different
-outputs at different times (a few mV/hour, **20–60 % over a week**), so **no fixed
-voltage→output calibration exists**. The chip must be temperature-controlled and/or re-probed
-every session.
+Power-only (no-homodyne) characterization of the Section-A path. Inputs: 64 heater voltages on a
+{0, 0.5, …, 4} V grid; outputs: 14 photodiode voltages, 10 usable. Three headline results: **4 PDs
+are dead**, per-PD predictability spans **0.18–0.98 R²**, and **the chip is non-stationary
+(20–60 % drift/week)** so no fixed voltage→output calibration holds. Methods in `progress.md`;
+reproduce via `scripts/`.
 
 ---
 
-## 1. Four photodiodes are dead
+## 1. Four dead photodiodes
 
-| PD          | 0\* | 2\* | 7\* | 11\* | 1 (live) | 13 (live) |
-|-------------|----:|----:|----:|-----:|---------:|----------:|
-| mean (mV)   | 5   | 15  | 7   | 4    | **101**  | **198**   |
-| std (mV)    | 3   | 10  | 4   | 2    | ~44      | ~50       |
+*Metric:* per-PD mean and std of the output over the whole dataset, in mV, while inputs vary.
+*Why:* a live PD must move with the inputs; one whose std ≈ the readout-noise floor (~5 mV) is dark.
 
-**Look:** PDs 0, 2, 7, 11 sit at ~2–15 mV and barely move (std ~5 mV); live PDs swing to 50–240 mV.
-**Means:** those 4 are damaged — they carry no signal. Outputs are 14 → **10 usable**.
-**Fix:** already handled — `filter_adc_output` drops indices [0, 2, 7, 11]. ✓ (no action needed)
+|            | PD0\* | PD2\* | PD7\* | PD11\* | PD1 | PD13 |
+|------------|------:|------:|------:|-------:|----:|-----:|
+| std (mV)   | 3     | 10    | 4     | 2      | 44  | 50   |
+| mean (mV)  | 5     | 15    | 7     | 4      | 101 | 198  |
 
----
-
-## 2. Predictability is wildly uneven across PDs (within one session)
-
-| PD        | 1 | 3 | 4 | 5 | 6 | 8 | 9 | 10 | 12 | 13 | **mean** |
-|-----------|--:|--:|--:|--:|--:|--:|--:|---:|---:|---:|---------:|
-| R² ceiling|.78|.62|**.19**|.62|**.26**|.34|**.18**|.58|**.95**|**.98**|**0.55**|
-
-**Look:** PD12/PD13 = **0.95 / 0.98** (near-perfect); PD4/PD6/PD9 = **0.19 / 0.26 / 0.18** (≈ random).
-**Means:** some outputs are fully determined by the inputs; others (deep in the mesh, low signal)
-are not predictable from voltages alone. Two different model families agree → it's a real ceiling.
-**Fix:** for matmul, read results off the **high-R² PDs**; the hard PDs need homodyne (coherent gain
-lifts weak signals off the noise floor) or a full interference model — not more fitting.
+PD0/2/7/11 don't respond to any input (std ≈ noise) → 14 outputs collapse to **10**. Already filtered.
 
 ---
 
-## 3. ADC/readout noise is NOT what limits us
+## 2. Per-PD predictability ceiling
 
-| quantity                                   | value     |
-|--------------------------------------------|-----------|
-| dark-PD readout noise floor                | **5.8 mV**|
-| R² ceiling IF that were the only noise     | **~0.95** |
-| R² ceiling actually achieved by any model  | **~0.55** |
+*Metric:* test-set R² of an inputs→PD regressor (gradient-boosted trees, 80/20 split). *Why:* R² =
+fraction of output variance the inputs explain; an upper bound for any memoryless model. Two model
+families agree, so it's a property of the data, not the fit.
 
-**Look:** a 5.8 mV noise floor would allow R²≈0.95, but every model caps at 0.55.
-**Means:** the gap is **not** ADC/DAC noise — it's structured (interference complexity + drift, §5).
-**Fix:** a better ADC helps weak PDs but won't lift the ceiling; the real culprit is drift (§4).
+| PD | 1   | 3   | 4   | 5   | 6   | 8   | 9   | 10  | 12  | 13  | mean |
+|----|----:|----:|----:|----:|----:|----:|----:|----:|----:|----:|-----:|
+| R² | .78 | .62 | .19 | .62 | .26 | .34 | .18 | .58 | .95 | .98 | .55  |
 
----
-
-## 4. ⭐ THE BIG ONE — the chip drifts; no fixed calibration exists
-
-Same input distribution measured at different times. Mean shift = drift (error bar ~0.3 mV).
-
-**Same day** (4 runs, 22 July), PD output mean in mV:
-
-| PD  | run 1 | run 2 | run 3 | run 4 |
-|-----|------:|------:|------:|------:|
-| 1   | 101   | 90    | 86    | 88    |
-| 6   | 68    | 60    | 54    | 58    |
-| 4   | 48    | 43    | 38    | 41    |
-
-**One week apart** (15 July → 22 July):
-
-| PD  | 15 July | 22 July | change   |
-|-----|--------:|--------:|---------:|
-| 8   | 49      | 19      | **−60 %**|
-| 6   | 107     | 60      | **−44 %**|
-| 4   | 72      | 43      | **−41 %**|
-| 1   | 124     | 92      | **−26 %**|
-| 13  | 239     | 194     | **−19 %**|
-
-**Model trained on one session, tested elsewhere** (R²):
-
-| tested on…             | mean R²                          |
-|------------------------|----------------------------------|
-| its own held-out data  | up to **0.98**                   |
-| later run, same day    | drops 0.05–0.30                  |
-| the **other week**     | **NEGATIVE** (worse than guessing the mean) |
-
-**Look:** identical inputs give outputs that slide **5–13 mV within a day** and **drop 20–60 % over a
-week**; a model that scores 0.98 on its own data goes **negative** a week later.
-**Means:** **a time-invariant voltage→output map does not exist.** This is the proven hardware issue —
-the chip is non-stationary. Calibration is only valid *within a single thermal session*. (Within a
-session it works fine — see PD12/13 at 0.98 — so the physics isn't wrong; the *operating point* moves.)
-**Fix:** (a) **turn on the chip's TEC** (it has a thermistor + thermoelectric cooler) to hold
-temperature; (b) take a **start-of-session reference measurement** and fit a small per-session drift
-correction; (c) otherwise keep it **hardware-in-the-loop** — re-measure on the chip every iteration
-instead of trusting a stored model.
+PD12/13 ≈ solved (.95/.98); PD4/6/9 ≈ unpredictable (.18–.26). The hard PDs sit deep in the mesh
+(many interfering arms, low signal). → Read matmul results off the high-R² PDs; weak PDs need
+homodyne gain, not more fitting.
 
 ---
 
-## 5. More compute / better physics does NOT help (on this data)
+## 3. The ceiling is not readout noise
 
-| model                                  | mean R² |
-|----------------------------------------|--------:|
-| dense black-box                        | 0.55    |
-| same, 800 trees (high capacity)        | 0.57    |
-| big neural net (low regularization)    | 0.29 (overfits) |
-| physics model (cos/sin of v², sparse)  | 0.48    |
+*Metric:* the R² we *would* hit if the only error were ADC noise, = 1 − σ²/Var(signal), with σ
+taken from the dead PDs (pure noise, no light). *Why:* separates a noise-limited chip from a
+structure/drift-limited one.
 
-**Look:** going from 0.55 → 0.57 with 8× the capacity; physics ties the small net at 0.48.
-**Means:** no model wins — the limit is the data/hardware (drift + noise), not under-modeling.
-*Caveat:* this is power-only data; we have **not** yet collected homodyne (phase) data, so physics
-is not disproven — it just hasn't had a fair shot.
-**Fix:** collect **homodyne data with the TEC on**, then re-test the physics model. Don't spend compute
-trying to beat 0.55 on the existing data.
+| quantity                          | value     |
+|-----------------------------------|----------:|
+| readout-noise floor σ (dead PDs)  | 5.8 mV    |
+| implied R² if noise were the limit| ~0.95     |
+| R² actually achieved              | 0.55      |
 
----
-
-## 6. Data-quality flags (know before you use the files)
-
-| flag                          | evidence                                              | so what                                  |
-|-------------------------------|-------------------------------------------------------|------------------------------------------|
-| **Dud session**               | `25k_15july(2)`: all 14 channels flat at **~14.5 mV** | laser off / fiber unplugged — **exclude**|
-| **Inputs are sparse drivers** | ~**3** of 64 channels drive each PD; ~**20** do nothing| model each PD from its few real inputs    |
-| **No 2 V firmware clamp**     | raw-to-4 V scores **0.55** vs clamp-at-2 V **0.33**    | the data was taken without the clamp the current firmware applies — reconcile before trusting either |
-
-**Look:** the `(2)` file's live PDs (4.9 mV std) look identical to its dead PDs (4.8 mV) — no light.
-**Means:** one of the seven files is unusable; most input channels are inert; firmware clamp mismatch.
-**Fix:** drop the dud; build sparse per-PD models; confirm which firmware produced the dataset.
+Noise alone permits .95 but we get .55 → the gap is structure + drift, not the ADC. A faster
+converter won't lift it.
 
 ---
 
-*Sources:* §1–3,5,6 from `100k_data_original.xlsx`; §4 from the 7 `pic_data/` sessions.
-Scripts: `scripts/prove_hardware_limit.py` (§1–3), `scripts/drift_analysis.py` (§4,6).
+## 4. ⭐ The chip drifts — no time-invariant calibration exists
+
+*Metric:* per-PD output **mean** across sessions that sample the **same input distribution** at
+different times (mV). *Why:* if inputs match, E[output] is constant *iff* the voltage→output map is
+time-invariant; any mean shift is drift (sampling error on a 25k-row mean ≈ 0.3 mV, so mV shifts are real).
+
+Same day, four consecutive runs:
+
+| PD | run 1 | run 2 | run 3 | run 4 |
+|----|------:|------:|------:|------:|
+| 1  | 101   | 90    | 86    | 88    |
+| 6  | 68    | 60    | 54    | 58    |
+| 4  | 48    | 43    | 38    | 41    |
+
+One week apart (15 → 22 July): PD8 −60 %, PD6 −44 %, PD4 −41 %, PD1 −26 %, PD13 −19 %.
+
+*Metric:* R² of a model trained on one session and tested on others. *Why:* quantifies how fast the
+calibration goes stale.
+
+| tested on             | R²                          |
+|-----------------------|-----------------------------|
+| its own held-out data | up to 0.98                  |
+| later run, same day   | drops 0.05–0.30             |
+| the other week        | **negative** (worse than the mean) |
+
+Same-day shift 5–13 mV; week-scale −20 to −60 %; a model scoring .98 on its own data goes negative a
+week later → **no calibration survives past one thermal session**. (Within a session it works, so the
+physics is fine — the *operating point* moves.) **Fix:** enable the chip's TEC; add a start-of-session
+reference probe + per-session correction; otherwise stay hardware-in-the-loop (re-measure each iteration).
+
+---
+
+## 5. Capacity and physics don't move the ceiling
+
+*Metric:* mean R² vs model class/size on the same data. *Why:* if adding capacity doesn't raise R²,
+the limit is the data, not the model.
+
+| model                              | mean R² |
+|------------------------------------|--------:|
+| dense black-box                    | 0.55    |
+| same, 8× capacity (800 trees)      | 0.57    |
+| large neural net, low regularization | 0.29 (overfits) |
+| physics model (cos/sin of v², sparse) | 0.48 |
+
+8× capacity buys +0.02; physics ties the small net → limit is hardware (drift + noise). Homodyne
+(phase) data isn't collected yet, so physics isn't disproven — collect it with the TEC on, then re-test.
+
+---
+
+## 6. Data-quality flags
+
+*Metric:* per-file/per-channel sanity checks. *Why:* one file is unusable and two settings affect how
+the data must be modelled.
+
+| flag                    | evidence                                                | consequence                          |
+|-------------------------|---------------------------------------------------------|--------------------------------------|
+| dud session             | `25k_15july(2)`: all 14 channels flat at ~14.5 mV       | laser off / fiber unplugged — exclude |
+| inputs are sparse drivers | ~3 of 64 channels move each PD; ~20 do nothing        | model each PD from its few real inputs |
+| no 2 V firmware clamp    | raw-to-4 V R² 0.55 vs clamp-at-2 V 0.33                 | dataset predates the firmware clamp — reconcile |
+
+---
+
+*§1–3, 5, 6 from `100k_data_original.xlsx`; §4 from the 7 `pic_data/` sessions.
+Scripts: `prove_hardware_limit.py` (§1–3), `drift_analysis.py` (§4, 6).*
