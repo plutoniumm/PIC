@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 
 from lib.pic import PIC, MockPIC, PICConfig, acquisition
-from src import mzi, influence, characterize, inverse, data
+from src import mzi, influence, characterize, inverse, data, pic_neurophox
 
 ok = True
 def check(name, cond):
@@ -75,6 +75,18 @@ pic.close()
 
 print("== src.data ==")
 check("data.live drops 4 damaged", data.live(np.zeros((3, 14))).shape == (3, 10))
+
+print("== src.pic_neurophox (optical SVD) ==")
+nxV, nxU = pic_neurophox.build_mesh(1), pic_neurophox.build_mesh(2)
+A = np.random.default_rng(0).standard_normal((6, 6))
+sig = pic_neurophox.sigma_from_matrix(A)
+Mnx = pic_neurophox.chip_matrix(nxV, sig, nxU)
+xx = np.random.default_rng(1).standard_normal(6).astype(complex); xx /= np.linalg.norm(xx)
+fld, inten = pic_neurophox.run_optical(nxV, sig, nxU, xx)
+check("neurophox field == M·x", np.allclose(fld, Mnx @ xx, atol=1e-9))
+check("M = U·Σ·V reproduces σ", np.allclose(np.sort(np.linalg.svd(Mnx, compute_uv=False))[::-1],
+                                            np.sort(sig)[::-1], atol=1e-9))
+check("U·Σ·V is a contraction (Σ≤1)", inten.sum() <= np.linalg.norm(xx) ** 2 + 1e-9)
 
 print("\nRESULT:", "ALL PASS" if ok else "FAILURES PRESENT")
 sys.exit(0 if ok else 1)
