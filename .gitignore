@@ -43,3 +43,15 @@ ENV/
 best_input.txt
 best_output.txt
 optimization_summary.txt
+
+# --- Claude Code local state ---
+.claude/
+
+# --- Schematic scratch: reference crops + verification renders (regenerable;
+#     the deliverable is pic_structure.png at the repo root) ---
+schematic_ref/
+PIC.png
+PIC_flipped.png
+
+# --- Large raw experiment dumps (not derived artifacts; keep them out of git) ---
+pic_data/testing_working_ps_hybrid_*.xlsx

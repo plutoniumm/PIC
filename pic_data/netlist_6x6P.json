@@ -1,0 +1,5316 @@
+{
+ "summary": {
+  "n_components": 152,
+  "mmi2x2 (MZI couplers)": 84,
+  "mmi1x2 (splitters/taps)": 53,
+  "pd (photodiodes)": 14,
+  "input couplers": 1,
+  "heaters (phase shifters)": 120,
+  "terminations (dangling 2x2 outputs)": 12,
+  "bbox": [
+   8379.0,
+   1471.5,
+   15700.0,
+   2451.5
+  ]
+ },
+ "components": [
+  {
+   "id": 12,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 15055.0,
+   "y": 1471.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 13,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 14688.6,
+   "y": 1471.5,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 27,
+   "cell": "AMF_PSOI_PowMonitor_Cband_Cell_v3p5",
+   "role": "pd",
+   "x": 8629.001,
+   "y": 1472.4,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 29,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 13773.6,
+   "y": 1821.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 30,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 13773.6,
+   "y": 1541.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 32,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 13773.6,
+   "y": 2101.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 33,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 13773.6,
+   "y": 2381.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 36,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 14688.6,
+   "y": 2171.5,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 37,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 14038.6,
+   "y": 2381.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 40,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 15055.0,
+   "y": 2311.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 43,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 15305.0,
+   "y": 2241.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 44,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 15180.0,
+   "y": 2101.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 45,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 15180.0,
+   "y": 2381.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 46,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 14688.6,
+   "y": 2311.5,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 47,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 15055.0,
+   "y": 2451.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 50,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 14688.6,
+   "y": 2451.5,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 54,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 14448.6,
+   "y": 2241.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 57,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 14183.6,
+   "y": 2241.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 58,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 15055.0,
+   "y": 2171.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 60,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 14038.6,
+   "y": 2101.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 63,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 13218.6,
+   "y": 2381.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 66,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 12953.6,
+   "y": 2381.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 67,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 12808.6,
+   "y": 2241.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 70,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 12543.6,
+   "y": 2241.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 71,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 12398.6,
+   "y": 2101.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 74,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 12133.6,
+   "y": 2101.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 75,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 12398.6,
+   "y": 2381.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 78,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 12133.6,
+   "y": 2381.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 80,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 13363.6,
+   "y": 2241.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 81,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 13218.6,
+   "y": 2101.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 82,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 11988.6,
+   "y": 2171.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 83,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 11988.6,
+   "y": 2311.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 85,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 13628.6,
+   "y": 2241.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 86,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 12953.6,
+   "y": 2101.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 87,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 11988.6,
+   "y": 1611.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 88,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 13628.6,
+   "y": 1681.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 89,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 11988.6,
+   "y": 1751.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 91,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 11988.6,
+   "y": 1891.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 93,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 11988.6,
+   "y": 2031.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 94,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 13363.6,
+   "y": 1681.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 95,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 12808.6,
+   "y": 1681.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 98,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 12543.6,
+   "y": 1681.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 99,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 12808.6,
+   "y": 1961.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 102,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 12543.6,
+   "y": 1961.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 103,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 13218.6,
+   "y": 1821.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 106,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 12953.6,
+   "y": 1821.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 107,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 12398.6,
+   "y": 1821.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 110,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 12133.6,
+   "y": 1821.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 111,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 12398.6,
+   "y": 1541.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 114,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 12133.6,
+   "y": 1541.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 115,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 13218.6,
+   "y": 1541.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 118,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 12953.6,
+   "y": 1541.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 119,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 13628.6,
+   "y": 1961.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 122,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 13363.6,
+   "y": 1961.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 123,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 15180.0,
+   "y": 1541.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 125,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 14183.6,
+   "y": 1961.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 126,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 14688.6,
+   "y": 1891.5,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 127,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 15055.0,
+   "y": 2031.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 130,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 14038.6,
+   "y": 1821.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 133,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 14688.6,
+   "y": 2031.5,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 134,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 14038.6,
+   "y": 1541.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 136,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 15180.0,
+   "y": 1821.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 137,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 14448.6,
+   "y": 1681.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 140,
+   "cell": "input_coupler",
+   "role": "input",
+   "x": 15700.0,
+   "y": 1961.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 141,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 14183.6,
+   "y": 1681.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 143,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 15500.0,
+   "y": 1961.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 144,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 14448.6,
+   "y": 1961.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 145,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 15055.0,
+   "y": 1611.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 149,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 14688.6,
+   "y": 1611.5,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 150,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 15055.0,
+   "y": 1751.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 154,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 14688.6,
+   "y": 1751.5,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 155,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 15305.0,
+   "y": 1681.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 160,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 15055.0,
+   "y": 1891.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 165,
+   "cell": "AMF_PSOI_PowMonitor_Cband_Cell_v3p5",
+   "role": "pd",
+   "x": 8764.001,
+   "y": 2065.6,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 166,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 10057.201,
+   "y": 2381.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 167,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 9912.201,
+   "y": 2241.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 168,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 11552.201,
+   "y": 2241.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 171,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 11287.201,
+   "y": 2241.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 172,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 11142.201,
+   "y": 2101.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 174,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 11622.201,
+   "y": 2171.5,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 175,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 10877.201,
+   "y": 2101.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 176,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 11142.201,
+   "y": 2381.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 179,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 10877.201,
+   "y": 2381.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 180,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 10732.201,
+   "y": 2241.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 183,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 10467.201,
+   "y": 2241.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 184,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 10322.201,
+   "y": 2101.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 186,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 11622.201,
+   "y": 2311.5,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 187,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 10057.201,
+   "y": 2101.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 188,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 10322.201,
+   "y": 2381.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 192,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 9092.201,
+   "y": 2171.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 193,
+   "cell": "AMF_PSOI_PowMonitor_Cband_Cell_v3p5",
+   "role": "pd",
+   "x": 8969.001,
+   "y": 2136.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 194,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 8784.001,
+   "y": 2205.6,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 195,
+   "cell": "AMF_PSOI_PowMonitor_Cband_Cell_v3p5",
+   "role": "pd",
+   "x": 8764.001,
+   "y": 2205.6,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 196,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 9092.201,
+   "y": 2311.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 197,
+   "cell": "AMF_PSOI_PowMonitor_Cband_Cell_v3p5",
+   "role": "pd",
+   "x": 8969.001,
+   "y": 2276.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 198,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 8784.001,
+   "y": 2345.6,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 199,
+   "cell": "AMF_PSOI_PowMonitor_Cband_Cell_v3p5",
+   "role": "pd",
+   "x": 8764.001,
+   "y": 2345.6,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 200,
+   "cell": "AMF_PSOI_PowMonitor_Cband_Cell_v3p5",
+   "role": "pd",
+   "x": 8629.001,
+   "y": 2450.6,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 201,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 8504.001,
+   "y": 2100.6,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 202,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 8504.001,
+   "y": 2380.6,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 203,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 8379.001,
+   "y": 2240.6,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 204,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 8784.001,
+   "y": 2065.6,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 205,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 9647.201,
+   "y": 2241.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 206,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 9502.201,
+   "y": 2101.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 209,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 9237.201,
+   "y": 2101.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 210,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 9502.201,
+   "y": 2381.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 213,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 9237.201,
+   "y": 2381.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 214,
+   "cell": "AMF_PSOI_PowMonitor_Cband_Cell_v3p5",
+   "role": "pd",
+   "x": 8764.001,
+   "y": 1717.4,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 215,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 9092.201,
+   "y": 1891.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 216,
+   "cell": "AMF_PSOI_PowMonitor_Cband_Cell_v3p5",
+   "role": "pd",
+   "x": 8969.001,
+   "y": 1926.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 217,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 8784.001,
+   "y": 1857.4,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 218,
+   "cell": "AMF_PSOI_PowMonitor_Cband_Cell_v3p5",
+   "role": "pd",
+   "x": 8764.001,
+   "y": 1857.4,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 219,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 9092.201,
+   "y": 2031.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 220,
+   "cell": "AMF_PSOI_PowMonitor_Cband_Cell_v3p5",
+   "role": "pd",
+   "x": 8969.001,
+   "y": 1996.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 222,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 9237.201,
+   "y": 1821.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 223,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 9502.201,
+   "y": 1541.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 226,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 9237.201,
+   "y": 1541.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 228,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 9647.201,
+   "y": 1961.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 231,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 9647.201,
+   "y": 1681.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 232,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 8504.001,
+   "y": 1822.4,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 234,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 8504.001,
+   "y": 1542.4,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 235,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 9502.201,
+   "y": 1821.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 236,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 8379.001,
+   "y": 1682.4,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 238,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 9092.201,
+   "y": 1611.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 239,
+   "cell": "AMF_PSOI_PowMonitor_Cband_Cell_v3p5",
+   "role": "pd",
+   "x": 8969.001,
+   "y": 1646.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 240,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 8784.001,
+   "y": 1577.4,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 241,
+   "cell": "AMF_PSOI_PowMonitor_Cband_Cell_v3p5",
+   "role": "pd",
+   "x": 8764.001,
+   "y": 1577.4,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 242,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 9092.201,
+   "y": 1751.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 243,
+   "cell": "AMF_PSOI_PowMonitor_Cband_Cell_v3p5",
+   "role": "pd",
+   "x": 8969.001,
+   "y": 1786.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 244,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 8784.001,
+   "y": 1717.4,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 247,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 10057.201,
+   "y": 1821.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 248,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 10322.201,
+   "y": 1541.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 251,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 10057.201,
+   "y": 1541.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 254,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 10877.201,
+   "y": 1821.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 255,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 11142.201,
+   "y": 1541.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 258,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 10877.201,
+   "y": 1541.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 260,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 9912.201,
+   "y": 1681.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 262,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 11287.201,
+   "y": 1681.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 263,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 11552.201,
+   "y": 1961.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 264,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 9912.201,
+   "y": 1961.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 267,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 11287.201,
+   "y": 1961.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 268,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 11622.201,
+   "y": 1751.5,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 269,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 10732.201,
+   "y": 1681.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 272,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 10467.201,
+   "y": 1681.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 273,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 10732.201,
+   "y": 1961.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 275,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 11622.201,
+   "y": 1891.5,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 277,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 10467.201,
+   "y": 1961.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 278,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 11622.201,
+   "y": 1611.5,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 279,
+   "cell": "AMF_PSOI_Si1X2MMI_Cband_v3p0",
+   "role": "mmi1x2",
+   "x": 11622.201,
+   "y": 2031.5,
+   "rot": 0.0,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 280,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 11552.201,
+   "y": 1681.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 281,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 11142.201,
+   "y": 1821.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 282,
+   "cell": "AMF_PSOI_Si2X2MMI_Cband_v3p0",
+   "role": "mmi2x2",
+   "x": 10322.201,
+   "y": 1821.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": false
+  },
+  {
+   "id": 14,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14638.6,
+   "y": 1471.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 15,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11865.4,
+   "y": 1646.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 16,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11865.4,
+   "y": 1576.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 17,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11865.4,
+   "y": 1786.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 18,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11865.4,
+   "y": 1716.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 19,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11865.4,
+   "y": 1926.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 20,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11865.4,
+   "y": 1856.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 21,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11865.4,
+   "y": 2066.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 22,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11865.4,
+   "y": 1996.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 23,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11865.4,
+   "y": 2206.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 24,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11865.4,
+   "y": 2136.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 25,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11865.4,
+   "y": 2346.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 26,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11865.4,
+   "y": 2276.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 28,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14931.8,
+   "y": 2066.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 31,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13928.6,
+   "y": 2065.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 34,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13108.6,
+   "y": 2065.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 35,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 12288.6,
+   "y": 2065.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 38,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13928.6,
+   "y": 2417.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 39,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13928.6,
+   "y": 2345.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 41,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14931.8,
+   "y": 2346.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 42,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14931.8,
+   "y": 2276.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 48,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14931.8,
+   "y": 2486.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 49,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14931.8,
+   "y": 2416.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 51,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14638.6,
+   "y": 2171.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 52,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14638.6,
+   "y": 2311.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 53,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14638.6,
+   "y": 2451.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 55,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14338.6,
+   "y": 2277.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 56,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14338.6,
+   "y": 2205.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 59,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14931.8,
+   "y": 2206.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 61,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13928.6,
+   "y": 2137.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 62,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14931.8,
+   "y": 2136.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 64,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13108.6,
+   "y": 2417.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 65,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13108.6,
+   "y": 2345.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 68,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 12698.6,
+   "y": 2277.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 69,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 12698.6,
+   "y": 2205.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 72,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 12288.6,
+   "y": 2137.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 73,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13518.6,
+   "y": 2277.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 76,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 12288.6,
+   "y": 2417.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 77,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 12288.6,
+   "y": 2345.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 79,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13518.6,
+   "y": 2205.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 84,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13108.6,
+   "y": 2137.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 90,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13518.6,
+   "y": 1717.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 92,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13518.6,
+   "y": 1645.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 96,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 12698.6,
+   "y": 1717.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 97,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 12698.6,
+   "y": 1645.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 100,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 12698.6,
+   "y": 1997.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 101,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 12698.6,
+   "y": 1925.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 104,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13108.6,
+   "y": 1857.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 105,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13108.6,
+   "y": 1785.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 108,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 12288.6,
+   "y": 1857.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 109,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 12288.6,
+   "y": 1785.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 112,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 12288.6,
+   "y": 1577.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 113,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 12288.6,
+   "y": 1505.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 116,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13108.6,
+   "y": 1577.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 117,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13108.6,
+   "y": 1505.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 120,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13518.6,
+   "y": 1997.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 121,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13518.6,
+   "y": 1925.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 124,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14338.6,
+   "y": 1925.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 128,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14931.8,
+   "y": 1786.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 129,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14931.8,
+   "y": 1996.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 131,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13928.6,
+   "y": 1857.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 132,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13928.6,
+   "y": 1785.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 135,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14931.8,
+   "y": 1856.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 138,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14338.6,
+   "y": 1717.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 139,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14338.6,
+   "y": 1645.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 142,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14931.8,
+   "y": 1506.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 146,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14931.8,
+   "y": 1646.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 147,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14338.6,
+   "y": 1997.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 148,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14931.8,
+   "y": 1576.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 151,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13928.6,
+   "y": 1577.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 152,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 13928.6,
+   "y": 1505.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 153,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14931.8,
+   "y": 1716.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 156,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14638.6,
+   "y": 1611.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 157,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14638.6,
+   "y": 1751.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 158,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14638.6,
+   "y": 1891.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 159,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14638.6,
+   "y": 2031.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 161,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14931.8,
+   "y": 1926.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 162,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11032.201,
+   "y": 2065.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 163,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 10212.201,
+   "y": 2065.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 164,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 9392.201,
+   "y": 2065.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 169,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11442.201,
+   "y": 2277.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 170,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11442.201,
+   "y": 2205.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 173,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11032.201,
+   "y": 2137.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 177,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11032.201,
+   "y": 2417.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 178,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11032.201,
+   "y": 2345.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 181,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 10622.201,
+   "y": 2277.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 182,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 10622.201,
+   "y": 2205.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 185,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 10212.201,
+   "y": 2137.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 189,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 10212.201,
+   "y": 2417.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 190,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 10212.201,
+   "y": 2345.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 191,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 9802.201,
+   "y": 2205.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 207,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 9392.201,
+   "y": 2137.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 208,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 9802.201,
+   "y": 2277.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 211,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 9392.201,
+   "y": 2417.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 212,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 9392.201,
+   "y": 2345.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 221,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 9392.201,
+   "y": 1785.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 224,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 9392.201,
+   "y": 1577.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 225,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 9392.201,
+   "y": 1505.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 227,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 9802.201,
+   "y": 1925.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 229,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 9802.201,
+   "y": 1717.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 230,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 9802.201,
+   "y": 1645.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 233,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 9802.201,
+   "y": 1997.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 237,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 9392.201,
+   "y": 1857.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 245,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 10212.201,
+   "y": 1857.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 246,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 10212.201,
+   "y": 1785.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 249,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 10212.201,
+   "y": 1577.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 250,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 10212.201,
+   "y": 1505.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 252,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11032.201,
+   "y": 1857.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 253,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11032.201,
+   "y": 1785.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 256,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11032.201,
+   "y": 1577.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 257,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11032.201,
+   "y": 1505.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 259,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11442.201,
+   "y": 1717.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 261,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11442.201,
+   "y": 1645.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 265,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11442.201,
+   "y": 1997.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 266,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 11442.201,
+   "y": 1925.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 270,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 10622.201,
+   "y": 1717.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 271,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 10622.201,
+   "y": 1645.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 274,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 10622.201,
+   "y": 1997.167,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 276,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 10622.201,
+   "y": 1925.833,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  },
+  {
+   "id": 413,
+   "cell": "cell_thermal_phase_shifter",
+   "role": "heater",
+   "x": 14931.8,
+   "y": 1436.5,
+   "rot": 3.1416,
+   "xrefl": 0,
+   "is_heater": true
+  }
+ ],
+ "nets": [
+  [
+   {
+    "comp": 12,
+    "port": "IN"
+   },
+   {
+    "comp": 123,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 12,
+    "port": "O2"
+   },
+   {
+    "comp": 13,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 12,
+    "port": "O3"
+   },
+   {
+    "comp": 13,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 13,
+    "port": "IN"
+   },
+   {
+    "comp": 236,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 27,
+    "port": "IN"
+   },
+   {
+    "comp": 234,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 29,
+    "port": "L1"
+   },
+   {
+    "comp": 130,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 29,
+    "port": "L2"
+   },
+   {
+    "comp": 130,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 29,
+    "port": "R3"
+   },
+   {
+    "comp": 88,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 29,
+    "port": "R4"
+   },
+   {
+    "comp": 119,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 30,
+    "port": "L1"
+   },
+   {
+    "comp": 134,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 30,
+    "port": "L2"
+   },
+   {
+    "comp": 134,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 30,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 30,
+    "port": "R4"
+   },
+   {
+    "comp": 88,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 32,
+    "port": "L1"
+   },
+   {
+    "comp": 60,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 32,
+    "port": "L2"
+   },
+   {
+    "comp": 60,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 32,
+    "port": "R3"
+   },
+   {
+    "comp": 119,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 32,
+    "port": "R4"
+   },
+   {
+    "comp": 85,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 33,
+    "port": "L1"
+   },
+   {
+    "comp": 37,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 33,
+    "port": "L2"
+   },
+   {
+    "comp": 37,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 33,
+    "port": "R3"
+   },
+   {
+    "comp": 85,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 33,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 36,
+    "port": "IN"
+   },
+   {
+    "comp": 54,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 36,
+    "port": "O2"
+   },
+   {
+    "comp": 58,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 36,
+    "port": "O3"
+   },
+   {
+    "comp": 58,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 37,
+    "port": "L1"
+   },
+   {
+    "comp": 57,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 37,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 40,
+    "port": "IN"
+   },
+   {
+    "comp": 45,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 40,
+    "port": "O2"
+   },
+   {
+    "comp": 46,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 40,
+    "port": "O3"
+   },
+   {
+    "comp": 46,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 43,
+    "port": "IN"
+   },
+   {
+    "comp": 143,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 43,
+    "port": "O2"
+   },
+   {
+    "comp": 44,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 43,
+    "port": "O3"
+   },
+   {
+    "comp": 45,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 44,
+    "port": "O2"
+   },
+   {
+    "comp": 127,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 44,
+    "port": "O3"
+   },
+   {
+    "comp": 58,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 45,
+    "port": "O3"
+   },
+   {
+    "comp": 47,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 46,
+    "port": "IN"
+   },
+   {
+    "comp": 54,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 47,
+    "port": "O2"
+   },
+   {
+    "comp": 50,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 47,
+    "port": "O3"
+   },
+   {
+    "comp": 50,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 50,
+    "port": "IN"
+   },
+   {
+    "comp": 203,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 54,
+    "port": "R3"
+   },
+   {
+    "comp": 57,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 54,
+    "port": "R4"
+   },
+   {
+    "comp": 57,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 57,
+    "port": "R3"
+   },
+   {
+    "comp": 60,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 60,
+    "port": "L1"
+   },
+   {
+    "comp": 125,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 63,
+    "port": "L1"
+   },
+   {
+    "comp": 80,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 63,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 63,
+    "port": "R3"
+   },
+   {
+    "comp": 66,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 63,
+    "port": "R4"
+   },
+   {
+    "comp": 66,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 66,
+    "port": "R3"
+   },
+   {
+    "comp": 67,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 66,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 67,
+    "port": "L1"
+   },
+   {
+    "comp": 86,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 67,
+    "port": "R3"
+   },
+   {
+    "comp": 70,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 67,
+    "port": "R4"
+   },
+   {
+    "comp": 70,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 70,
+    "port": "R3"
+   },
+   {
+    "comp": 71,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 70,
+    "port": "R4"
+   },
+   {
+    "comp": 75,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 71,
+    "port": "L1"
+   },
+   {
+    "comp": 102,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 71,
+    "port": "R3"
+   },
+   {
+    "comp": 74,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 71,
+    "port": "R4"
+   },
+   {
+    "comp": 74,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 74,
+    "port": "R3"
+   },
+   {
+    "comp": 93,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 74,
+    "port": "R4"
+   },
+   {
+    "comp": 82,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 75,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 75,
+    "port": "R3"
+   },
+   {
+    "comp": 78,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 75,
+    "port": "R4"
+   },
+   {
+    "comp": 78,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 78,
+    "port": "R3"
+   },
+   {
+    "comp": 83,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 78,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 80,
+    "port": "L1"
+   },
+   {
+    "comp": 85,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 80,
+    "port": "L2"
+   },
+   {
+    "comp": 85,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 80,
+    "port": "R3"
+   },
+   {
+    "comp": 81,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 81,
+    "port": "L1"
+   },
+   {
+    "comp": 122,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 81,
+    "port": "R3"
+   },
+   {
+    "comp": 86,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 81,
+    "port": "R4"
+   },
+   {
+    "comp": 86,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 82,
+    "port": "O2"
+   },
+   {
+    "comp": 174,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 82,
+    "port": "O3"
+   },
+   {
+    "comp": 174,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 83,
+    "port": "O2"
+   },
+   {
+    "comp": 186,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 83,
+    "port": "O3"
+   },
+   {
+    "comp": 186,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 86,
+    "port": "R3"
+   },
+   {
+    "comp": 99,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 87,
+    "port": "IN"
+   },
+   {
+    "comp": 114,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 87,
+    "port": "O2"
+   },
+   {
+    "comp": 278,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 87,
+    "port": "O3"
+   },
+   {
+    "comp": 278,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 88,
+    "port": "R3"
+   },
+   {
+    "comp": 94,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 88,
+    "port": "R4"
+   },
+   {
+    "comp": 94,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 89,
+    "port": "IN"
+   },
+   {
+    "comp": 110,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 89,
+    "port": "O2"
+   },
+   {
+    "comp": 268,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 89,
+    "port": "O3"
+   },
+   {
+    "comp": 268,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 91,
+    "port": "IN"
+   },
+   {
+    "comp": 110,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 91,
+    "port": "O2"
+   },
+   {
+    "comp": 275,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 91,
+    "port": "O3"
+   },
+   {
+    "comp": 275,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 93,
+    "port": "O2"
+   },
+   {
+    "comp": 279,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 93,
+    "port": "O3"
+   },
+   {
+    "comp": 279,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 94,
+    "port": "R3"
+   },
+   {
+    "comp": 115,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 94,
+    "port": "R4"
+   },
+   {
+    "comp": 103,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 95,
+    "port": "L1"
+   },
+   {
+    "comp": 118,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 95,
+    "port": "L2"
+   },
+   {
+    "comp": 106,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 95,
+    "port": "R3"
+   },
+   {
+    "comp": 98,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 95,
+    "port": "R4"
+   },
+   {
+    "comp": 98,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 98,
+    "port": "R3"
+   },
+   {
+    "comp": 111,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 98,
+    "port": "R4"
+   },
+   {
+    "comp": 107,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 99,
+    "port": "L1"
+   },
+   {
+    "comp": 106,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 99,
+    "port": "R3"
+   },
+   {
+    "comp": 102,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 99,
+    "port": "R4"
+   },
+   {
+    "comp": 102,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 102,
+    "port": "R3"
+   },
+   {
+    "comp": 107,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 103,
+    "port": "L2"
+   },
+   {
+    "comp": 122,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 103,
+    "port": "R3"
+   },
+   {
+    "comp": 106,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 103,
+    "port": "R4"
+   },
+   {
+    "comp": 106,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 107,
+    "port": "R3"
+   },
+   {
+    "comp": 110,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 107,
+    "port": "R4"
+   },
+   {
+    "comp": 110,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 111,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 111,
+    "port": "R3"
+   },
+   {
+    "comp": 114,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 111,
+    "port": "R4"
+   },
+   {
+    "comp": 114,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 114,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 115,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 115,
+    "port": "R3"
+   },
+   {
+    "comp": 118,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 115,
+    "port": "R4"
+   },
+   {
+    "comp": 118,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 118,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 119,
+    "port": "R3"
+   },
+   {
+    "comp": 122,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 119,
+    "port": "R4"
+   },
+   {
+    "comp": 122,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 123,
+    "port": "IN"
+   },
+   {
+    "comp": 155,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 123,
+    "port": "O3"
+   },
+   {
+    "comp": 145,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 125,
+    "port": "L1"
+   },
+   {
+    "comp": 144,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 125,
+    "port": "L2"
+   },
+   {
+    "comp": 144,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 125,
+    "port": "R3"
+   },
+   {
+    "comp": 130,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 126,
+    "port": "IN"
+   },
+   {
+    "comp": 144,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 126,
+    "port": "O2"
+   },
+   {
+    "comp": 160,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 126,
+    "port": "O3"
+   },
+   {
+    "comp": 160,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 127,
+    "port": "O2"
+   },
+   {
+    "comp": 133,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 127,
+    "port": "O3"
+   },
+   {
+    "comp": 133,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 130,
+    "port": "L1"
+   },
+   {
+    "comp": 141,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 133,
+    "port": "IN"
+   },
+   {
+    "comp": 144,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 134,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 134,
+    "port": "L2"
+   },
+   {
+    "comp": 141,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 136,
+    "port": "IN"
+   },
+   {
+    "comp": 155,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 136,
+    "port": "O2"
+   },
+   {
+    "comp": 150,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 136,
+    "port": "O3"
+   },
+   {
+    "comp": 160,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 137,
+    "port": "L1"
+   },
+   {
+    "comp": 149,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 137,
+    "port": "L2"
+   },
+   {
+    "comp": 154,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 137,
+    "port": "R3"
+   },
+   {
+    "comp": 141,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 137,
+    "port": "R4"
+   },
+   {
+    "comp": 141,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 140,
+    "port": "P"
+   },
+   {
+    "comp": 143,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 143,
+    "port": "O2"
+   },
+   {
+    "comp": 155,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 145,
+    "port": "O2"
+   },
+   {
+    "comp": 149,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 145,
+    "port": "O3"
+   },
+   {
+    "comp": 149,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 150,
+    "port": "O2"
+   },
+   {
+    "comp": 154,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 150,
+    "port": "O3"
+   },
+   {
+    "comp": 154,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 165,
+    "port": "IN"
+   },
+   {
+    "comp": 204,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 166,
+    "port": "L1"
+   },
+   {
+    "comp": 188,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 166,
+    "port": "L2"
+   },
+   {
+    "comp": 188,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 166,
+    "port": "R3"
+   },
+   {
+    "comp": 167,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 166,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 167,
+    "port": "L1"
+   },
+   {
+    "comp": 187,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 167,
+    "port": "R3"
+   },
+   {
+    "comp": 205,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 167,
+    "port": "R4"
+   },
+   {
+    "comp": 205,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 168,
+    "port": "L1"
+   },
+   {
+    "comp": 174,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 168,
+    "port": "L2"
+   },
+   {
+    "comp": 186,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 168,
+    "port": "R3"
+   },
+   {
+    "comp": 171,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 168,
+    "port": "R4"
+   },
+   {
+    "comp": 171,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 171,
+    "port": "R3"
+   },
+   {
+    "comp": 172,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 171,
+    "port": "R4"
+   },
+   {
+    "comp": 176,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 172,
+    "port": "L1"
+   },
+   {
+    "comp": 267,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 172,
+    "port": "R3"
+   },
+   {
+    "comp": 175,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 172,
+    "port": "R4"
+   },
+   {
+    "comp": 175,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 175,
+    "port": "R3"
+   },
+   {
+    "comp": 273,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 175,
+    "port": "R4"
+   },
+   {
+    "comp": 180,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 176,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 176,
+    "port": "R3"
+   },
+   {
+    "comp": 179,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 176,
+    "port": "R4"
+   },
+   {
+    "comp": 179,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 179,
+    "port": "R3"
+   },
+   {
+    "comp": 180,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 179,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 180,
+    "port": "R3"
+   },
+   {
+    "comp": 183,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 180,
+    "port": "R4"
+   },
+   {
+    "comp": 183,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 183,
+    "port": "R3"
+   },
+   {
+    "comp": 184,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 183,
+    "port": "R4"
+   },
+   {
+    "comp": 188,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 184,
+    "port": "L1"
+   },
+   {
+    "comp": 277,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 184,
+    "port": "R3"
+   },
+   {
+    "comp": 187,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 184,
+    "port": "R4"
+   },
+   {
+    "comp": 187,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 187,
+    "port": "R3"
+   },
+   {
+    "comp": 264,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 188,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 192,
+    "port": "IN"
+   },
+   {
+    "comp": 209,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 192,
+    "port": "O2"
+   },
+   {
+    "comp": 193,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 192,
+    "port": "O3"
+   },
+   {
+    "comp": 194,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 194,
+    "port": "IN"
+   },
+   {
+    "comp": 195,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 194,
+    "port": "O3"
+   },
+   {
+    "comp": 201,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 196,
+    "port": "IN"
+   },
+   {
+    "comp": 213,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 196,
+    "port": "O2"
+   },
+   {
+    "comp": 197,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 196,
+    "port": "O3"
+   },
+   {
+    "comp": 198,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 198,
+    "port": "IN"
+   },
+   {
+    "comp": 199,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 198,
+    "port": "O3"
+   },
+   {
+    "comp": 202,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 200,
+    "port": "IN"
+   },
+   {
+    "comp": 202,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 201,
+    "port": "IN"
+   },
+   {
+    "comp": 203,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 201,
+    "port": "O3"
+   },
+   {
+    "comp": 204,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 202,
+    "port": "IN"
+   },
+   {
+    "comp": 203,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 204,
+    "port": "O2"
+   },
+   {
+    "comp": 219,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 205,
+    "port": "R3"
+   },
+   {
+    "comp": 206,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 205,
+    "port": "R4"
+   },
+   {
+    "comp": 210,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 206,
+    "port": "L1"
+   },
+   {
+    "comp": 228,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 206,
+    "port": "R3"
+   },
+   {
+    "comp": 209,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 206,
+    "port": "R4"
+   },
+   {
+    "comp": 209,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 209,
+    "port": "R3"
+   },
+   {
+    "comp": 219,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 210,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 210,
+    "port": "R3"
+   },
+   {
+    "comp": 213,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 210,
+    "port": "R4"
+   },
+   {
+    "comp": 213,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 213,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 214,
+    "port": "IN"
+   },
+   {
+    "comp": 244,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 215,
+    "port": "IN"
+   },
+   {
+    "comp": 222,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 215,
+    "port": "O2"
+   },
+   {
+    "comp": 217,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 215,
+    "port": "O3"
+   },
+   {
+    "comp": 216,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 217,
+    "port": "IN"
+   },
+   {
+    "comp": 218,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 217,
+    "port": "O2"
+   },
+   {
+    "comp": 232,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 219,
+    "port": "O2"
+   },
+   {
+    "comp": 220,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 222,
+    "port": "L1"
+   },
+   {
+    "comp": 235,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 222,
+    "port": "L2"
+   },
+   {
+    "comp": 235,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 222,
+    "port": "R3"
+   },
+   {
+    "comp": 242,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 223,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 223,
+    "port": "L2"
+   },
+   {
+    "comp": 231,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 223,
+    "port": "R3"
+   },
+   {
+    "comp": 226,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 223,
+    "port": "R4"
+   },
+   {
+    "comp": 226,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 226,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 226,
+    "port": "R4"
+   },
+   {
+    "comp": 238,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 228,
+    "port": "L1"
+   },
+   {
+    "comp": 264,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 228,
+    "port": "L2"
+   },
+   {
+    "comp": 264,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 228,
+    "port": "R3"
+   },
+   {
+    "comp": 235,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 231,
+    "port": "L1"
+   },
+   {
+    "comp": 260,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 231,
+    "port": "L2"
+   },
+   {
+    "comp": 260,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 231,
+    "port": "R4"
+   },
+   {
+    "comp": 235,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 232,
+    "port": "IN"
+   },
+   {
+    "comp": 236,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 232,
+    "port": "O3"
+   },
+   {
+    "comp": 244,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 234,
+    "port": "IN"
+   },
+   {
+    "comp": 236,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 234,
+    "port": "O2"
+   },
+   {
+    "comp": 240,
+    "port": "O2"
+   }
+  ],
+  [
+   {
+    "comp": 238,
+    "port": "O2"
+   },
+   {
+    "comp": 240,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 238,
+    "port": "O3"
+   },
+   {
+    "comp": 239,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 240,
+    "port": "IN"
+   },
+   {
+    "comp": 241,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 242,
+    "port": "O2"
+   },
+   {
+    "comp": 244,
+    "port": "O3"
+   }
+  ],
+  [
+   {
+    "comp": 242,
+    "port": "O3"
+   },
+   {
+    "comp": 243,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 247,
+    "port": "L1"
+   },
+   {
+    "comp": 282,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 247,
+    "port": "L2"
+   },
+   {
+    "comp": 282,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 247,
+    "port": "R3"
+   },
+   {
+    "comp": 260,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 247,
+    "port": "R4"
+   },
+   {
+    "comp": 264,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 248,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 248,
+    "port": "L2"
+   },
+   {
+    "comp": 272,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 248,
+    "port": "R3"
+   },
+   {
+    "comp": 251,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 248,
+    "port": "R4"
+   },
+   {
+    "comp": 251,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 251,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 251,
+    "port": "R4"
+   },
+   {
+    "comp": 260,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 254,
+    "port": "L1"
+   },
+   {
+    "comp": 281,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 254,
+    "port": "L2"
+   },
+   {
+    "comp": 281,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 254,
+    "port": "R3"
+   },
+   {
+    "comp": 269,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 254,
+    "port": "R4"
+   },
+   {
+    "comp": 273,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 255,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 255,
+    "port": "L2"
+   },
+   {
+    "comp": 262,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 255,
+    "port": "R3"
+   },
+   {
+    "comp": 258,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 255,
+    "port": "R4"
+   },
+   {
+    "comp": 258,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 258,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 258,
+    "port": "R4"
+   },
+   {
+    "comp": 269,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 262,
+    "port": "L1"
+   },
+   {
+    "comp": 280,
+    "port": "R3"
+   }
+  ],
+  [
+   {
+    "comp": 262,
+    "port": "L2"
+   },
+   {
+    "comp": 280,
+    "port": "R4"
+   }
+  ],
+  [
+   {
+    "comp": 262,
+    "port": "R4"
+   },
+   {
+    "comp": 281,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 263,
+    "port": "L1"
+   },
+   {
+    "comp": 275,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 263,
+    "port": "L2"
+   },
+   {
+    "comp": 279,
+    "port": "IN"
+   }
+  ],
+  [
+   {
+    "comp": 263,
+    "port": "R3"
+   },
+   {
+    "comp": 267,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 263,
+    "port": "R4"
+   },
+   {
+    "comp": 267,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 267,
+    "port": "R3"
+   },
+   {
+    "comp": 281,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 268,
+    "port": "IN"
+   },
+   {
+    "comp": 280,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 269,
+    "port": "R3"
+   },
+   {
+    "comp": 272,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 269,
+    "port": "R4"
+   },
+   {
+    "comp": 272,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 272,
+    "port": "R4"
+   },
+   {
+    "comp": 282,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 273,
+    "port": "R3"
+   },
+   {
+    "comp": 277,
+    "port": "L1"
+   }
+  ],
+  [
+   {
+    "comp": 273,
+    "port": "R4"
+   },
+   {
+    "comp": 277,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 277,
+    "port": "R3"
+   },
+   {
+    "comp": 282,
+    "port": "L2"
+   }
+  ],
+  [
+   {
+    "comp": 278,
+    "port": "IN"
+   },
+   {
+    "comp": 280,
+    "port": "L1"
+   }
+  ]
+ ],
+ "input_coupler_id": 140
+}
