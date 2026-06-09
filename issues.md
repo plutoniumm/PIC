@@ -65,7 +65,7 @@ dead as 0/7/11.
 - Max single-channel influence η² ≤ 0.05 (learnable PDs 0.39–0.68). Only ~6 of 64 channels carry
   any signal at all: {1,14,15,23,48,54}; ch1→PD1/3/5, ch14/15→PD8/10/12/13.
 - **Physics model agrees it's the data, not the model:** the faithful neurophox optical model
-  (`scripts/neurophox_baseline.py`, the labelled 6×6P U·Σ·V with edge-drops) gets mean R² **0.41**
+  (`scripts/neurophox.py`, the labelled 6×6P U·Σ·V with edge-drops) gets mean R² **0.41**
   vs the black box's **0.50** on the same split, and **fails on the same PDs 4/6/9** the black box
   does. (Fuzzy variant — stochastic phases + within-MZI crosstalk, `neurophox_fuzzy.py` — keeps the
   same point R² 0.38 but is perfectly calibrated, |z|<1 = 0.68; learned crosstalk |κ| mean 0.17,
@@ -106,7 +106,7 @@ black box on voltages only / + session one-hot / fit-within-each-session. Held-o
 **Idea:** model drift on both timescales — a **session embedding** for the inter-run baseline +
 a **GRU** over `[v_t, y_{t-1}]` (drift is only visible through past outputs; inputs are iid) for
 the intra-run trajectory. Evaluated on a **temporal** split (train first 70% of each run, predict
-the future 30% — the state must *extrapolate* drift). `scripts/drift_rnn.py`.
+the future 30% — the state must *extrapolate* drift). `scripts/drift.py`.
 
 | model | mean R² | unlearnable {4,6,8,9} | note |
 |----|----|----|----|
@@ -126,7 +126,7 @@ measure the common-mode drift**, so feed *that* as the state instead of inferrin
 **Hypothesis (user):** heater self-heating accumulates in the substrate *within the TEC deadband*
 (TEC holds 25.0 ± 0.2 °C at its sensor; the optics can sit hotter). Si dn/dT ≈ 1.8e-4/K ⇒ ~0.1 K
 re-phases the mesh measurably ⇒ drift. Test: does the output trend within a run, and do the dead
-PDs (no guided signal) move too? `scripts/drift_mechanism.py`, `drift_mechanism.png`.
+PDs (no guided signal) move too? `scripts/drift.py`, `drift_mechanism.png`.
 
 Within-run trend (slope of PD vs row index; inputs stationary ⇒ trend = drift):
 
@@ -154,7 +154,7 @@ Within-run trend (slope of PD vs row index; inputs stationary ⇒ trend = drift)
    thermo-optic signal re-phasing (the extra ~5 mV differential).
 
 **Cross-session (between runs), matched input distribution (1.125 ± 0.001 V):** PD means shift
-34–56 mV across runs; week-scale response collapses 20–60 %. (`scripts/drift_analysis.py`.)
+34–56 mV across runs; week-scale response collapses 20–60 %. (`scripts/drift.py`.)
 
 **KEY consequence (actionable):** the **dead PDs are a free common-mode drift monitor**. The hidden
 state that Issue 3/4 tried to *infer* is partly **directly observable** in PD0/2/7/11. Next step:
@@ -167,7 +167,7 @@ subtract / regress out the dead-PD common-mode as a live reference and re-test t
 **Idea:** the dead PDs measure the common-mode drift directly (Issue 5), so feed the raw dead-PD
 readings {0,2,7,11} as extra inputs and let the model subtract the drift. It's a *measurement*, so
 it works on an unseen run / the future — unlike a session label (Issue 3), and unlike the GRU
-(Issue 4) which had to extrapolate. `scripts/drift_deadref.py`, `drift_correction.png`. Pooled
+(Issue 4) which had to extrapolate. `scripts/drift.py`, `drift_correction.png`. Pooled
 multi-session pic_data, black box, two splits:
 
 | features | RANDOM mean | RANDOM unl | TEMPORAL mean | TEMPORAL unl |
@@ -226,7 +226,7 @@ Evidence leans noise + data-starvation (capacity didn't help; physics ties NN �
 deep PDs deterministic); averaging N repeats (white ⇒ √N: 50 mV → 10 mV at N=25); more ADC/DAC bits.
 **Decisive test:** input-repeat (same V, N×) — identical ⇒ deterministic/recoverable; scattered ⇒ noise.
 
-### Issue 7b — and it's a *characterised* noise (`scripts/noise_characterize.py`, `noise_characterize.png`)
+### Issue 7b — and it's a *characterised* noise (`scripts/noise.py`, `noise_characterize.png`)
 The residual isn't arbitrary — it's a fixed, stationary noise law:
 - **Shape: Gaussian, zero-mean.** 68/95/100 % within 1/2/3σ (Gaussian = 68/95/99.7); near-zero
   skew/kurtosis for 4/6/9. Not heavy-tailed.
@@ -240,7 +240,7 @@ The residual isn't arbitrary — it's a fixed, stationary noise law:
 ⇒ It is "basically noise": a characterised Gaussian with a predictable σ(signal) law, not recoverable
 structure. Cannot be fit from voltages; shrinks as √N by averaging, or vanishes with homodyne (phase).
 
-### Issue 7c — the good/noise split is bimodal, not a hand-set line (`scripts/noise_all_pds.py`)
+### Issue 7c — the good/noise split is bimodal, not a hand-set line (`scripts/noise.py`)
 All 10 live PDs, held-out R² (100k, voltages only): good cluster **0.53–0.97** (6 PDs), noise
 cluster **0.14–0.25** (4 PDs), **biggest gap 0.27 wide with NO PD in [0.25, 0.53]**. Any threshold
 in that empty band gives the same classes ⇒ the bar is data-driven, not arbitrary.
@@ -314,7 +314,7 @@ sit at their σ∝√μ noise ceiling (Issue 7), not a capacity limit. **No feat
 on this single-shot power data.** The only lever left is a MEASUREMENT upgrade: average N repeats
 (white noise ⇒ σ/√N) or homodyne (phase ⇒ deep PDs deterministic) — new data, not a new model.
 
-### Issue 10c — can we average the noise down using duplicate inputs? No — there are none (`scripts/near_dup_check.py`)
+### Issue 10c — can we average the noise down using duplicate inputs? No — there are none (`scripts/dedup.py`)
 Checked all 260k rows for repeated input vectors (exact, on the 0.5 V grid). **100,000 inputs appear
 twice** — but the two copies are **byte-identical in BOTH input and output** (max|Δ|=0): the
 `100k_data_original` file *is* the four 22-July sessions concatenated. They are file duplicates, not
@@ -325,7 +325,7 @@ a number with itself (per-shot σ=0): it cannot reduce noise.
 a NEW acquisition: pick a set of inputs, measure each N× (ideally back-to-back, same drift state), and
 confirm σ falls as 1/√N. That is the concrete rig experiment to break the 0.78 ceiling.
 
-### Issue 10d — deduplicated the corpus and re-ran the pipeline (`scripts/dedup_and_rerun.py`)
+### Issue 10d — deduplicated the corpus and re-ran the pipeline (`scripts/dedup.py`)
 Removed exact (input+output) duplicate rows across all 8 files:
 
 | | rows | kept | dropped |
@@ -352,7 +352,7 @@ recoverable). Canonical dataset = the **7 pic_data sessions** (160k unique rows;
 12 analysis scripts still hardcode-load the deleted file and would need repointing to the 22-July
 pic_data if rerun; `src/data.py`/docs only mention it in text.
 
-**Near-duplicate check (`scripts/near_dup_check.py`):** the clean pic_data has **0 exact-input
+**Near-duplicate check (`scripts/dedup.py`):** the clean pic_data has **0 exact-input
 collisions** and **0 rows within 0.1%** — inputs are exactly on the 0.5 V grid, so two distinct rows
 differ by ≥0.5 V in some channel (min relative distance 3.74% = 0.5/max‖input‖), making sub-0.1%
 neighbours geometrically impossible. **No clean quasi-repeats either:** matching on all 44 channels

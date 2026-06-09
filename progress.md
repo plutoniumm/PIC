@@ -181,7 +181,7 @@ The better-physics RESULT above is *empirical* ("capacity doesn't move the ceili
    repeat noise → **thermal hidden state proven** → a static V→PD map is provably insufficient
    (needs temperature as an input / closed-loop). **Repeats break the confound.** Script this for the live session.
 
-## ⭐⭐ DRIFT PROVEN — `pic_data/` multi-session data (`scripts/drift_analysis.py`)
+## ⭐⭐ DRIFT PROVEN — `pic_data/` multi-session data (`scripts/drift.py`)
 
 New data arrived: 7 sessions in `pic_data/` ("testing_working_ps_hybrid_64", 10k–25k rows each),
 **same internal format** as the 100k (header row added) and **same 0.5 V grid / Section-A path**,
