@@ -13,10 +13,26 @@ LIVE_PDS = [i for i in range(14) if i not in DAMAGED_PDS]
 
 
 def load_xlsx(path: str, cache: str | None = "/tmp/pic_100k.npz"):
-    """Load (X[N,64], Y[N,14]) from the xlsx, caching to npz for fast reloads."""
+    """Load (X[N,64], Y[N,14]) from the xlsx, caching to npz for fast reloads.
+
+    Note: `100k_data_original.xlsx` was removed as a redundant verbatim copy of the four
+    22-July `pic_data` sessions (it deduped to zero new rows). If that file is absent, this
+    reconstructs the identical set from those sessions (the canonical source) so existing
+    callers keep working without re-introducing the duplicate file."""
     if cache and os.path.exists(cache):
         d = np.load(cache)
         return d["X"], d["Y"]
+    if not os.path.exists(path) and "100k_data_original" in os.path.basename(path):
+        import glob
+        base = os.path.dirname(path) or "."
+        sess = sorted(glob.glob(os.path.join(base, "pic_data", "*22july*.xlsx")))
+        if not sess:
+            raise FileNotFoundError(f"{path} removed and no pic_data 22-July sessions found to rebuild it")
+        XY = [load_session(f) for f in sess]
+        X = np.vstack([x for x, _ in XY]); Y = np.vstack([y for _, y in XY])
+        if cache:
+            np.savez_compressed(cache, X=X, Y=Y)
+        return X, Y
     import pandas as pd
     df = pd.read_excel(path, header=None)
     X = np.stack(df[0].map(lambda s: np.fromstring(s, sep=",")).values)

@@ -6,7 +6,6 @@ are dead**, per-PD predictability spans **0.18–0.98 R²**, and **the chip is n
 (20–60 % drift/week)** so no fixed voltage→output calibration holds. Methods in `progress.md`;
 reproduce via `scripts/`.
 
----
 
 ## 1. Four dead photodiodes
 
@@ -20,7 +19,6 @@ reproduce via `scripts/`.
 
 PD0/2/7/11 don't respond to any input (std ≈ noise) → 14 outputs collapse to **10**. Already filtered.
 
----
 
 ## 2. Per-PD predictability ceiling
 
@@ -36,7 +34,6 @@ PD12/13 ≈ solved (.95/.98); PD4/6/9 ≈ unpredictable (.18–.26). The hard PD
 (many interfering arms, low signal). → Read matmul results off the high-R² PDs; weak PDs need
 homodyne gain, not more fitting.
 
----
 
 ## 3. The ceiling is not readout noise
 
@@ -53,7 +50,6 @@ structure/drift-limited one.
 Noise alone permits .95 but we get .55 → the gap is structure + drift, not the ADC. A faster
 converter won't lift it.
 
----
 
 ## 4. ⭐ The chip drifts — no time-invariant calibration exists
 
@@ -85,7 +81,6 @@ week later → **no calibration survives past one thermal session**. (Within a s
 physics is fine — the *operating point* moves.) **Fix:** enable the chip's TEC; add a start-of-session
 reference probe + per-session correction; otherwise stay hardware-in-the-loop (re-measure each iteration).
 
----
 
 ## 5. Capacity and physics don't move the ceiling
 
@@ -102,7 +97,6 @@ the limit is the data, not the model.
 8× capacity buys +0.02; physics ties the small net → limit is hardware (drift + noise). Homodyne
 (phase) data isn't collected yet, so physics isn't disproven — collect it with the TEC on, then re-test.
 
----
 
 ## 6. Data-quality flags
 
@@ -115,7 +109,6 @@ the data must be modelled.
 | inputs are sparse drivers | ~3 of 64 channels move each PD; ~20 do nothing        | model each PD from its few real inputs |
 | no 2 V firmware clamp    | raw-to-4 V R² 0.55 vs clamp-at-2 V 0.33                 | dataset predates the firmware clamp — reconcile |
 
----
 
 *§1–3, 5, 6 from `100k_data_original.xlsx`; §4 from the 7 `pic_data/` sessions.
 Scripts: `prove_hardware_limit.py` (§1–3), `drift_analysis.py` (§4, 6).*
