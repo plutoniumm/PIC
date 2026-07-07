@@ -1,12 +1,6 @@
-"""Per-heater characterization from single-channel sweeps.
+"""Per-heater characterization from single-channel sweeps: fit the fringe
+``P(v) = A + B*cos(phi2*v^2 + phi0)`` to recover (phi2, phi0); Vpi = sqrt(pi/phi2)."""
 
-Fits the interference fringe ``P(v) = A + B*cos(phi2*v^2 + phi0)`` to a 1-D sweep
-of one heater, recovering (phi2, phi0). phi2 anchors Vpi = sqrt(pi/phi2). The
-cos+sin freedom (here folded into phi0) absorbs the per-heater fabrication offset.
-
-This is the cheap, structured per-path identification that random sampling cannot
-do -- pair it with `lib.pic.acquisition.sweep_channel`.
-"""
 from __future__ import annotations
 import numpy as np
 
@@ -15,13 +9,14 @@ def fit_fringe(v, p, vpi0: float = 1.5):
     """Fit one heater's fringe. Returns dict(A, B, phi2, phi0, Vpi, visibility, rmse)
     or ``None`` if the fit fails."""
     from scipy.optimize import curve_fit
+
     v = np.asarray(v, float)
     p = np.asarray(p, float)
 
     def model(v, A, B, phi2, phi0):
-        return A + B * np.cos(phi2 * v ** 2 + phi0)
+        return A + B * np.cos(phi2 * v**2 + phi0)
 
-    p0 = [p.mean(), (p.max() - p.min()) / 2 or 1e-3, np.pi / vpi0 ** 2, 0.0]
+    p0 = [p.mean(), (p.max() - p.min()) / 2 or 1e-3, np.pi / vpi0**2, 0.0]
     try:
         popt, _ = curve_fit(model, v, p, p0=p0, maxfev=20000)
     except Exception:
@@ -35,21 +30,28 @@ def fit_fringe(v, p, vpi0: float = 1.5):
         "phi0": float(phi0 % (2 * np.pi)),
         "Vpi": float(np.sqrt(np.pi / abs(phi2))) if phi2 else float("nan"),
         "visibility": float(abs(B) / A) if A else float("nan"),
-        "rmse": float(np.sqrt(np.mean(resid ** 2))),
+        "rmse": float(np.sqrt(np.mean(resid**2))),
     }
 
 
-def characterize_channels(pic, channels, values, base=None, settle_s=None, repeats: int = 1,
-                          target_pd: int | None = None):
+def characterize_channels(
+    pic,
+    channels,
+    values,
+    base=None,
+    settle_s=None,
+    repeats: int = 1,
+    target_pd: int | None = None,
+):
     """Sweep each channel and fit its fringe on the most-responsive live PD
-    (or ``target_pd``). Returns ``{channel: fit_dict}``.
+    (or ``target_pd``). Returns ``{channel: fit_dict}``."""
+    from .pic.acquisition import sweep_channel
 
-    Uses `lib.pic.acquisition.sweep_channel`; intended for the live session.
-    """
-    from lib.pic.acquisition import sweep_channel
     out = {}
     for ch in channels:
-        vals, Y, _ = sweep_channel(pic, ch, values, base=base, settle_s=settle_s, repeats=repeats)
+        vals, Y, _ = sweep_channel(
+            pic, ch, values, base=base, settle_s=settle_s, repeats=repeats
+        )
         k = target_pd if target_pd is not None else int(np.argmax(Y.std(axis=0)))
         out[ch] = fit_fringe(vals, Y[:, k])
         if out[ch] is not None:

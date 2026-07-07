@@ -1,13 +1,9 @@
 """Inverse solvers: find DAC voltages that produce a desired photodiode output.
 
-`MonteCarloInverse` reproduces the original heuristic (seed from the nearest
-dataset output, perturb with discrete steps, keep-if-better, anneal the step) but
-decoupled from the hardware: it drives any ``measure(v) -> output`` callable -- the
-real :class:`lib.pic.PIC`, a :class:`lib.pic.MockPIC`, or a forward surrogate. This
-is the *reverse* problem; it is fundamentally capped by the forward model fidelity
-(~0.55 R^2 on the current data), so it is reliable only for targets dominated by
-the predictable photodiodes.
+`MonteCarloInverse` reproduces the original heuristic (seed-perturb-keep-if-better,
+annealed step) but drives any ``measure(v) -> output`` callable (PIC/MockPIC/surrogate).
 """
+
 from __future__ import annotations
 import numpy as np
 from scipy.spatial.distance import cdist
@@ -35,15 +31,25 @@ class MonteCarloInverse:
                 out[i] = round(x / self.step) * self.step
         return out
 
-    def run(self, measure, desired, seeds, iters: int = 50, per_seed: int = 3,
-            early_stop: float = 0.01, verbose: bool = False):
+    def run(
+        self,
+        measure,
+        desired,
+        seeds,
+        iters: int = 50,
+        per_seed: int = 3,
+        early_stop: float = 0.01,
+        verbose: bool = False,
+    ):
         """Optimise. ``measure(v)->output``; ``desired`` and outputs share a space."""
         desired = np.asarray(desired, float)
         best = {"v": None, "y": None, "loss": np.inf, "iter": 0}
         current = [np.asarray(s, float) for s in seeds]
         for it in range(iters):
             strength = 1.0 / np.sqrt(it + 1)
-            cands = [self.perturb(s, strength) for s in current for _ in range(per_seed)]
+            cands = [
+                self.perturb(s, strength) for s in current for _ in range(per_seed)
+            ]
             for v in cands:
                 y = np.asarray(measure(v), float)
                 loss = float(np.linalg.norm(y - desired))
@@ -53,20 +59,19 @@ class MonteCarloInverse:
                 print(f"  iter {it + 1}/{iters}: best loss {best['loss']:.4f}")
             if best["loss"] < early_stop:
                 break
-            current = [best["v"]] + [self.perturb(best["v"]) for _ in range(max(0, len(seeds) - 1))]
+            current = [best["v"]] + [
+                self.perturb(best["v"]) for _ in range(max(0, len(seeds) - 1))
+            ]
         return best
 
 
 class GradientInverse:
-    """Gradient-based inverse on a differentiable forward surrogate (grey-box or NN).
-
-    Plan (tomorrow / MLX): autodiff dLoss/dv through the forward model, project to
-    the valid range, add a minimum-power penalty (phase is periodic in v^2, so many
-    voltages realise the same weight -- prefer the lowest-power solution).
-    """
+    """Gradient-based inverse on a differentiable forward surrogate (grey-box or NN). Stub."""
 
     def __init__(self, forward):
         self.forward = forward
 
     def run(self, *args, **kw):
-        raise NotImplementedError("gradient inverse pending a differentiable forward model")
+        raise NotImplementedError(
+            "gradient inverse pending a differentiable forward model"
+        )

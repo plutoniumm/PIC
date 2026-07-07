@@ -12,7 +12,7 @@ const unsigned long dacSettlingTime = 10; // DAC settling time in microseconds
 
 void setup() {
   Serial.begin(115200);
-  
+
   // Set up CS pins
   pinMode(CS_DAC0, OUTPUT);
   pinMode(CS_DAC1, OUTPUT);
@@ -28,13 +28,13 @@ void setup() {
   // Initialize SPI - CORRECT ORDER
   SPI.begin();
   SPI.beginTransaction(SPISettings(10000000, MSBFIRST, SPI_MODE1));
-  
+
   // Initialize all DAC chips
   initializeDAC(CS_DAC0);
   initializeDAC(CS_DAC1);
   initializeDAC(CS_DAC2);
   initializeDAC(CS_DAC3);
-  
+
   Serial.println("DACs initialized and ready");
 }
 
@@ -72,7 +72,7 @@ void loop() {
       sendDACvalue(values[i], csPin, dacChannel);
       delayMicroseconds(dacSettlingTime);  // Allow DAC to settle
     }
-    
+
     // Read ADC values and send them back to Python
     readAndSendADCValues();
   }
@@ -87,7 +87,7 @@ void initializeDAC(int csPin) {
   SPI.transfer(0xFF);  // Power up all 16 channels (0xFF = all bits set)
   digitalWrite(csPin, HIGH);
   delay(1);
-  
+
   // Enable internal reference (command 0x04) - adjust based on your DAC model
   digitalWrite(csPin, LOW);
   SPI.transfer(0x04);
@@ -100,14 +100,16 @@ void initializeDAC(int csPin) {
 // Send a single voltage value to a DAC channel
 void sendDACvalue(float voltage, int csPin, int channel) {
   // Clamp voltage to valid range
-  if (voltage < 0.0) voltage = 0.0;
-  if (voltage > 2.0) voltage = 2.0;
-  
+  if (voltage < 0.0)
+    voltage = 0.0;
+  if (voltage > 2.0)
+    voltage = 2.0;
+
   // Convert voltage to 16-bit DAC value
   unsigned int dacValue = (voltage * 65535) / 5.0;
   unsigned int MSB = (dacValue >> 8) & 0xFF;
   unsigned int LSB = dacValue & 0xFF;
-  
+
   // Write to DAC channel (command 0x1n where n is the channel)
   digitalWrite(csPin, LOW);
   SPI.transfer(0x10 | channel);  // Write and update channel

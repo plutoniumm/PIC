@@ -1,7 +1,18 @@
-"""Modelling code for the PIC: data, influence map, forward/inverse, MZI physics.
+"""PIC code, two layers:
 
-    from src import data, influence, forward, inverse, characterize, mzi, pic_neurophox
+    from src.pic import PIC, MockPIC        # hardware / driver layer
+    from src import mzi, forward, inverse   # modelling layer
 """
-from . import mzi, data, influence, forward, inverse, characterize, pic_neurophox
 
-__all__ = ["mzi", "data", "influence", "forward", "inverse", "characterize", "pic_neurophox"]
+from . import pic, mzi, data, influence, forward, inverse, characterize, pic_neurophox
+
+__all__ = [
+    "pic",
+    "mzi",
+    "data",
+    "influence",
+    "forward",
+    "inverse",
+    "characterize",
+    "pic_neurophox",
+]

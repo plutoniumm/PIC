@@ -1,0 +1,2 @@
+# The .pic DSL (driven by run.py / picscript.py) is its own scripting language.
+*.pic linguist-language=PICScript linguist-detectable=true

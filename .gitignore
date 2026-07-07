@@ -9,12 +9,14 @@ dist/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+slides/
 
 # --- Virtual envs (project uses the `pic` conda env, outside the repo) ---
 .venv/
 venv/
 env/
-ENV/
+
+ui/
 
 # --- Jupyter ---
 .ipynb_checkpoints/

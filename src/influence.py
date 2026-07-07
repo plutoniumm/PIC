@@ -1,10 +1,6 @@
-"""DAC-channel -> photodiode influence map (eta^2, main effect).
+"""DAC-channel -> photodiode influence map (eta^2, main effect only -- a coarse
+routing map that under-counts purely interferometric channels)."""
 
-On the 100k set this revealed ~3 dominant channels and ~20 inert ones -- the
-sparsity that explains both the low learnability and "reliable for some targets".
-eta^2 captures only main effects (no interactions), so it under-counts channels
-whose influence is purely interferometric; treat it as a coarse routing map.
-"""
 from __future__ import annotations
 import numpy as np
 
