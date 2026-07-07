@@ -17,6 +17,7 @@ venv/
 env/
 
 ui/
+runs/
 
 # --- Jupyter ---
 .ipynb_checkpoints/

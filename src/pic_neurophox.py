@@ -65,9 +65,11 @@ class PICReplica:
 
     def __init__(self, units: int = UNITS, seed: int = 0, sigma=None):
         self.units = units
-        self.U = build_mesh(seed, units)        # "beginning" mesh
-        self.V = build_mesh(seed + 1, units)    # "end" mesh
-        self.sigma = np.ones(units) if sigma is None else sigma_from_matrix(np.diag(sigma))
+        self.U = build_mesh(seed, units)  # "beginning" mesh
+        self.V = build_mesh(seed + 1, units)  # "end" mesh
+        self.sigma = (
+            np.ones(units) if sigma is None else sigma_from_matrix(np.diag(sigma))
+        )
 
     def encode_sigma(self, A: np.ndarray) -> np.ndarray:
         """Program Σ to the (normalised) singular-value spectrum of a target matrix A."""
@@ -100,8 +102,12 @@ class PICReplica:
         x /= np.linalg.norm(x)
         y = self.readout(x)
         return {
-            "U_unitary_err": float(np.abs(self.U.matrix.conj().T @ self.U.matrix - eye).max()),
-            "V_unitary_err": float(np.abs(self.V.matrix.conj().T @ self.V.matrix - eye).max()),
+            "U_unitary_err": float(
+                np.abs(self.U.matrix.conj().T @ self.U.matrix - eye).max()
+            ),
+            "V_unitary_err": float(
+                np.abs(self.V.matrix.conj().T @ self.V.matrix - eye).max()
+            ),
             "sigma_reproduced_err": float(
                 np.abs(np.sort(sv)[::-1] - np.sort(self.sigma)[::-1]).max()
             ),
@@ -123,6 +129,7 @@ class PICReplica:
         """Render the replica's structure — splitting-tree input, the two Clements
         meshes, the Σ bank, and the photodiodes — to `path`."""
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from matplotlib.patches import FancyBboxPatch
@@ -133,20 +140,40 @@ class PICReplica:
 
         def mesh(x0, label):
             """Draw one rectangular mesh of `n` layers starting at x0; return its width."""
-            for l in range(n):                       # rail segments through this mesh
+            for l in range(n):  # rail segments through this mesh
                 pass
-            for l in range(n):                       # MZIs at Clements positions
+            for l in range(n):  # MZIs at Clements positions
                 cx = x0 + l + 0.5
                 for i in range(l % 2, n - 1, 2):
                     yc = i + 0.5
-                    ax.add_patch(FancyBboxPatch(
-                        (cx - 0.28, yc - 0.34), 0.56, 0.68,
-                        boxstyle="round,pad=0.02,rounding_size=0.12",
-                        linewidth=1.2, edgecolor=mzi_c, facecolor="white", zorder=3))
-                    ax.plot([cx - 0.28, cx + 0.28], [i, i + 1], color=mzi_c, lw=1, zorder=2)
-                    ax.plot([cx - 0.28, cx + 0.28], [i + 1, i], color=mzi_c, lw=1, zorder=2)
-            ax.text(x0 + n / 2, n - 0.35, label, ha="center", va="bottom",
-                    fontsize=11, color=ink, weight="bold")
+                    ax.add_patch(
+                        FancyBboxPatch(
+                            (cx - 0.28, yc - 0.34),
+                            0.56,
+                            0.68,
+                            boxstyle="round,pad=0.02,rounding_size=0.12",
+                            linewidth=1.2,
+                            edgecolor=mzi_c,
+                            facecolor="white",
+                            zorder=3,
+                        )
+                    )
+                    ax.plot(
+                        [cx - 0.28, cx + 0.28], [i, i + 1], color=mzi_c, lw=1, zorder=2
+                    )
+                    ax.plot(
+                        [cx - 0.28, cx + 0.28], [i + 1, i], color=mzi_c, lw=1, zorder=2
+                    )
+            ax.text(
+                x0 + n / 2,
+                n - 0.35,
+                label,
+                ha="center",
+                va="bottom",
+                fontsize=11,
+                color=ink,
+                weight="bold",
+            )
             return n
 
         # rails span the whole device
@@ -156,27 +183,79 @@ class PICReplica:
         for i in range(n):
             ax.plot([0.2, x_end], [i, i], color=dim, lw=1, zorder=1)
             ax.text(0.05, i, f"x{i}", ha="right", va="center", fontsize=10, color=ink)
-            ax.text(x_end + 0.1, i, f"PD{i}", ha="left", va="center",
-                    fontsize=10, color=ink, family="monospace")
+            ax.text(
+                x_end + 0.1,
+                i,
+                f"PD{i}",
+                ha="left",
+                va="center",
+                fontsize=10,
+                color=ink,
+                family="monospace",
+            )
 
-        ax.text(0.55, n - 0.35, "split\ntree", ha="center", va="bottom", fontsize=8, color=dim)
+        ax.text(
+            0.55,
+            n - 0.35,
+            "split\ntree",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            color=dim,
+        )
         mesh(xU, "U  (6×6 Clements)")
-        for i in range(n):                            # Σ attenuator bank
-            ax.add_patch(FancyBboxPatch((xSig - 0.22, i - 0.22), 0.44, 0.44,
-                        boxstyle="round,pad=0.02,rounding_size=0.08",
-                        linewidth=1.2, edgecolor=sig_c, facecolor="white", zorder=3))
-            ax.text(xSig, i, "σ", ha="center", va="center", fontsize=9, color=sig_c, zorder=4)
-        ax.text(xSig, n - 0.35, "Σ", ha="center", va="bottom", fontsize=11, color=ink, weight="bold")
+        for i in range(n):  # Σ attenuator bank
+            ax.add_patch(
+                FancyBboxPatch(
+                    (xSig - 0.22, i - 0.22),
+                    0.44,
+                    0.44,
+                    boxstyle="round,pad=0.02,rounding_size=0.08",
+                    linewidth=1.2,
+                    edgecolor=sig_c,
+                    facecolor="white",
+                    zorder=3,
+                )
+            )
+            ax.text(
+                xSig,
+                i,
+                "σ",
+                ha="center",
+                va="center",
+                fontsize=9,
+                color=sig_c,
+                zorder=4,
+            )
+        ax.text(
+            xSig,
+            n - 0.35,
+            "Σ",
+            ha="center",
+            va="bottom",
+            fontsize=11,
+            color=ink,
+            weight="bold",
+        )
         mesh(xV, "V  (6×6 Clements)")
-        for i in range(n):                            # photodiodes
-            ax.plot([x_end - 0.05, x_end + 0.05, x_end + 0.05, x_end - 0.05],
-                    [i - 0.14, i - 0.14, i + 0.14, i + 0.14], color=ink, lw=1.2, zorder=3)
+        for i in range(n):  # photodiodes
+            ax.plot(
+                [x_end - 0.05, x_end + 0.05, x_end + 0.05, x_end - 0.05],
+                [i - 0.14, i - 0.14, i + 0.14, i + 0.14],
+                color=ink,
+                lw=1.2,
+                zorder=3,
+            )
 
         ax.set_xlim(-0.6, x_end + 1.0)
         ax.set_ylim(-0.7, n + 0.2)
         ax.axis("off")
-        ax.set_title("PIC replica  —  M = U · Σ · V   (neurophox, run with .readout(x))",
-                     fontsize=11, color=ink, pad=8)
+        ax.set_title(
+            "PIC replica  —  M = U · Σ · V   (neurophox, run with .readout(x))",
+            fontsize=11,
+            color=ink,
+            pad=8,
+        )
         fig.tight_layout()
         fig.savefig(path, dpi=dpi, bbox_inches="tight")
         plt.close(fig)
@@ -191,24 +270,36 @@ def demo():
 
     rng = np.random.default_rng(0)
     A = rng.standard_normal((UNITS, UNITS))
-    print(f"\nEncoded Σ to a target matrix's normalised singular values:\n  σ = {pic.encode_sigma(A)}")
+    print(
+        f"\nEncoded Σ to a target matrix's normalised singular values:\n  σ = {pic.encode_sigma(A)}"
+    )
 
     c = pic.check()
     print("\nSelf-consistency:")
     print(f"  U, V unitary err   = {c['U_unitary_err']:.1e}, {c['V_unitary_err']:.1e}")
     print(f"  sv(M) reproduces σ = {c['sigma_reproduced_err']:.1e} max err")
     print(f"  field == M · x     = {c['field_vs_matrix_err']:.1e} max err")
-    print(f"  power in / out     = {c['power_in']:.4f} / {c['power_out']:.4f}  (out ≤ in ⇒ passive)")
+    print(
+        f"  power in / out     = {c['power_in']:.4f} / {c['power_out']:.4f}  (out ≤ in ⇒ passive)"
+    )
 
-    x = np.zeros(UNITS, complex); x[0] = 1.0
+    x = np.zeros(UNITS, complex)
+    x[0] = 1.0
     print(f"\nReadout for a single-mode input (x = e0):\n  PDs = {pic.readout(x)}")
 
 
 if __name__ == "__main__":
     import argparse
+
     ap = argparse.ArgumentParser(description="Neurophox full-PIC replica")
-    ap.add_argument("--diagram", nargs="?", const="slides/images/pic_replica.png", default=None,
-                    metavar="PATH", help="render the structure diagram to PATH and exit")
+    ap.add_argument(
+        "--diagram",
+        nargs="?",
+        const="slides/images/pic_replica.png",
+        default=None,
+        metavar="PATH",
+        help="render the structure diagram to PATH and exit",
+    )
     ap.add_argument("--seed", type=int, default=1)
     args = ap.parse_args()
     if args.diagram:

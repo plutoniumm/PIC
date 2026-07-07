@@ -15,24 +15,36 @@ import json
 import os
 import sys
 import threading
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from src.pic import PIC, MockPIC, find_port, NUM_DAC, NUM_ADC_RAW, VOLTAGE_MIN, DAMAGED_PDS
+from src.pic import (
+    PIC,
+    MockPIC,
+    find_port,
+    NUM_DAC,
+    NUM_ADC_RAW,
+    VOLTAGE_MIN,
+    DAMAGED_PDS,
+)
 from picscript import parse
 
 VMAX = 5.0
 HERE = os.path.dirname(os.path.abspath(__file__))
 UIDIR = os.path.join(HERE, "ui")
-STATIC = {"/app.js": "text/javascript", "/style.css": "text/css",
-          "/vue.global.prod.js": "text/javascript"}
+STATIC = {
+    "/app.js": "text/javascript",
+    "/style.css": "text/css",
+    "/vue.global.prod.js": "text/javascript",
+}
 
-LOCK = threading.Lock()          # serialises all hardware access
-STOP = threading.Event()         # aborts a running script
-RUNNING = threading.Event()      # a script is streaming
+LOCK = threading.Lock()  # serialises all hardware access
+STOP = threading.Event()  # aborts a running script
+RUNNING = threading.Event()  # a script is streaming
 
 
 def _clip(v):
@@ -75,7 +87,9 @@ class Session:
         else:
             p, cands = find_port(port)
             if not p:
-                raise RuntimeError(f"no serial port found (looked at {cands or 'none'})")
+                raise RuntimeError(
+                    f"no serial port found (looked at {cands or 'none'})"
+                )
             self.pic = PIC(port=p, voltage_max=VMAX).open()
             self.port = p
         self.mock = mock
@@ -89,7 +103,7 @@ class Session:
         if self.mock or zero or not self.hold:
             pic.close()  # PIC.close() zeros the DACs
             return
-        ser = getattr(pic, "ser", None)      # hold: drop the handle without zeroing
+        ser = getattr(pic, "ser", None)  # hold: drop the handle without zeroing
         if ser not in (None, "mock"):
             try:
                 ser.close()
@@ -104,13 +118,20 @@ class Session:
     def snapshot(self):
         p, cands = find_port(None)
         return {
-            "connected": self.connected, "mock": self.mock, "port": self.port,
-            "hold": self.hold, "running": RUNNING.is_set(),
-            "ports": cands, "auto_port": p,
+            "connected": self.connected,
+            "mock": self.mock,
+            "port": self.port,
+            "hold": self.hold,
+            "running": RUNNING.is_set(),
+            "ports": cands,
+            "auto_port": p,
             "vec": [round(float(x), 3) for x in self.vec],
             "adc": [round(float(x), 4) for x in self.adc],
-            "dead": list(DAMAGED_PDS), "num_dac": NUM_DAC, "num_adc": NUM_ADC_RAW,
-            "vmax": VMAX, "vmin": VOLTAGE_MIN,
+            "dead": list(DAMAGED_PDS),
+            "num_dac": NUM_DAC,
+            "num_adc": NUM_ADC_RAW,
+            "vmax": VMAX,
+            "vmin": VOLTAGE_MIN,
         }
 
 
@@ -118,8 +139,10 @@ SESSION = Session()
 
 
 def _measure_payload():
-    return {"vec": [round(float(x), 3) for x in SESSION.vec],
-            "adc": [round(float(x), 4) for x in SESSION.adc]}
+    return {
+        "vec": [round(float(x), 3) for x in SESSION.vec],
+        "adc": [round(float(x), 4) for x in SESSION.adc],
+    }
 
 
 def api_connect(body):
@@ -132,6 +155,23 @@ def api_disconnect(body):
     with LOCK:
         SESSION.disconnect(zero=bool(body.get("zero", False)))
     return SESSION.snapshot()
+
+
+def api_poll(body):
+    """Scan for a board and connect to it in one round trip. With ``mock`` set,
+    attaches the simulator; otherwise auto-detects the serial device (honouring an
+    optional ``port`` override) and opens it. A no-op if already connected; if no
+    device is found, returns the snapshot with the ports seen under ``detected``."""
+    with LOCK:
+        if SESSION.connected:
+            return SESSION.snapshot()
+        if bool(body.get("mock", False)):
+            SESSION.connect(True, None)
+            return SESSION.snapshot()
+        port, cands = find_port(body.get("port") or None)
+        if port:
+            SESSION.connect(False, port)
+        return {**SESSION.snapshot(), "detected": cands}
 
 
 def api_set(body):
@@ -180,7 +220,7 @@ def api_stop(_body):
 
 def api_examples(_body):
     seen, out = set(), []
-    for d in ("examples", "scripts", "."):        # wherever .pic files live
+    for d in ("examples", "scripts", "."):  # wherever .pic files live
         base = os.path.join(HERE, d)
         for fn in sorted(os.listdir(base)) if os.path.isdir(base) else []:
             if fn.endswith(".pic") and fn not in seen:
@@ -209,11 +249,26 @@ def run_script_stream(text, emit):
     if not runs:
         emit({"type": "error", "msg": "no runnable blocks found"})
         return
-    total = sum(s.get("loop", 0) * (max(1, int(s.get("iters", 1))) - 1) for _, _, s in runs)
-    emit({"type": "plan", "blocks": len(blocks), "runs": len(runs), "eta": round(total, 1),
-          "items": [{"name": n, "channels": len(_nonzero(v)),
-                     "iters": int(s.get("iters", 1)), "loop": s.get("loop", 0)}
-                    for n, v, s in runs]})
+    total = sum(
+        s.get("loop", 0) * (max(1, int(s.get("iters", 1))) - 1) for _, _, s in runs
+    )
+    emit(
+        {
+            "type": "plan",
+            "blocks": len(blocks),
+            "runs": len(runs),
+            "eta": round(total, 1),
+            "items": [
+                {
+                    "name": n,
+                    "channels": len(_nonzero(v)),
+                    "iters": int(s.get("iters", 1)),
+                    "loop": s.get("loop", 0),
+                }
+                for n, v, s in runs
+            ],
+        }
+    )
     STOP.clear()
     with LOCK:
         RUNNING.set()
@@ -225,9 +280,15 @@ def run_script_stream(text, emit):
                 iters = max(1, int(settings.get("iters", 1)))
                 settle = settings.get("settle", 0.0)
                 SESSION.vec = vec.copy()
-                emit({"type": "run", "name": name, "iters": iters, "loop": loop,
-                      "vec": [round(float(x), 3) for x in vec]})
-                import time
+                emit(
+                    {
+                        "type": "run",
+                        "name": name,
+                        "iters": iters,
+                        "loop": loop,
+                        "vec": [round(float(x), 3) for x in vec],
+                    }
+                )
                 t0 = time.time()
                 for i in range(iters):
                     if STOP.is_set():
@@ -238,11 +299,22 @@ def run_script_stream(text, emit):
                             break
                     adc = np.asarray(SESSION.pic.measure_raw(vec), float)
                     SESSION.adc = adc
-                    emit({"type": "sample", "name": name, "i": i, "iters": iters,
-                          "t": round(time.time() - t0, 2),
-                          "adc": [round(float(x), 4) for x in adc]})
+                    emit(
+                        {
+                            "type": "sample",
+                            "name": name,
+                            "i": i,
+                            "iters": iters,
+                            "t": round(time.time() - t0, 2),
+                            "adc": [round(float(x), 4) for x in adc],
+                        }
+                    )
                     if loop and i < iters - 1 and STOP.wait(loop):
                         break
+        except (
+            Exception
+        ) as e:  # noqa: BLE001 -- surface a serial/hardware fault to the UI
+            emit({"type": "error", "msg": f"hardware fault mid-run: {e}"})
         finally:
             RUNNING.clear()
     emit({"type": "done", "aborted": STOP.is_set()})
@@ -251,6 +323,7 @@ def run_script_stream(text, emit):
 ROUTES = {
     "/api/state": lambda b: SESSION.snapshot(),
     "/api/connect": api_connect,
+    "/api/poll": api_poll,
     "/api/disconnect": api_disconnect,
     "/api/set": api_set,
     "/api/measure": api_measure,
@@ -287,7 +360,9 @@ class Handler(BaseHTTPRequestHandler):
     def _route(self, body):
         try:
             self._json(ROUTES[self.path](body))
-        except Exception as e:  # noqa: BLE001 -- report failures to the UI, don't 500-crash
+        except (
+            Exception
+        ) as e:  # noqa: BLE001 -- report failures to the UI, don't 500-crash
             self._json({"error": str(e)}, 500)
 
     def do_GET(self):

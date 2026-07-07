@@ -45,8 +45,15 @@ VMAX = 5.0  # DAC reference ceiling; host clip (firmware converts on a 0-5 V sca
 SETTING_KEYS = {"loop", "iters", "settle"}
 UNIT_VOLT = {"v", "volt", "volts"}
 UNIT_PHASE = {"rad", "radian", "radians", "deg", "degree", "degrees", "phase"}
-SAFE = {"abs": abs, "min": min, "max": max, "round": round,
-        "int": int, "float": float, "pi": np.pi}
+SAFE = {
+    "abs": abs,
+    "min": min,
+    "max": max,
+    "round": round,
+    "int": int,
+    "float": float,
+    "pi": np.pi,
+}
 
 _PAIR = re.compile(r"([A-Za-z_]\w*)\s*=\s*(.+?)(?=\s+[A-Za-z_]\w*\s*=|$)")
 _FOR = re.compile(r"^for\s+(?:each\s+)?(\w+)\s+in\s+(.+?)\s*:\s*(.*)$", re.I)
@@ -70,7 +77,9 @@ class ScriptError(Exception):
 
 def _ev(expr, scope=None):
     env = dict(SAFE, **(scope or {}))
-    return eval(expr.strip(), {"__builtins__": {}}, env)  # noqa: S307 (trusted local script)
+    return eval(
+        expr.strip(), {"__builtins__": {}}, env
+    )  # noqa: S307 (trusted local script)
 
 
 def _split_unit(rhs):
@@ -115,10 +124,10 @@ def _channel(token):
 
 class Block:
     def __init__(self):
-        self.assign = {}   # channel -> volts (the base configuration)
+        self.assign = {}  # channel -> volts (the base configuration)
         self.settings = {}  # loop / iters / settle
         self.name = None
-        self.sweeps = []   # (channel, [values], label)
+        self.sweeps = []  # (channel, [values], label)
 
     def _set_pair(self, key, rhs, scope, in_for):
         k = key.lower()
@@ -127,13 +136,17 @@ class Block:
             return
         expr, unit = _split_unit(rhs)
         if unit in UNIT_PHASE:
-            print(f"  ! {key}: '{unit}' phase units not wired yet "
-                  f"(needs heater->phase map); treating as volts")
+            print(
+                f"  ! {key}: '{unit}' phase units not wired yet "
+                f"(needs heater->phase map); treating as volts"
+            )
         val = float(_ev(expr, scope))
         if k == "v":
             if not in_for or not scope:
-                raise ScriptError("bare 'V' is only valid inside a 'for' loop; "
-                                  "use V_<n> at the top level")
+                raise ScriptError(
+                    "bare 'V' is only valid inside a 'for' loop; "
+                    "use V_<n> at the top level"
+                )
             self.assign[int(scope[list(scope)[-1]])] = val  # innermost loop index
         elif _CHAN.match(key):
             self.assign[_channel(key)] = val
@@ -174,7 +187,9 @@ class Block:
 
 def _strip_block_comments(text):
     """Drop /* ... */ block comments, preserving line numbers for error messages."""
-    return re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), text, flags=re.S)
+    return re.sub(
+        r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), text, flags=re.S
+    )
 
 
 def parse(text):
@@ -198,7 +213,9 @@ def parse(text):
             idx = _consume(rows, idx, blk, None)
         except ScriptError:
             raise
-        except Exception as e:  # noqa: BLE001 -- surface any parse failure with its line
+        except (
+            Exception
+        ) as e:  # noqa: BLE001 -- surface any parse failure with its line
             raise ScriptError(f"line {lineno}: {line!r}: {e}") from e
     blocks.append(blk)
     return [b for b in blocks if b.assign or b.sweeps]
@@ -214,13 +231,17 @@ def _consume(rows, idx, blk, scope):
         values = parse_collection(coll)
         if inline.strip():  # single-line form: `for H in heaters: V = 4*H`
             for v in values:
-                _consume([(indent + 1, inline.strip(), lineno)], 0, blk,
-                         dict(scope or {}, **{var: v}))
+                _consume(
+                    [(indent + 1, inline.strip(), lineno)],
+                    0,
+                    blk,
+                    dict(scope or {}, **{var: v}),
+                )
             return idx + 1
         end = idx + 1  # suite form: body is the following more-indented lines
         while end < len(rows) and rows[end][0] > indent:
             end += 1
-        body = rows[idx + 1:end]
+        body = rows[idx + 1 : end]
         if not body:
             raise ScriptError(f"line {lineno}: 'for' suite is empty")
         for v in values:
@@ -308,9 +329,12 @@ def _execute(pic, name, vec, settings, outdir, write_csv):
     settle = settings.get("settle", 0.0)
     nz = {i: round(float(x), 3) for i, x in enumerate(vec) if x}
     eta = loop * (iters - 1)
-    print(f"\n[{name}] {len(nz)} channels set, {iters} pulse(s)"
-          + (f" every {loop:g}s (~{eta:g}s)" if loop and iters > 1 else "")
-          + f"  {dict(list(nz.items())[:8])}" + (" ..." if len(nz) > 8 else ""))
+    print(
+        f"\n[{name}] {len(nz)} channels set, {iters} pulse(s)"
+        + (f" every {loop:g}s (~{eta:g}s)" if loop and iters > 1 else "")
+        + f"  {dict(list(nz.items())[:8])}"
+        + (" ..." if len(nz) > 8 else "")
+    )
     rows, t0 = [], time.time()
     for i in range(iters):
         if _ABORT.is_set():
@@ -329,33 +353,51 @@ def _execute(pic, name, vec, settings, outdir, write_csv):
         os.makedirs(outdir, exist_ok=True)
         path = os.path.join(outdir, f"{name}.csv")
         header = "iter,t_s," + ",".join(f"pd{j}" for j in range(len(rows[0]) - 2))
-        np.savetxt(path, np.array(rows), fmt="%g", delimiter=",", header=header, comments="")
+        np.savetxt(
+            path, np.array(rows), fmt="%g", delimiter=",", header=header, comments=""
+        )
         print(f"  -> {path} ({len(rows)} rows)")
     return _ABORT.is_set()
 
 
-def run_script(path, mock=False, dry=False, write_csv=True, port=None,
-               zero_at_end=False, outdir="runs"):
+def run_script(
+    path,
+    mock=False,
+    dry=False,
+    write_csv=True,
+    port=None,
+    zero_at_end=False,
+    outdir="runs",
+):
     blocks = parse(open(path).read())
     runs = [r for b in blocks for r in b.runs()]
     if not runs:
         print("no runnable blocks found.")
         return 1
-    total = sum(s.get("loop", 0) * (max(1, int(s.get("iters", 1))) - 1) for _, _, s in runs)
-    print(f"{len(blocks)} block(s) -> {len(runs)} run(s), ~{total:g}s total"
-          + (" [DRY]" if dry else "") + (" [MOCK]" if mock else ""))
+    total = sum(
+        s.get("loop", 0) * (max(1, int(s.get("iters", 1))) - 1) for _, _, s in runs
+    )
+    print(
+        f"{len(blocks)} block(s) -> {len(runs)} run(s), ~{total:g}s total"
+        + (" [DRY]" if dry else "")
+        + (" [MOCK]" if mock else "")
+    )
     if dry:
         for name, vec, s in runs:
             nz = {i: round(float(x), 3) for i, x in enumerate(vec) if x}
-            print(f"  {name}: {len(nz)} ch, iters={int(s.get('iters', 1))}, "
-                  f"loop={s.get('loop', 0):g}s  {dict(list(nz.items())[:6])}")
+            print(
+                f"  {name}: {len(nz)} ch, iters={int(s.get('iters', 1))}, "
+                f"loop={s.get('loop', 0):g}s  {dict(list(nz.items())[:6])}"
+            )
         return 0
     if write_csv:
         print("note: ADC columns are floating until the photodiodes are wired.")
     _ABORT.clear()
     try:
         prev_sigint = signal.signal(signal.SIGINT, lambda *_: _ABORT.set())
-    except ValueError:  # not the main thread -> Ctrl-C handler unavailable, typed exit still works
+    except (
+        ValueError
+    ):  # not the main thread -> Ctrl-C handler unavailable, typed exit still works
         prev_sigint = None
     threading.Thread(target=_watch_stdin, daemon=True).start()
     print("running -- press Ctrl-C or type 'exit' to stop early (DACs zero on exit).")
@@ -383,13 +425,21 @@ def main(argv):
     outdir = next((a.split("=", 1)[1] for a in argv if a.startswith("--out=")), "runs")
 
     if not args:
-        print("usage: python run.py <file.pic> "
-              "[--mock] [--dry] [--no-csv] [--zero] [--port=DEV] [--out=DIR]")
+        print(
+            "usage: python run.py <file.pic> "
+            "[--mock] [--dry] [--no-csv] [--zero] [--port=DEV] [--out=DIR]"
+        )
         return 1
 
-    return run_script(args[0], mock="--mock" in flags, dry="--dry" in flags,
-                      write_csv="--no-csv" not in flags, port=port,
-                      zero_at_end="--zero" in flags, outdir=outdir)
+    return run_script(
+        args[0],
+        mock="--mock" in flags,
+        dry="--dry" in flags,
+        write_csv="--no-csv" not in flags,
+        port=port,
+        zero_at_end="--zero" in flags,
+        outdir=outdir,
+    )
 
 
 if __name__ == "__main__":

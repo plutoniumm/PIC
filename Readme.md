@@ -50,9 +50,12 @@ Values are volts (clipped 0–5).
 python ui.py                 # opens http://localhost:8787   (--port N, --no-open)
 ```
 
-Pick a serial port (or **Mock**), set the 64 DAC volts live with sliders, watch the 14
-photodiodes, and run `.pic` scripts with streamed output. Thin shell over `src.pic` + the
-`picscript` parser — plain Vue 3, no build step.
+**Poll** auto-detects the board and connects (leave **auto-connect** on and it grabs one
+as soon as it's plugged in; tick **mock** for the hardware-free simulator). Then set the
+64 DAC volts live with sliders, watch the 14 photodiodes, and run `.pic` scripts with
+streamed output. Every action, board error, and server drop-out surfaces as a toast, so
+it stays legible when driven remotely. Thin shell over `src.pic` + the `picscript`
+parser — plain Vue 3, no build step.
 
 ### PIC replica — `src/pic_neurophox.py`
 
