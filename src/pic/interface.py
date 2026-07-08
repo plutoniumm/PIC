@@ -69,12 +69,27 @@ class PIC:
                 self.ser.close()
                 self.ser = None
 
-    def measure_raw(self, voltages) -> np.ndarray:
-        """Apply 64 voltages, return the 14 raw photodiode voltages."""
-        v = np.asarray(voltages, float).ravel()
+    def _prep_dac(self, voltages) -> np.ndarray:
+        """Validate + clip the 64-vector before it can reach the DACs -- the format
+        early-exit. Refuses wrong length or non-finite values: np.clip does NOT fix NaN,
+        so it would otherwise reach the firmware as the literal 'nan' and drive garbage.
+        """
+        try:
+            v = np.asarray(voltages, float).ravel()
+        except (ValueError, TypeError) as e:
+            raise PICError(f"DAC voltages not numeric ({e})")
         if v.size != self.cfg.num_dac:
             raise PICError(f"expected {self.cfg.num_dac} voltages, got {v.size}")
-        v = np.clip(v, self.cfg.voltage_min, self.cfg.voltage_max)
+        if not np.all(np.isfinite(v)):
+            bad = np.where(~np.isfinite(v))[0][:8].tolist()
+            raise PICError(
+                f"non-finite DAC voltage(s) at index {bad}; refusing to send"
+            )
+        return np.clip(v, self.cfg.voltage_min, self.cfg.voltage_max)
+
+    def measure_raw(self, voltages) -> np.ndarray:
+        """Apply 64 voltages, return the 14 raw photodiode voltages."""
+        v = self._prep_dac(voltages)
         line = ",".join(f"{x:.1f}" for x in v) + "\n"
         self.ser.reset_input_buffer()
         self.ser.write(line.encode())
@@ -131,10 +146,7 @@ class MockPIC(PIC):
         self.ser = None
 
     def measure_raw(self, voltages) -> np.ndarray:
-        v = np.asarray(voltages, float).ravel()
-        if v.size != self.cfg.num_dac:
-            raise PICError(f"expected {self.cfg.num_dac} voltages, got {v.size}")
-        v = np.clip(v, self.cfg.voltage_min, self.cfg.voltage_max)
+        v = self._prep_dac(voltages)
         y = np.asarray(self.forward(v), float).ravel()
         if self.noise:
             y = y + self._rng.normal(0.0, self.noise, y.shape)

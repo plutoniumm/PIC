@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# ./test -- end-to-end: drive the laser at a few powers, read the PIC photodiodes.
+#
+#   ./test                 # sweep +5/+10/+15 dBm, read the 10 live PDs at each
+#   ./test 3 9 15          # custom dBm levels
+#   ./test --raw 20 60 100 # levels are raw setpoints
+#   ./test --mock          # no hardware -- self-test the harness
+#
+# Picks the first python that can import serial+numpy; override with PYTHON=/path/to/python.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+pick_python() {
+  local cands=() p
+  [ -n "${PYTHON:-}" ] && cands+=("$PYTHON")
+  cands+=(/usr/local/Caskroom/miniconda/base/envs/pic/bin/python python3 python)
+  for p in "${cands[@]}"; do
+    if command -v "$p" >/dev/null 2>&1 && "$p" -c 'import serial, numpy' >/dev/null 2>&1; then
+      echo "$p"; return 0
+    fi
+  done
+  return 1
+}
+
+PY="$(pick_python)" || {
+  echo "no python with pyserial+numpy found -- use the 'pic' conda env" >&2
+  exit 3
+}
+
+exec env PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PY" "$ROOT/e2e.py" "$@"
