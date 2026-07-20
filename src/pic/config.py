@@ -22,7 +22,7 @@ DAC_REF_V = 5.0
 DAC_BITS = 16
 VPI_NOMINAL = 1.5  # ~Vpi (pi phase shift), per the team
 
-ADC_AVG_MS = 31  # firmware ADC averaging window
+ADC_AVG_MS = 75  # firmware ADC averaging window (~50 sweeps of the 14 pins)
 DEFAULT_TIMEOUT_S = 3.0
 DEFAULT_SETTLE_S = 0.0  # extra host-side thermal-settle dwell before a read
 

@@ -1,0 +1,86 @@
+# DAC channel -> geometric heater index (H0..H119; see pic_data/heater_map.csv).
+#
+# STATUS: PROVISIONAL PLACEHOLDER (identity, DAC c -> Hc). NOT a measurement.
+# The daughter-board wiring is unrecorded: NUS/PIC_update.pdf numbers heaters by DAC
+# channel, while H0..H119 here is the GDS geometric order. Nothing ties the two.
+#
+# WHAT THE 75k-ROW DATASETS DO SAY (python scripts/dac_heater_probe.py evidence):
+#   DAC1        drives the TOP reference-arm intensity modulator     -> moves PD1,3,5
+#   DAC14,DAC15 drive the BOTTOM reference-arm modulator (one arm ea) -> moves PD8,10,12,13
+#               (their PD profiles correlate at r=0.9992: same MZI)
+#   DAC0        is electrically silent -> that heater is probably not bonded
+#   DAC16,DAC23 report each OTHER'S reference rail, so the 8-channel shifter block
+#               (DAC16..23) looks REVERSED: DAC16->H23 ... DAC23->H16
+#   DAC24..63   unconstrained: the datasets randomise all channels at once, so a deep
+#               heater's marginal effect averages away.
+# The `evidence` column records this. The mapping below is still plain identity, so the
+# contradiction stays visible rather than being half-corrected on inference.
+#
+# TO SETTLE IT: python scripts/dac_heater_probe.py sweep   (64 channels x 9 levels, laser lit)
+# Then write the measured mapping here and set verified=1 on the rows it settles.
+# Leave H blank to mark a channel as deliberately unassigned. `#` comments are ignored.
+dac,H,verified,stage,evidence
+0,0,0,enc.split,silent in 75k data (likely unbonded)
+1,1,0,enc.split,supported: top reference LO modulator
+2,2,0,enc.split,
+3,3,0,enc.split,
+4,4,0,enc.split,
+5,5,0,enc.split,
+6,6,0,enc.split,
+7,7,0,enc.split,
+8,8,0,enc.split,
+9,9,0,enc.split,
+10,10,0,enc.split,
+11,11,0,enc.split,
+12,12,0,enc.split,
+13,13,0,enc.split,
+14,14,0,enc.split,supported: bottom reference LO modulator
+15,15,0,enc.split,supported: bottom reference LO modulator
+16,16,0,enc.single,contradicted: shifter block appears reversed
+17,17,0,enc.single,contradicted: shifter block appears reversed
+18,18,0,enc.single,contradicted: shifter block appears reversed
+19,19,0,enc.single,contradicted: shifter block appears reversed
+20,20,0,enc.single,contradicted: shifter block appears reversed
+21,21,0,enc.single,contradicted: shifter block appears reversed
+22,22,0,enc.single,contradicted: shifter block appears reversed
+23,23,0,enc.single,contradicted: shifter block appears reversed
+24,24,0,V,
+25,25,0,V,
+26,26,0,V,
+27,27,0,V,
+28,28,0,V,
+29,29,0,V,
+30,30,0,V,
+31,31,0,V,
+32,32,0,V,
+33,33,0,V,
+34,34,0,V,
+35,35,0,V,
+36,36,0,V,
+37,37,0,V,
+38,38,0,V,
+39,39,0,V,
+40,40,0,V,
+41,41,0,V,
+42,42,0,V,
+43,43,0,V,
+44,44,0,V,
+45,45,0,V,
+46,46,0,V,
+47,47,0,V,
+48,48,0,V,
+49,49,0,V,
+50,50,0,V,
+51,51,0,V,
+52,52,0,V,
+53,53,0,V,
+54,54,0,V,
+55,55,0,V,
+56,56,0,V,
+57,57,0,V,
+58,58,0,V,
+59,59,0,V,
+60,60,0,V,
+61,61,0,V,
+62,62,0,V,
+63,63,0,V,

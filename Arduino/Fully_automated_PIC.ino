@@ -7,7 +7,9 @@ int CS_DAC2 = 3;
 int CS_DAC3 = 2;
 
 const int numPins = 14;  // Number of ADC pins (A0 to A13)
-const unsigned long interval = 31; // 31ms for ADC averaging
+// ADC averaging window. One sweep of 14 pins is ~1.46 ms (~104 us/analogRead on
+// the Mega), so this many ms fits ~interval/1.46 sweeps: 75 ms -> ~50 sweeps.
+const unsigned long interval = 75; // ~50 averaged sweeps (was 31 ms / ~20)
 const unsigned long dacSettlingTime = 10; // DAC settling time in microseconds
 
 void setup() {

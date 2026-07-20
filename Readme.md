@@ -44,18 +44,41 @@ Plaintext DSL parsed by `picscript.py`. A file is one or more *blocks* separated
 Collections (for `for` / `sweep`): `heaters` · `0..63` · `0..63 step 2` · `[1,3,5]`.
 Values are volts (clipped 0–5).
 
-### `ui.py` — browser console
+### `ui.py` — browser console (a live view of the chip)
 
 ```
 python ui.py                 # opens http://localhost:8787   (--port N, --no-open)
+python ui.py --mock          # attach the mock laser + mock PIC at startup
 ```
 
-**Poll** auto-detects the board and connects (leave **auto-connect** on and it grabs one
-as soon as it's plugged in; tick **mock** for the hardware-free simulator). Then set the
-64 DAC volts live with sliders, watch the 14 photodiodes, and run `.pic` scripts with
-streamed output. Every action, board error, and server drop-out surfaces as a toast, so
-it stays legible when driven remotely. Thin shell over `src.pic` + the `picscript`
-parser — plain Vue 3, no build step.
+The page *is* the chip: it draws the real 6×6P schematic from `src.pic.layout` (the same
+scene graph, built off the GDS netlist) and paints live state onto it. The laser feeds the
+input coupler on the left with a power slider and an ON/OFF button; every heater is tinted
+by its supplied DAC voltage; every photodiode shows its measured value where it physically
+sits. Click a heater to drive it. Scroll to zoom, drag to pan, **fit** to reset.
+
+**Laser and PIC are separate devices with separate connect buttons and separate `mock`
+toggles**, so you can mock either one alone. Ports auto-detect (the Arduino is the numeric
+CH340, the laser the FTDI; neither can grab the other's port), and `i` shows what actually
+connected — port, firmware, key/interlock preflight.
+
+The **auto-off** countdown in the header is a real watchdog: `threading.Timer` in the
+server hard-offs the laser when it expires, so closing the browser cannot leave the laser
+lit. The countdown is server-authoritative and resynced every poll; `+Ns` re-arms it.
+`SIGINT`/`SIGTERM`/`SIGHUP` all ramp the laser down and zero the DACs before exiting.
+Power above **+5 dBm** is refused unless explicitly unlocked (PD-safe policy for this rig).
+
+`laser_status == 1` does not prove emission, so the panel distinguishes **EMITTING** (the
+monitor photodiode rose off its dark baseline) from **ARMED · no light**.
+
+> ⚠ Heater *positions* on the diagram are provisional: see `pic_data/dac_heater_map.csv`.
+> The 64 DAC channels drive 64 of the 120 heaters, and which is which was never recorded.
+> Voltages are real; the heater each channel lands on is a labelled guess. Undriven heaters
+> render hollow. Run `python scripts/dac_heater_probe.py evidence` for what the data says,
+> and `... sweep` to settle it on hardware.
+
+Every action, board error, and server drop-out surfaces as a toast. Thin shell over
+`src.pic` + the `picscript` parser; plain Vue 3, no build step.
 
 ### PIC replica — `src/pic_neurophox.py`
 
