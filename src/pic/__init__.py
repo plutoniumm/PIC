@@ -18,7 +18,7 @@ from .config import (
     VOLTAGE_MIN,
     VOLTAGE_MAX,
 )
-from .interface import PIC, MockPIC, PICError, find_port
+from .interface import PIC, MockPIC, PICError, find_port, mock_fringe_forward
 from . import acquisition, config
 
 __all__ = [
@@ -26,6 +26,7 @@ __all__ = [
     "MockPIC",
     "PICError",
     "find_port",
+    "mock_fringe_forward",
     "PICConfig",
     "live_mask",
     "dac_code",

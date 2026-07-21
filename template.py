@@ -44,6 +44,7 @@ import os
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime
 
 import numpy as np
@@ -51,7 +52,18 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from laser.laser import Laser, LaserError
 from laser.pdmv5 import PDMv5Error
-from src.pic import PIC, MockPIC, PICError, find_port, NUM_DAC, NUM_ADC_RAW, LIVE_PDS
+from src.pic import (
+    PIC,
+    MockPIC,
+    PICError,
+    find_port,
+    mock_fringe_forward,
+    NUM_DAC,
+    NUM_ADC_RAW,
+    LIVE_PDS,
+)
+from src.pic.acquisition import poll_pds, settling_time
+from src.pic.config import FIRMWARE_VMAX, VPI_NOMINAL, ADC_AVG_MS
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -89,6 +101,62 @@ def load_vectors(volts, volts_file, zero) -> list[np.ndarray]:
     return [np.zeros(NUM_DAC)]  # default: the zero-vector baseline
 
 
+def parse_channels(spec, num_dac=NUM_DAC) -> list[int]:
+    """'all' / '0-63' / '0,1,5' / '0-15,32-47' -> sorted unique channel list."""
+    if not spec or spec.strip() in ("all", "*"):
+        return list(range(num_dac))
+    out: set[int] = set()
+    for part in spec.replace(" ", "").split(","):
+        if not part:
+            continue
+        if "-" in part:
+            a, b = part.split("-")
+            out.update(range(int(a), int(b) + 1))
+        else:
+            out.add(int(part))
+    bad = [c for c in out if not 0 <= c < num_dac]
+    if bad:
+        raise ValueError(f"channel(s) out of 0..{num_dac - 1}: {sorted(bad)}")
+    return sorted(out)
+
+
+def parse_levels(spec) -> list[float]:
+    """'0.25,0.5,2' or 'start:stop:step' -> sorted unique positive levels."""
+    spec = (spec or "").strip()
+    if ":" in spec:
+        a, b, s = (float(x) for x in spec.split(":"))
+        n = int(round((b - a) / s)) + 1
+        vals = [round(a + i * s, 6) for i in range(n)]
+    else:
+        vals = [float(x) for x in spec.replace(" ", "").split(",") if x]
+    return sorted({v for v in vals if v > 0})
+
+
+def sweep_vectors(channels, levels, num_dac=NUM_DAC, include_base=True):
+    """One-at-a-time sweep program: a single shared all-zero baseline (tagged channel -1),
+    then one one-hot vector per (channel, level). Others held at 0 -- the marginal fringe.
+    Returns ``(vectors, meta)`` with ``meta`` a list of ``(channel, level)`` per vector;
+    the active channel and its level are also recoverable straight from each one-hot input,
+    so the CSV needs no extra columns. Feed ``vectors`` to :func:`run_experiment`."""
+    vectors, meta = [], []
+    if include_base:
+        vectors.append(np.zeros(num_dac))
+        meta.append((-1, 0.0))
+    for c in channels:
+        for v in levels:
+            x = np.zeros(num_dac)
+            x[c] = float(v)
+            vectors.append(x)
+            meta.append((int(c), float(v)))
+    return vectors, meta
+
+
+def estimate_sweep_seconds(n_vectors, settle_s, repeats, keepalive_s=0.4, read_s=0.15):
+    """Rough wall-clock for a sweep of ``n_vectors``, to size the laser-on watchdog."""
+    per = settle_s + repeats * read_s + keepalive_s
+    return n_vectors * per * 1.3 + 5.0
+
+
 # --------------------------------------------------------------------- device opening
 def _resolve_pic_port(explicit, laser_port):
     """PIC (CH340) port, EXCLUDING the laser FTDI that find_port's glob also matches."""
@@ -116,6 +184,71 @@ def open_devices(mock=False, laser_port=None, pic_port=None):
     return laser, pic
 
 
+# --------------------------------------------------------------- laser safety scaffolding
+class _Session:
+    """Handle yielded by :func:`laser_session`; see there for the fields/methods."""
+
+
+@contextmanager
+def laser_session(laser, *, duration_s, power_dbm, bfm_off=None, emit_eps=0.05):
+    """Bounded, watchdog-guarded laser-on session -- the ONE copy of the laser safety
+    logic every experiment here shares. On enter: baseline the monitor PD (laser still
+    off) unless ``bfm_off`` is supplied, turn the laser ON to ``power_dbm``, and ARM a
+    background hard-off Timer at ``duration_s``. Yields a :class:`_Session` with
+    ``.sp .mA .bfm_off .bfm_on .emitted .deadline``, ``.keepalive(sleep_s=0)`` (re-pokes
+    the setpoint so the driver's idle self-disable can't drop the beam), and
+    ``.expired()``. On EVERY exit path (normal, exception, or watchdog): cancel the timer
+    and force the laser OFF unless the watchdog already did. All laser-FTDI access is
+    under one lock so the watchdog can never collide with keepalive/telemetry. This is the
+    safety contract from the module docstring -- do not weaken it."""
+    lock = threading.Lock()
+    stopped = threading.Event()
+    wd = None
+
+    def _bfm():
+        return float(laser.dev.measure("bfm_optical_power"))
+
+    def force_off():  # watchdog target -- a watchdog must never die silently
+        with lock:
+            try:
+                print(f"\n[watchdog] {duration_s:.0f}s reached -> forcing laser OFF")
+                laser.off()
+            except Exception as e:
+                print(f"[watchdog] hw_off error: {e}")
+        stopped.set()
+
+    s = _Session()
+    s.stopped = stopped
+    s.bfm_off = _bfm() if bfm_off is None else bfm_off  # laser still off here
+    try:
+        with lock:
+            laser.on(power_dbm)  # open (idempotent) + enable + ramp, one call
+            s.sp = float(laser.dev.read_setting("cw_current"))
+            s.mA = laser.measured_mA()
+        wd = threading.Timer(duration_s, force_off)
+        wd.daemon = True
+        wd.start()
+        s.deadline = time.time() + duration_s
+        s.bfm_on = _bfm()
+        s.emitted = (s.bfm_on - s.bfm_off) > emit_eps
+
+        def keepalive(sleep_s: float = 0.0):
+            with lock:
+                laser.dev.write_setting("cw_current", s.sp, verify=False)
+            if sleep_s:
+                time.sleep(sleep_s)
+
+        s.keepalive = keepalive
+        s.expired = lambda: stopped.is_set() or time.time() >= s.deadline
+        yield s
+    finally:
+        if wd is not None:
+            wd.cancel()
+        with lock:
+            if not stopped.is_set():
+                laser.off()
+
+
 # ------------------------------------------------------------------------ the procedure
 def run_experiment(
     laser,
@@ -138,20 +271,6 @@ def run_experiment(
     Every sample is one CSV row so post-processing can average / filter offline.
     """
     vectors = [np.asarray(v, float).ravel() for v in heater_vectors]
-    lock = threading.Lock()  # serialises all laser-FTDI access
-    stopped = threading.Event()  # set once the watchdog has forced the laser off
-
-    def force_off():
-        with lock:
-            try:
-                print(f"\n[watchdog] {duration_s:.0f}s reached -> forcing laser OFF")
-                laser.hw_off()
-            except Exception as e:  # a watchdog must never die silently
-                print(f"[watchdog] hw_off error: {e}")
-        stopped.set()
-
-    def bfm():
-        return float(laser.dev.measure("bfm_optical_power"))
 
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     started = datetime.now()
@@ -204,11 +323,10 @@ def run_experiment(
         return [np.asarray(pic.measure_raw(vec), float) for _ in range(max(1, repeats))]
 
     summary = {"out_path": out_path, "n_rows": 0}
-    wd = None
     try:
         # 1. dark baseline -- laser OFF (proves the floor + gives the bfm reference)
         print("dark baseline (laser off) ...")
-        bfm_off = bfm()
+        bfm_off = float(laser.dev.measure("bfm_optical_power"))
         dark = []
         for s in range(max(1, dark_repeats)):
             pds = np.asarray(pic.measure_raw(vectors[0]), float)
@@ -218,70 +336,185 @@ def run_experiment(
 
         # 2. laser ON at power, watchdog armed from this instant
         print(f"laser ON -> {power_dbm:+.1f} dBm ...")
-        with lock:
-            laser.hw_on()
-            laser.set(power_dbm)
-            sp = float(laser.dev.read_setting("cw_current"))
-            mA = laser.measured_mA()
-        wd = threading.Timer(duration_s, force_off)
-        wd.daemon = True
-        wd.start()
-        laser_deadline = time.time() + duration_s
-        print(f"[watchdog] armed: laser forced OFF at t+{duration_s:.0f}s")
-
-        bfm_on = bfm()
-        emitted = (bfm_on - bfm_off) > emit_eps
-        summary.update(
-            bfm_off=bfm_off,
-            bfm_on=bfm_on,
-            emitted=bool(emitted),
-            laser_mA=mA,
-            laser_setpoint=sp,
-        )
-        edbm, emW = laser.setpoint_to_dbm(sp)
-        print(
-            f"  setpoint {sp:.1f} (~{emW:.2f} mW), {mA:.0f} mA, "
-            f"monitor {bfm_off:.3g}->{bfm_on:.3g}"
-        )
-        if not emitted:
-            print(
-                "  ** WARNING: monitor PD did not rise -- laser may be armed (READY) "
-                "but NOT lasing. Treat outputs as suspect (see task #9). **"
+        with laser_session(
+            laser, duration_s=duration_s, power_dbm=power_dbm,
+            bfm_off=bfm_off, emit_eps=emit_eps,
+        ) as ls:
+            mA, sp = ls.mA, ls.sp
+            print(f"[watchdog] armed: laser forced OFF at t+{duration_s:.0f}s")
+            summary.update(
+                bfm_off=ls.bfm_off, bfm_on=ls.bfm_on, emitted=bool(ls.emitted),
+                laser_mA=mA, laser_setpoint=sp,
             )
+            edbm, emW = laser.setpoint_to_dbm(sp)
+            print(
+                f"  setpoint {sp:.1f} (~{emW:.2f} mW), {mA:.0f} mA, "
+                f"monitor {ls.bfm_off:.3g}->{ls.bfm_on:.3g}"
+            )
+            if not ls.emitted:
+                print(
+                    "  ** WARNING: monitor PD did not rise -- laser may be armed (READY) "
+                    "but NOT lasing. Treat outputs as suspect (see task #9). **"
+                )
 
-        # 3. signal phase -- apply each heater vector, sample the PDs
-        for vec_id, vec in enumerate(vectors):
-            if stopped.is_set() or time.time() >= laser_deadline:
-                print("  duration reached before all vectors ran -- stopping early.")
-                break
-            for s, pds in enumerate(sample_pds(vec)):
-                log("signal", vec_id, s, power_dbm, mA, bfm_on, vec, pds)
-                summary["n_rows"] += 1
-            with lock:  # keepalive: hold the laser lit against the idle watchdog
-                laser.dev.write_setting("cw_current", sp, verify=False)
-            time.sleep(keepalive_s)
+            # 3. signal phase -- apply each heater vector, sample the PDs
+            for vec_id, vec in enumerate(vectors):
+                if ls.expired():
+                    print("  duration reached before all vectors ran -- stopping early.")
+                    break
+                for s, pds in enumerate(sample_pds(vec)):
+                    log("signal", vec_id, s, power_dbm, mA, ls.bfm_on, vec, pds)
+                    summary["n_rows"] += 1
+                ls.keepalive(keepalive_s)  # hold the laser lit against its idle timeout
     finally:
-        if wd is not None:
-            wd.cancel()
-        with lock:
-            if not stopped.is_set():
-                laser.hw_off()
         f.close()
 
     print(f"  wrote {summary['n_rows']} signal rows -> {out_path}")
     return summary
 
 
+# ------------------------------------------------------------------- step / settling probe
+def _report_step(res, t, channels, step_v, power_dbm, window):
+    """Terse per-live-PD settling digest + a recommended host settle_s."""
+    ts, fin, sw = res["t_settle"], res["final"], res["swing"]
+    n = len(t)
+    span = float(t[-1] - t[0]) if n > 1 else 0.0
+    rate = (n - 1) / span if span > 0 else float("nan")
+    print(
+        f"\n[step] settling @ {power_dbm:+.1f} dBm, channels {list(channels)} "
+        f"-> {step_v:g} V, window={window}"
+    )
+    print(
+        f"  {n} reads over {span:.2f}s  "
+        f"(~{1000 * span / max(n - 1, 1):.0f} ms/read, {rate:.1f} reads/s)"
+    )
+    print("  per live PD:   final V   swing mV   settle s")
+    settles = []
+    for k in LIVE_PDS:
+        st = ts[k]
+        if np.isfinite(st) and st > t[0]:
+            settles.append(st)
+        ststr = f"{st:6.2f}" if np.isfinite(st) else " n/a "
+        print(f"    pd{k:<2}   {fin[k]:7.3f}   {sw[k] * 1000:8.1f}   {ststr}")
+    if settles:
+        rec = max(settles) * 1.2
+        print(f"\n  -> recommended host settle_s: {rec:.2f}s (slowest live PD +20%)")
+    else:
+        print("\n  -> no resolvable transient (settled within the first read).")
+    if rate == rate:  # not NaN
+        print(
+            f"     firmware already averages {ADC_AVG_MS} ms internally; a rolling window "
+            f"of {window} reads (~{window / rate:.1f}s @ {rate:.1f}/s) smooths the rest."
+        )
+
+
+def run_step_response(
+    laser,
+    pic,
+    *,
+    step_channels,
+    step_v: float,
+    seconds: float,
+    power_dbm: float,
+    out_path: str,
+    window: int = 10,
+    base=None,
+    presettle_s: float = 1.0,
+    dark_repeats: int = 5,
+    rel_band: float = 0.05,
+    floor: float = 0.005,
+    tick_s: float = 0.5,
+    emit_eps: float = 0.05,
+) -> dict:
+    """Light the chip, apply a step (``base`` -> ``step_channels`` at ``step_v``), and
+    poll every PD as fast as the firmware replies for ``seconds`` -- i.e. how long the PD
+    voltages take to stabilise. Per-PD settling is read off a rolling mean over ``window``
+    reads (the smoothing). Same watchdog/lock safety as :func:`run_experiment` via
+    :func:`laser_session`; the poll keepalives the laser so it can't self-disable mid-
+    capture. Every read is one CSV row. Returns a summary (incl. the ``settling_time``
+    dict, raw trace, and recommended settle_s)."""
+    nd = pic.cfg.num_dac
+    base = np.zeros(nd) if base is None else np.asarray(base, float).copy()
+    v_step = base.copy()
+    for c in step_channels:
+        v_step[int(c)] = float(step_v)
+
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    started = datetime.now()
+    f = open(out_path, "w", newline="")
+    w = csv.writer(f)
+    w.writerow([f"# PIC step response  {started.isoformat(timespec='seconds')}"])
+    w.writerow(
+        [
+            f"# channels={list(step_channels)} step_v={step_v} power_dbm={power_dbm} "
+            f"window={window} seconds={seconds}"
+        ]
+    )
+    w.writerow(["t_s", "phase"] + [f"pd{i}" for i in range(NUM_ADC_RAW)])
+
+    def logrow(t, phase, pds):
+        w.writerow([f"{t:.4f}", phase] + [f"{p:.4f}" for p in pds])
+        f.flush()
+
+    summary = {"out_path": out_path}
+    t = raw = None
+    try:
+        # 1. dark baseline -- laser OFF
+        print("dark baseline (laser off) ...")
+        bfm_off = float(laser.dev.measure("bfm_optical_power"))
+        t0d = time.perf_counter()
+        dark = []
+        for _ in range(max(1, dark_repeats)):
+            pds = np.asarray(pic.measure_raw(base), float)
+            dark.append(pds)
+            logrow(time.perf_counter() - t0d, "dark", pds)
+        summary["dark_mean_live"] = np.mean(dark, 0)[list(LIVE_PDS)].tolist()
+
+        # 2. laser ON, presettle at base, then step + poll
+        print(f"laser ON -> {power_dbm:+.1f} dBm ...")
+        with laser_session(
+            laser, duration_s=seconds + presettle_s + 15.0, power_dbm=power_dbm,
+            bfm_off=bfm_off, emit_eps=emit_eps,
+        ) as ls:
+            summary.update(
+                bfm_off=ls.bfm_off, bfm_on=ls.bfm_on, emitted=bool(ls.emitted),
+                laser_mA=ls.mA, laser_setpoint=ls.sp,
+            )
+            print(
+                f"  monitor {ls.bfm_off:.3g}->{ls.bfm_on:.3g}"
+                + ("" if ls.emitted else "  ** no rise -- treat as suspect (task #9) **")
+            )
+            pic.measure_raw(base)  # hold base cold, laser lit
+            ls.keepalive(presettle_s)
+            print(
+                f"step: channels {list(step_channels)} -> {step_v:g} V, "
+                f"polling {seconds:g}s ..."
+            )
+            t, raw = poll_pds(
+                pic, v_step, seconds, on_tick=ls.keepalive, tick_s=tick_s
+            )
+            for ti, pr in zip(t, raw):
+                logrow(float(ti), "signal", pr)
+    finally:
+        f.close()
+
+    if t is None or len(t) < 2:
+        print("  step aborted before enough reads -- no settling estimate.")
+        return summary
+    res = settling_time(t, raw, window=window, rel_band=rel_band, floor=floor)
+    summary.update(settling=res, t=t, raw=raw)
+    settled = res["t_settle"][list(LIVE_PDS)]
+    settled = settled[np.isfinite(settled) & (settled > t[0])]
+    summary["recommended_settle_s"] = float(settled.max() * 1.2) if settled.size else 0.0
+    _report_step(res, t, step_channels, step_v, power_dbm, window)
+    print(f"  wrote {len(t)} poll rows -> {out_path}")
+    return summary
+
+
 # --------------------------------------------------------------------- no-hardware mock
 def _mock_forward():
-    rng = np.random.default_rng(0)
-    W = rng.normal(0, 0.1, (NUM_ADC_RAW, NUM_DAC))
-    b = rng.uniform(0, 6.28, NUM_ADC_RAW)
-
-    def fwd(v):
-        return 0.02 + 0.05 * (1 + np.sin(W @ (np.asarray(v) / 4.0) + b))
-
-    return fwd
+    """Faithful phi~V^2 fringe forward so --mock exercises the real sweep/fringe path."""
+    return mock_fringe_forward(seed=0)
 
 
 class _FakeDev:
@@ -299,17 +532,17 @@ class _FakeDev:
 
     def measure(self, name):
         if name == "bfm_optical_power":
-            return 0.2 + (0.04 * self.p.sp if self.p.on else 0.0)
+            return 0.2 + (0.04 * self.p.sp if self.p._on else 0.0)
         if name == "diode_cw_current":
             return self.p.measured_mA()
         return 0
 
 
 class _FakeLaser:
-    """Minimal stand-in exercising the exact calls run_experiment makes."""
+    """Minimal stand-in exercising the exact calls the runners make (on/off/set/dev)."""
 
     def __init__(self):
-        self.on = False
+        self._on = False  # state flag; the ergonomic enable is the on() method below
         self.sp = 0.0
         self.dev = _FakeDev(self)
 
@@ -320,21 +553,31 @@ class _FakeLaser:
         pass
 
     def hw_on(self):
-        self.on = True
+        self._on = True
         self.sp = 5.0
         print("[mock] laser ON (floor)")
 
     def hw_off(self):
         self.sp = 0.0
-        self.on = False
+        self._on = False
         print("[mock] laser OFF (safe)")
+
+    def on(self, power_dbm=None, *, time=None, raw=False):
+        self.hw_on()
+        if power_dbm is not None:
+            self.set(power_dbm, raw=raw)
+        return self
+
+    def off(self):
+        self.hw_off()
+        return self
 
     def set(self, dbm, *, raw=False):
         mW = min(10.0 ** (float(dbm) / 10.0), 32.8)
         self.sp = max(5.0, (mW + 1.44) / 0.3437)
 
     def measured_mA(self):
-        return 2.5 * self.sp - 7 if self.on else 1.6
+        return 2.5 * self.sp - 7 if self._on else 1.6
 
     def setpoint_to_dbm(self, sp):
         import math
@@ -356,6 +599,28 @@ def main(argv=None):
     g.add_argument(
         "--zero", action="store_true", help="single zero vector (M.0 baseline)"
     )
+    g.add_argument(
+        "--sweep",
+        action="store_true",
+        help="one-at-a-time sweep: each channel over --sweep-levels, others at 0",
+    )
+    g.add_argument(
+        "--step",
+        action="store_true",
+        help="step response: set --step-channels to --step-v, poll PDs, report settling",
+    )
+    ap.add_argument("--sweep-channels", default="all", help="e.g. all / 0-63 / 0,1,5")
+    ap.add_argument(
+        "--sweep-levels", default="0.25:2.0:0.25", help="list or start:stop:step [V]"
+    )
+    ap.add_argument("--step-channels", default="0-7", help="channels to step, e.g. 0-7")
+    ap.add_argument("--step-v", type=float, default=VPI_NOMINAL, help="step voltage [V]")
+    ap.add_argument(
+        "--step-seconds", type=float, default=8.0, help="seconds to poll after the step"
+    )
+    ap.add_argument(
+        "--window", type=int, default=10, help="rolling-average window [reads]"
+    )
     ap.add_argument(
         "--out", default=None, help="output CSV (default runs/exp_<ts>.csv)"
     )
@@ -372,14 +637,82 @@ def main(argv=None):
             f"note: {a.power:+.1f} dBm is above the +5 dBm PD-safe policy for this rig."
         )
 
-    try:
-        vectors = load_vectors(a.volts, a.volts_file, a.zero)
-    except ValueError as e:
-        print(f"bad heater vectors: {e}")
-        return 2
+    if a.step:
+        try:
+            step_ch = parse_channels(a.step_channels)
+        except ValueError as e:
+            print(f"bad step channels: {e}")
+            return 2
+        if not step_ch:
+            print("no step channels")
+            return 2
+        if a.step_v > FIRMWARE_VMAX:
+            print(
+                f"note: step-v {a.step_v} exceeds the {FIRMWARE_VMAX} V firmware clamp -- "
+                "it will be silently clamped on the device."
+            )
+        out = a.out or os.path.join(
+            ROOT, "runs", f"step_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        )
+        try:
+            laser, pic = open_devices(a.mock, a.laser_port, a.pic_port)
+        except (LaserError, PICError, PDMv5Error) as e:
+            print(f"device open failed: {e}")
+            return 1
+        try:
+            s = run_step_response(
+                laser, pic, step_channels=step_ch, step_v=a.step_v,
+                seconds=a.step_seconds, power_dbm=a.power, out_path=out,
+                window=a.window, dark_repeats=a.dark_repeats,
+            )
+        except (LaserError, PICError, PDMv5Error) as e:
+            print(f"step error: {e}")
+            return 1
+        finally:
+            laser.close()
+            pic.close()
+        verdict = (
+            "monitor PD rose (emission likely)"
+            if s.get("emitted")
+            else "monitor PD FLAT -- no light out"
+        )
+        print(f"done: step response, {len(step_ch)} channel(s); {verdict}.")
+        return 0
+
+    prefix = "exp"
+    if a.sweep:
+        try:
+            chans = parse_channels(a.sweep_channels)
+            levels = parse_levels(a.sweep_levels)
+        except ValueError as e:
+            print(f"bad sweep spec: {e}")
+            return 2
+        if not levels:
+            print("no sweep levels")
+            return 2
+        over = [v for v in levels if v > FIRMWARE_VMAX]
+        if over:
+            print(
+                f"note: levels {over} exceed the {FIRMWARE_VMAX} V firmware clamp -- "
+                "they will be silently clamped on the device."
+            )
+        vectors, _meta = sweep_vectors(chans, levels)
+        est = estimate_sweep_seconds(len(vectors), a.settle, a.repeats)
+        a.duration = max(a.duration, est)
+        prefix = "sweep"
+        print(
+            f"sweep: {len(chans)} channels x {len(levels)} levels = {len(vectors)} "
+            f"vectors; ~{est / 60:.1f} min laser-on, watchdog set to {a.duration:.0f}s."
+        )
+    else:
+        try:
+            vectors = load_vectors(a.volts, a.volts_file, a.zero)
+        except ValueError as e:
+            print(f"bad heater vectors: {e}")
+            return 2
 
     out = a.out or os.path.join(
-        ROOT, "runs", f"exp_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        ROOT, "runs", f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     )
     try:
         laser, pic = open_devices(a.mock, a.laser_port, a.pic_port)

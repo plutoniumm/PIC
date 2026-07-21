@@ -13,37 +13,6 @@ out. Chip/vendor background in `NUS/` and `CLAUDE.md`.
 Run everything from the **repo root** with the **`pic`** conda env (Python 3.14):
 `conda activate pic` (or `/usr/local/Caskroom/miniconda/base/envs/pic/bin/python`).
 
-### `run.py` — run a `.pic` script on the board
-
-```
-python run.py <file.pic> [--mock] [--dry] [--no-csv] [--zero] [--port=DEV] [--out=DIR]
-```
-
-Runs each block of the file: sets a 64-channel DAC pattern, pulses it `iters`× every
-`loop` s, and writes one CSV per pulse to `runs/`. `--mock` = no hardware, `--dry` =
-parse + plan only. Stop early with **Ctrl-C** or by typing **`exit`** — the DACs zero on
-exit. Full-feature example: `scripts/tutorial.pic`.
-
-### picscript — the `.pic` language
-
-Plaintext DSL parsed by `picscript.py`. A file is one or more *blocks* separated by `---`
-(or `done`); blocks run top to bottom, so several experiments live in one file.
-
-| line | meaning |
-|---|---|
-| `V_5 = 2` | set DAC channel 5 to 2 V (`set V_5 to 2` also works) |
-| `V_5 = 2, V_9 = 4` | several at once |
-| `for H in heaters: V = 0.05*H` | loop; bare `V` means `V_H`, `H` is the index |
-| `loop = 4` / `pulse every 4s` | pulse period, seconds |
-| `iters = 10` / `repeat 10 times` | number of pulses |
-| `settle = 0.5` | extra dwell before each read, seconds |
-| `sweep V_5 from 0 to 4 step 0.5` | run the block once per value, one CSV each |
-| `name warmup` | CSV name for the block |
-| `# …` , `/* … */` | line / block comment |
-
-Collections (for `for` / `sweep`): `heaters` · `0..63` · `0..63 step 2` · `[1,3,5]`.
-Values are volts (clipped 0–5).
-
 ### `ui.py` — browser console (a live view of the chip)
 
 ```
@@ -78,7 +47,7 @@ monitor photodiode rose off its dark baseline) from **ARMED · no light**.
 > and `... sweep` to settle it on hardware.
 
 Every action, board error, and server drop-out surfaces as a toast. Thin shell over
-`src.pic` + the `picscript` parser; plain Vue 3, no build step.
+`src.pic`; plain Vue 3, no build step.
 
 ### PIC replica — `src/pic_neurophox.py`
 
@@ -117,7 +86,6 @@ mean PD volts in).
   scaffold), `inverse` (`MonteCarloInverse`, `GradientInverse` scaffold), `characterize`
   (per-heater φ²/φ⁰ fringe fits), `pic_neurophox` (the replica above).
 - **`scripts/`** — analysis / schematic / hardware scripts; index in **`scripts/README.md`**.
-- `run.py` + `picscript.py` — the `.pic` scripting layer.
 
 
 ## Datasets

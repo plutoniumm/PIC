@@ -8,7 +8,7 @@
 The page draws the real 6x6P schematic (from `src.pic.layout`, the same scene graph the
 static figure uses) and paints live state onto it: the laser feeding the input coupler on
 the left, every heater tinted by its supplied DAC voltage, every photodiode showing its
-measured value where it physically sits. `.pic` scripts still run with streamed output.
+measured value where it physically sits.
 
 Two independent serial devices, each independently mockable: the laser is an FTDI, the
 PIC's Arduino is a numeric CH340. They get separate locks so a slow photodiode read can
@@ -59,7 +59,6 @@ from src.pic.wiring import load_map
 from laser.laser import Laser, LaserError
 from laser.mock import MockLaser
 from laser.pdmv5 import PDMv5Error
-from picscript import parse
 
 VMAX = 5.0
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -78,8 +77,6 @@ TELEMETRY_HZ = 2.0
 KEEPALIVE_S = 0.4
 
 LOCK = threading.Lock()  # serialises PIC hardware access
-STOP = threading.Event()  # aborts a running script
-RUNNING = threading.Event()  # a script is streaming
 
 SCENE = build_scene()
 WIRING = load_map(root=HERE)
@@ -375,7 +372,7 @@ class Session:
         p, cands = _pic_port(None)
         return {
             "connected": self.connected, "mock": self.mock, "port": self.port,
-            "hold": self.hold, "running": RUNNING.is_set(), "ports": cands,
+            "hold": self.hold, "ports": cands,
             "auto_port": p, "info": self.info,
             "vec": [round(float(x), 3) for x in self.vec],
             "adc": [round(float(x), 4) for x in self.adc],
@@ -447,8 +444,6 @@ def api_laser_extend(body):
 def api_set(body):
     if not SESSION.connected:
         return {"error": "PIC not connected"}
-    if RUNNING.is_set():
-        return {"error": "script running"}
     with LOCK:
         if "vec" in body:
             v = np.asarray(body["vec"], float).ravel()
@@ -464,8 +459,6 @@ def api_set(body):
 def api_measure(_body):
     if not SESSION.connected:
         return {"error": "PIC not connected"}
-    if RUNNING.is_set():
-        return {**_measure_payload(), "running": True}
     with LOCK:
         SESSION.apply()
     return _measure_payload()
@@ -474,94 +467,14 @@ def api_measure(_body):
 def api_zero(_body):
     if not SESSION.connected:
         return {"error": "PIC not connected"}
-    if RUNNING.is_set():
-        STOP.set()
-        return {"stopping": True}
     with LOCK:
         SESSION.vec = np.zeros(NUM_DAC)
         SESSION.apply()
     return _measure_payload()
 
 
-def api_stop(_body):
-    STOP.set()
-    return {"stopping": True}
-
-
 def api_geometry(_body):
     return {"scene": SCENE, "wiring": WIRING.as_json()}
-
-
-def api_examples(_body):
-    seen, out = set(), []
-    for d in ("examples", "scripts", "."):
-        base = os.path.join(HERE, d)
-        for fn in sorted(os.listdir(base)) if os.path.isdir(base) else []:
-            if fn.endswith(".pic") and fn not in seen:
-                seen.add(fn)
-                with open(os.path.join(base, fn)) as f:
-                    out.append({"name": fn, "text": f.read()})
-    return {"examples": out}
-
-
-def _nonzero(vec):
-    return {i: round(float(x), 3) for i, x in enumerate(vec) if x}
-
-
-def run_script_stream(text, emit):
-    """Parse and execute a `.pic` script on the live connection, emitting one JSON event
-    per pulse. Holds the PIC lock for the whole run so manual sets queue behind it."""
-    if not SESSION.connected:
-        emit({"type": "error", "msg": "PIC not connected -- connect a board first"})
-        return
-    try:
-        blocks = parse(text)
-    except Exception as e:  # noqa: BLE001 -- surface the parse message to the UI
-        emit({"type": "error", "msg": f"parse error: {e}"})
-        return
-    runs = [r for b in blocks for r in b.runs()]
-    if not runs:
-        emit({"type": "error", "msg": "no runnable blocks found"})
-        return
-    total = sum(s.get("loop", 0) * (max(1, int(s.get("iters", 1))) - 1)
-                for _, _, s in runs)
-    emit({"type": "plan", "blocks": len(blocks), "runs": len(runs), "eta": round(total, 1),
-          "items": [{"name": n, "channels": len(_nonzero(v)),
-                     "iters": int(s.get("iters", 1)), "loop": s.get("loop", 0)}
-                    for n, v, s in runs]})
-    STOP.clear()
-    with LOCK:
-        RUNNING.set()
-        try:
-            for name, vec, settings in runs:
-                if STOP.is_set():
-                    break
-                loop = settings.get("loop", 0.0)
-                iters = max(1, int(settings.get("iters", 1)))
-                settle = settings.get("settle", 0.0)
-                SESSION.vec = vec.copy()
-                emit({"type": "run", "name": name, "iters": iters, "loop": loop,
-                      "vec": [round(float(x), 3) for x in vec]})
-                t0 = time.time()
-                for i in range(iters):
-                    if STOP.is_set():
-                        break
-                    if settle:
-                        SESSION.pic.measure_raw(vec)
-                        if STOP.wait(settle):
-                            break
-                    adc = np.asarray(SESSION.pic.measure_raw(vec), float)
-                    SESSION.adc = adc
-                    emit({"type": "sample", "name": name, "i": i, "iters": iters,
-                          "t": round(time.time() - t0, 2),
-                          "adc": [round(float(x), 4) for x in adc]})
-                    if loop and i < iters - 1 and STOP.wait(loop):
-                        break
-        except Exception as e:  # noqa: BLE001 -- surface a hardware fault to the UI
-            emit({"type": "error", "msg": f"hardware fault mid-run: {e}"})
-        finally:
-            RUNNING.clear()
-    emit({"type": "done", "aborted": STOP.is_set()})
 
 
 ROUTES = {
@@ -578,8 +491,6 @@ ROUTES = {
     "/api/set": api_set,
     "/api/measure": api_measure,
     "/api/zero": api_zero,
-    "/api/stop": api_stop,
-    "/api/examples": api_examples,
 }
 
 
@@ -626,27 +537,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(length) or b"{}") if length else {}
-        if self.path == "/api/script/run":
-            self._stream_script(body)
-        elif self.path in ROUTES:
+        if self.path in ROUTES:
             self._route(body)
         else:
             self._send(404, "text/plain", b"not found")
-
-    def _stream_script(self, body):
-        self.send_response(200)
-        self.send_header("Content-Type", "application/x-ndjson")
-        self.send_header("Cache-Control", "no-cache")
-        self.end_headers()
-
-        def emit(ev):
-            try:
-                self.wfile.write((json.dumps(ev) + "\n").encode())
-                self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError):
-                STOP.set()  # client hung up -> abort the run
-
-        run_script_stream(body.get("text", ""), emit)
 
 
 def _telemetry_loop(stop: threading.Event):

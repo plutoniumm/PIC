@@ -6,7 +6,7 @@ import glob
 import os
 import time
 import numpy as np
-from .config import PICConfig, live_mask
+from .config import PICConfig, live_mask, NUM_DAC, NUM_ADC_RAW, DAMAGED_PDS, VPI_NOMINAL
 
 
 class PICError(RuntimeError):
@@ -151,3 +151,34 @@ class MockPIC(PIC):
         if self.noise:
             y = y + self._rng.normal(0.0, self.noise, y.shape)
         return y
+
+
+def mock_fringe_forward(
+    seed: int = 0,
+    dead_pds=DAMAGED_PDS,
+    dead_channels=(0,),
+    vpi: float = VPI_NOMINAL,
+    num_dac: int = NUM_DAC,
+    num_adc_raw: int = NUM_ADC_RAW,
+):
+    """A physically faithful forward for :class:`MockPIC`: each (PD, channel) pair
+    interferes with phase ``phi2*v^2 + phi0`` (thermo-optic, phase ~ dissipated power),
+    so a one-at-a-time sweep traces a real ``cos(a*v^2+..)`` fringe. Dead PDs stay dark
+    and dead channels contribute nothing, so dead-element detection has something to find.
+    """
+    rng = np.random.default_rng(seed)
+    phi2 = (np.pi / vpi**2) * rng.uniform(0.6, 1.6, (num_adc_raw, num_dac))
+    phi0 = rng.uniform(0, 2 * np.pi, (num_adc_raw, num_dac))
+    amp = rng.uniform(0.008, 0.05, (num_adc_raw, num_dac))
+    base = 0.015 + 0.01 * rng.random(num_adc_raw)
+    live_pd = np.ones(num_adc_raw, bool)
+    live_pd[list(dead_pds)] = False
+    amp[:, list(dead_channels)] = 0.0
+
+    def forward(v):
+        v = np.asarray(v, float)
+        contrib = amp * np.cos(phi2 * v[None, :] ** 2 + phi0)
+        y = (base + contrib.sum(axis=1)) * live_pd
+        return np.clip(y, 0.0, None)
+
+    return forward
