@@ -1,0 +1,6 @@
+ch,pd,swing_mV,reliable,Vpi,V0,Vnull,V0_reach,Vnull_reach,phi0,visibility,rmse_mV,ok
+41,10,41.5,True,3.159,0.625,3.22,True,True,6.16,0.096,9.23,True
+42,3,42.5,True,6.13,7.634,4.55,False,True,1.411,0.172,3.13,True
+47,3,19.5,True,2.746,0.228,2.756,True,True,6.262,0.028,4.68,True
+116,8,27.3,False,46.08,65.09,45.971,False,False,0.015,-1.015,2.95,True
+119,12,12.4,False,42.719,42.89,3.833,False,True,3.116,-1.007,1.74,True

@@ -1,0 +1,3397 @@
+{
+  "meta": {
+    "chip": "PIC B (Section B; A is the mirror twin)",
+    "generated": "2026-07-30 21:07:38",
+    "status": "PROVISIONAL -- schematic + electrical + optical, not fully verified",
+    "source_map": "pic_data/dac_heater_map_b128.csv",
+    "update": "rebuild with scripts/build_config.py after re-characterization; re-anchor drift with a 1-point null-find warm-started from V0/Vnull"
+  },
+  "devices": {
+    "pic_port": "/dev/cu.usbserial-1110",
+    "laser_port": "/dev/cu.usbserial-AU05XLI8",
+    "baud": 115200
+  },
+  "firmware": {
+    "sketch": "Arduino/pic128/pic128.ino",
+    "num_dac": 128,
+    "num_pd": 14,
+    "cs_pins": [
+      10,
+      9,
+      8,
+      7,
+      5,
+      4,
+      3,
+      2
+    ],
+    "v_clamp": 4.0,
+    "adc_avg_n": 10,
+    "per_write_config": [
+      "0x03 00 84",
+      "0x09 00 00",
+      "0x05 FF FF"
+    ]
+  },
+  "laser": {
+    "power_dbm": 15,
+    "max_dbm": 15,
+    "warning": "DO NOT exceed +15 dBm -- PD damage risk. Coupling ~13x (~11 dB) below the 07-23 reference (fiber alignment drifted; not recoverable).",
+    "zero_heater_fingerprint_mV_at_15dBm": {
+      "8": 206,
+      "12": 210,
+      "10": 168,
+      "5": 165,
+      "1": 147,
+      "3": 146
+    }
+  },
+  "photodiodes": {
+    "dead": [],
+    "strong": [
+      3,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      12
+    ],
+    "weak": [
+      0,
+      1,
+      2,
+      4,
+      11,
+      13
+    ]
+  },
+  "summary": {
+    "nets": 120,
+    "drivable": 112,
+    "characterized": 96,
+    "dead": [
+      39,
+      51,
+      62,
+      98,
+      100,
+      111,
+      118,
+      120,
+      124,
+      125,
+      126
+    ],
+    "short": [
+      112,
+      113,
+      114,
+      115
+    ],
+    "weak": [
+      99
+    ],
+    "analytic_ok": 93,
+    "analytic_weak": 3,
+    "analytic_dead": 15
+  },
+  "channels": [
+    {
+      "dac": 0,
+      "chip": 0,
+      "header": "A",
+      "pin": 1,
+      "net": 15,
+      "stage": "enc.split",
+      "vendor": [
+        15,
+        16
+      ],
+      "elec": "ok",
+      "swing_mV": 216.1,
+      "pds": [
+        12,
+        8,
+        10,
+        9,
+        7,
+        3
+      ],
+      "V0": 3.5,
+      "Vnull": 2.048,
+      "Vpi": 2.826,
+      "fringe_pd": 10,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 1,
+      "chip": 0,
+      "header": "A",
+      "pin": 2,
+      "net": 14,
+      "stage": "enc.split",
+      "vendor": [
+        14,
+        17
+      ],
+      "elec": "ok",
+      "swing_mV": 192.6,
+      "pds": [
+        12,
+        8,
+        10
+      ],
+      "V0": 1.713,
+      "Vnull": 3.276,
+      "Vpi": 2.861,
+      "fringe_pd": 12,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 2,
+      "chip": 0,
+      "header": "A",
+      "pin": 3,
+      "net": 13,
+      "stage": "enc.split",
+      "vendor": [
+        13,
+        18
+      ],
+      "elec": "ok",
+      "swing_mV": 57.4,
+      "pds": [
+        5,
+        1,
+        10,
+        3,
+        4,
+        7,
+        9,
+        12,
+        0,
+        8
+      ],
+      "V0": 0.736,
+      "Vnull": 3.312,
+      "Vpi": 3.23,
+      "fringe_pd": 10,
+      "fringe_src": "20260730_225742",
+      "analytic": "ok"
+    },
+    {
+      "dac": 3,
+      "chip": 0,
+      "header": "A",
+      "pin": 4,
+      "net": 12,
+      "stage": "enc.split",
+      "vendor": [
+        12,
+        19
+      ],
+      "elec": "ok",
+      "swing_mV": 47.9,
+      "pds": [
+        9,
+        3,
+        10,
+        1,
+        5,
+        7,
+        12,
+        4
+      ],
+      "V0": 3.556,
+      "Vnull": 2.419,
+      "Vpi": 2.749,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_203820",
+      "analytic": "ok"
+    },
+    {
+      "dac": 4,
+      "chip": 0,
+      "header": "A",
+      "pin": 5,
+      "net": 11,
+      "stage": "enc.split",
+      "vendor": [
+        11,
+        20
+      ],
+      "elec": "ok",
+      "swing_mV": 67.1,
+      "pds": [
+        12,
+        9,
+        10,
+        7,
+        8,
+        3,
+        1,
+        5
+      ],
+      "V0": 4.135,
+      "Vnull": 2.826,
+      "Vpi": 3.019,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_225742",
+      "analytic": "ok"
+    },
+    {
+      "dac": 5,
+      "chip": 0,
+      "header": "A",
+      "pin": 6,
+      "net": 10,
+      "stage": "enc.split",
+      "vendor": [
+        10,
+        21
+      ],
+      "elec": "ok",
+      "swing_mV": 61.1,
+      "pds": [
+        8,
+        7,
+        12,
+        5,
+        1,
+        10,
+        3,
+        9,
+        4
+      ],
+      "V0": 0.553,
+      "Vnull": 3.001,
+      "Vpi": 2.95,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_225742",
+      "analytic": "ok"
+    },
+    {
+      "dac": 6,
+      "chip": 0,
+      "header": "A",
+      "pin": 7,
+      "net": 9,
+      "stage": "enc.split",
+      "vendor": [
+        9,
+        22
+      ],
+      "elec": "ok",
+      "swing_mV": 59.6,
+      "pds": [
+        7,
+        9,
+        8,
+        10,
+        3,
+        0,
+        1,
+        12
+      ],
+      "V0": 2.484,
+      "Vnull": 3.812,
+      "Vpi": 2.866,
+      "fringe_pd": 7,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 7,
+      "chip": 0,
+      "header": "A",
+      "pin": 8,
+      "net": 8,
+      "stage": "enc.split",
+      "vendor": [
+        8,
+        23
+      ],
+      "elec": "ok",
+      "swing_mV": 54.7,
+      "pds": [
+        7,
+        9,
+        12,
+        8,
+        3,
+        1,
+        10
+      ],
+      "V0": 3.903,
+      "Vnull": 2.61,
+      "Vpi": 2.902,
+      "fringe_pd": 7,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 8,
+      "chip": 0,
+      "header": "A",
+      "pin": 10,
+      "net": 23,
+      "stage": "enc.single",
+      "vendor": [
+        40,
+        39
+      ],
+      "elec": "ok",
+      "swing_mV": 18.4,
+      "pds": [
+        10,
+        1,
+        12
+      ],
+      "V0": 1.5,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": "",
+      "analytic": "dead"
+    },
+    {
+      "dac": 9,
+      "chip": 0,
+      "header": "A",
+      "pin": 11,
+      "net": 22,
+      "stage": "enc.single",
+      "vendor": [
+        41,
+        38
+      ],
+      "elec": "ok",
+      "swing_mV": 21.5,
+      "pds": [
+        1
+      ],
+      "V0": 0.828,
+      "Vnull": 1.743,
+      "Vpi": 1.533,
+      "fringe_pd": 12,
+      "fringe_src": "20260731_004608",
+      "analytic": "ok"
+    },
+    {
+      "dac": 10,
+      "chip": 0,
+      "header": "A",
+      "pin": 12,
+      "net": 21,
+      "stage": "enc.single",
+      "vendor": [
+        42,
+        37
+      ],
+      "elec": "ok",
+      "swing_mV": 19.6,
+      "pds": [
+        2,
+        11,
+        13,
+        5,
+        3,
+        7,
+        4,
+        0,
+        1,
+        6
+      ],
+      "V0": 1.505,
+      "Vnull": 0.901,
+      "Vpi": 1.258,
+      "fringe_pd": 2,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 11,
+      "chip": 0,
+      "header": "A",
+      "pin": 13,
+      "net": 20,
+      "stage": "enc.single",
+      "vendor": [
+        43,
+        36
+      ],
+      "elec": "ok",
+      "swing_mV": 14.2,
+      "pds": [
+        1,
+        10,
+        0,
+        4,
+        2,
+        5,
+        9,
+        12,
+        6
+      ],
+      "V0": 0.439,
+      "Vnull": 0.826,
+      "Vpi": 0.787,
+      "fringe_pd": 4,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 12,
+      "chip": 0,
+      "header": "A",
+      "pin": 15,
+      "net": 29,
+      "stage": "V",
+      "vendor": [
+        53,
+        54
+      ],
+      "elec": "ok",
+      "swing_mV": 17.1,
+      "pds": [
+        1,
+        6,
+        2,
+        4,
+        9,
+        3,
+        12,
+        0,
+        8
+      ],
+      "V0": 1.469,
+      "Vnull": 2.362,
+      "Vpi": 1.849,
+      "fringe_pd": 6,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 13,
+      "chip": 0,
+      "header": "A",
+      "pin": 16,
+      "net": 28,
+      "stage": "V",
+      "vendor": [
+        52,
+        55
+      ],
+      "elec": "ok",
+      "swing_mV": 53.4,
+      "pds": [
+        7,
+        5,
+        1,
+        9,
+        8,
+        10,
+        3,
+        12,
+        6,
+        4
+      ],
+      "V0": 1.444,
+      "Vnull": 2.831,
+      "Vpi": 2.991,
+      "fringe_pd": 7,
+      "fringe_src": "20260730_203820",
+      "analytic": "ok"
+    },
+    {
+      "dac": 14,
+      "chip": 0,
+      "header": "A",
+      "pin": 17,
+      "net": 27,
+      "stage": "V",
+      "vendor": [
+        51,
+        56
+      ],
+      "elec": "ok",
+      "swing_mV": 11.2,
+      "pds": [
+        10
+      ],
+      "V0": 5.759,
+      "Vnull": 3.973,
+      "Vpi": 4.17,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_235919",
+      "analytic": "ok"
+    },
+    {
+      "dac": 15,
+      "chip": 0,
+      "header": "A",
+      "pin": 19,
+      "net": 37,
+      "stage": "V",
+      "vendor": [
+        68,
+        67
+      ],
+      "elec": "ok",
+      "swing_mV": 24.6,
+      "pds": [],
+      "V0": 1.227,
+      "Vnull": 4.197,
+      "Vpi": 4.014,
+      "fringe_pd": 8,
+      "fringe_src": "20260731_004608",
+      "analytic": "ok"
+    },
+    {
+      "dac": 16,
+      "chip": 1,
+      "header": "A",
+      "pin": 20,
+      "net": 36,
+      "stage": "V",
+      "vendor": [
+        69,
+        66
+      ],
+      "elec": "ok",
+      "swing_mV": 41.1,
+      "pds": [
+        5,
+        3,
+        1,
+        10,
+        6
+      ],
+      "V0": 1.899,
+      "Vnull": 3.435,
+      "Vpi": 2.863,
+      "fringe_pd": 5,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 17,
+      "chip": 1,
+      "header": "A",
+      "pin": 21,
+      "net": 35,
+      "stage": "V",
+      "vendor": [
+        70,
+        65
+      ],
+      "elec": "ok",
+      "swing_mV": 21.5,
+      "pds": [],
+      "V0": 1.779,
+      "Vnull": 4.479,
+      "Vpi": 4.111,
+      "fringe_pd": 10,
+      "fringe_src": "20260731_004608",
+      "analytic": "ok"
+    },
+    {
+      "dac": 18,
+      "chip": 1,
+      "header": "A",
+      "pin": 22,
+      "net": 34,
+      "stage": "V",
+      "vendor": [
+        71,
+        64
+      ],
+      "elec": "ok",
+      "swing_mV": 5.8,
+      "pds": [],
+      "V0": 5.52,
+      "Vnull": 3.52,
+      "Vpi": 4.252,
+      "fringe_pd": 12,
+      "fringe_src": "20260730_225742",
+      "analytic": "ok"
+    },
+    {
+      "dac": 19,
+      "chip": 1,
+      "header": "A",
+      "pin": 24,
+      "net": 43,
+      "stage": "V",
+      "vendor": [
+        81,
+        82
+      ],
+      "elec": "ok",
+      "swing_mV": 66.0,
+      "pds": [
+        9,
+        3,
+        10,
+        7,
+        4,
+        6,
+        8
+      ],
+      "V0": 1.178,
+      "Vnull": 3.043,
+      "Vpi": 3.144,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_203820",
+      "analytic": "ok"
+    },
+    {
+      "dac": 20,
+      "chip": 1,
+      "header": "A",
+      "pin": 25,
+      "net": 42,
+      "stage": "V",
+      "vendor": [
+        80,
+        83
+      ],
+      "elec": "ok",
+      "swing_mV": 126.1,
+      "pds": [
+        7,
+        8,
+        10,
+        9,
+        3,
+        12
+      ],
+      "V0": 3.897,
+      "Vnull": 2.622,
+      "Vpi": 2.883,
+      "fringe_pd": 7,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 21,
+      "chip": 1,
+      "header": "A",
+      "pin": 26,
+      "net": 41,
+      "stage": "V",
+      "vendor": [
+        79,
+        84
+      ],
+      "elec": "ok",
+      "swing_mV": 12.2,
+      "pds": [
+        0,
+        5
+      ],
+      "V0": 3.251,
+      "Vnull": 1.791,
+      "Vpi": 2.713,
+      "fringe_pd": 7,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 22,
+      "chip": 1,
+      "header": "A",
+      "pin": 28,
+      "net": 51,
+      "stage": "V",
+      "vendor": [
+        96,
+        95
+      ],
+      "elec": "ok",
+      "swing_mV": 57.0,
+      "pds": [
+        3,
+        9,
+        10,
+        12,
+        7,
+        5,
+        4,
+        6,
+        8,
+        1
+      ],
+      "V0": 1.965,
+      "Vnull": 3.551,
+      "Vpi": 2.958,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_203820",
+      "analytic": "ok"
+    },
+    {
+      "dac": 23,
+      "chip": 1,
+      "header": "A",
+      "pin": 29,
+      "net": 50,
+      "stage": "V",
+      "vendor": [
+        97,
+        94
+      ],
+      "elec": "ok",
+      "swing_mV": 74.8,
+      "pds": [
+        8,
+        10,
+        12,
+        7,
+        9
+      ],
+      "V0": 1.451,
+      "Vnull": 3.254,
+      "Vpi": 2.913,
+      "fringe_pd": 10,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 24,
+      "chip": 1,
+      "header": "A",
+      "pin": 30,
+      "net": 49,
+      "stage": "V",
+      "vendor": [
+        98,
+        93
+      ],
+      "elec": "ok",
+      "swing_mV": 39.0,
+      "pds": [
+        3,
+        10,
+        9,
+        12,
+        5,
+        4,
+        7
+      ],
+      "V0": 5.52,
+      "Vnull": 2.988,
+      "Vpi": 4.641,
+      "fringe_pd": 3,
+      "fringe_src": "20260730_203820",
+      "analytic": "ok"
+    },
+    {
+      "dac": 25,
+      "chip": 1,
+      "header": "A",
+      "pin": 31,
+      "net": 48,
+      "stage": "V",
+      "vendor": [
+        99,
+        92
+      ],
+      "elec": "ok",
+      "swing_mV": 55.7,
+      "pds": [
+        9,
+        10,
+        3,
+        12,
+        7,
+        4,
+        5,
+        6,
+        8
+      ],
+      "V0": 3.454,
+      "Vnull": 1.961,
+      "Vpi": 2.844,
+      "fringe_pd": 10,
+      "fringe_src": "20260730_203820",
+      "analytic": "ok"
+    },
+    {
+      "dac": 26,
+      "chip": 1,
+      "header": "A",
+      "pin": 33,
+      "net": 57,
+      "stage": "V",
+      "vendor": [
+        109,
+        110
+      ],
+      "elec": "ok",
+      "swing_mV": 45.9,
+      "pds": [
+        7,
+        10,
+        9,
+        8,
+        5,
+        3,
+        12,
+        1,
+        0,
+        6
+      ],
+      "V0": 3.919,
+      "Vnull": 2.691,
+      "Vpi": 2.849,
+      "fringe_pd": 7,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 27,
+      "chip": 1,
+      "header": "A",
+      "pin": 34,
+      "net": 56,
+      "stage": "V",
+      "vendor": [
+        108,
+        111
+      ],
+      "elec": "ok",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": 0.5,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": "",
+      "analytic": "dead"
+    },
+    {
+      "dac": 28,
+      "chip": 1,
+      "header": "A",
+      "pin": 35,
+      "net": 55,
+      "stage": "V",
+      "vendor": [
+        107,
+        112
+      ],
+      "elec": "ok",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": 5.0,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": "",
+      "analytic": "dead"
+    },
+    {
+      "dac": 29,
+      "chip": 1,
+      "header": "A",
+      "pin": 37,
+      "net": 65,
+      "stage": "V",
+      "vendor": [
+        124,
+        123
+      ],
+      "elec": "ok",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": 5.0,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": "",
+      "analytic": "dead"
+    },
+    {
+      "dac": 30,
+      "chip": 1,
+      "header": "A",
+      "pin": 38,
+      "net": 64,
+      "stage": "V",
+      "vendor": [
+        125,
+        122
+      ],
+      "elec": "ok",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": 1.5,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": "",
+      "analytic": "dead"
+    },
+    {
+      "dac": 31,
+      "chip": 1,
+      "header": "A",
+      "pin": 39,
+      "net": 63,
+      "stage": "V",
+      "vendor": [
+        126,
+        121
+      ],
+      "elec": "ok",
+      "swing_mV": 9.9,
+      "pds": [],
+      "V0": 0.38,
+      "Vnull": 1.639,
+      "Vpi": 1.595,
+      "fringe_pd": 8,
+      "fringe_src": "20260730_235919",
+      "analytic": "ok"
+    },
+    {
+      "dac": 32,
+      "chip": 2,
+      "header": "A",
+      "pin": 40,
+      "net": 62,
+      "stage": "V",
+      "vendor": [
+        127,
+        120
+      ],
+      "elec": "ok",
+      "swing_mV": 7.1,
+      "pds": [],
+      "V0": 2.599,
+      "Vnull": 3.764,
+      "Vpi": 2.723,
+      "fringe_pd": 3,
+      "fringe_src": "20260730_233554",
+      "analytic": "ok"
+    },
+    {
+      "dac": 33,
+      "chip": 2,
+      "header": "A",
+      "pin": 42,
+      "net": 77,
+      "stage": "sigma",
+      "vendor": [
+        143,
+        144
+      ],
+      "elec": "ok",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": 0.5,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": "",
+      "analytic": "dead"
+    },
+    {
+      "dac": 34,
+      "chip": 2,
+      "header": "A",
+      "pin": 43,
+      "net": 76,
+      "stage": "sigma",
+      "vendor": [
+        142,
+        145
+      ],
+      "elec": "ok",
+      "swing_mV": 62.5,
+      "pds": [
+        8,
+        7,
+        9,
+        3,
+        5,
+        10,
+        6,
+        12
+      ],
+      "V0": 0.669,
+      "Vnull": 2.825,
+      "Vpi": 2.745,
+      "fringe_pd": 8,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 35,
+      "chip": 2,
+      "header": "A",
+      "pin": 44,
+      "net": 75,
+      "stage": "sigma",
+      "vendor": [
+        141,
+        146
+      ],
+      "elec": "ok",
+      "swing_mV": 30.5,
+      "pds": [
+        9,
+        10,
+        12,
+        3,
+        5
+      ],
+      "V0": 1.805,
+      "Vnull": 3.387,
+      "Vpi": 2.866,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_203820",
+      "analytic": "ok"
+    },
+    {
+      "dac": 36,
+      "chip": 2,
+      "header": "A",
+      "pin": 45,
+      "net": 74,
+      "stage": "sigma",
+      "vendor": [
+        140,
+        147
+      ],
+      "elec": "ok",
+      "swing_mV": 61.0,
+      "pds": [
+        9,
+        3,
+        10,
+        7,
+        4,
+        12,
+        8,
+        0
+      ],
+      "V0": 3.505,
+      "Vnull": 1.863,
+      "Vpi": 2.969,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_203820",
+      "analytic": "ok"
+    },
+    {
+      "dac": 37,
+      "chip": 2,
+      "header": "A",
+      "pin": 46,
+      "net": 73,
+      "stage": "sigma",
+      "vendor": [
+        139,
+        148
+      ],
+      "elec": "ok",
+      "swing_mV": 82.6,
+      "pds": [
+        9,
+        10,
+        7,
+        5,
+        8,
+        3,
+        1
+      ],
+      "V0": 1.123,
+      "Vnull": 3.105,
+      "Vpi": 2.895,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 38,
+      "chip": 2,
+      "header": "A",
+      "pin": 47,
+      "net": 72,
+      "stage": "sigma",
+      "vendor": [
+        138,
+        149
+      ],
+      "elec": "ok",
+      "swing_mV": 36.7,
+      "pds": [
+        10,
+        9,
+        5,
+        3,
+        8,
+        6,
+        7,
+        13,
+        11,
+        0,
+        1,
+        4,
+        2
+      ],
+      "V0": 3.603,
+      "Vnull": 2.187,
+      "Vpi": 2.864,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 39,
+      "chip": 2,
+      "header": "A",
+      "pin": 49,
+      "net": 83,
+      "stage": "U",
+      "vendor": [
+        162,
+        161
+      ],
+      "elec": "dead",
+      "swing_mV": 16.6,
+      "pds": [
+        1,
+        13,
+        7,
+        0,
+        12,
+        10,
+        8,
+        2
+      ],
+      "V0": null,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": ""
+    },
+    {
+      "dac": 40,
+      "chip": 2,
+      "header": "A",
+      "pin": 50,
+      "net": 82,
+      "stage": "U",
+      "vendor": [
+        163,
+        160
+      ],
+      "elec": "ok",
+      "swing_mV": 43.2,
+      "pds": [
+        10,
+        3,
+        7,
+        9,
+        12,
+        4,
+        5
+      ],
+      "V0": 5.34,
+      "Vnull": 3.712,
+      "Vpi": 3.84,
+      "fringe_pd": 10,
+      "fringe_src": "20260730_203820",
+      "analytic": "ok"
+    },
+    {
+      "dac": 41,
+      "chip": 2,
+      "header": "A",
+      "pin": 51,
+      "net": 81,
+      "stage": "U",
+      "vendor": [
+        164,
+        159
+      ],
+      "elec": "ok",
+      "swing_mV": 41.5,
+      "pds": [],
+      "V0": 0.625,
+      "Vnull": 3.22,
+      "Vpi": 3.159,
+      "fringe_pd": 10,
+      "fringe_src": "fringes_test",
+      "analytic": "weak"
+    },
+    {
+      "dac": 42,
+      "chip": 2,
+      "header": "A",
+      "pin": 53,
+      "net": 91,
+      "stage": "U",
+      "vendor": [
+        175,
+        176
+      ],
+      "elec": "ok",
+      "swing_mV": 42.5,
+      "pds": [],
+      "V0": 7.634,
+      "Vnull": 4.55,
+      "Vpi": 6.13,
+      "fringe_pd": 3,
+      "fringe_src": "fringes_test",
+      "analytic": "weak"
+    },
+    {
+      "dac": 43,
+      "chip": 2,
+      "header": "A",
+      "pin": 54,
+      "net": 90,
+      "stage": "U",
+      "vendor": [
+        174,
+        177
+      ],
+      "elec": "ok",
+      "swing_mV": 20.5,
+      "pds": [
+        7,
+        10,
+        3,
+        1,
+        6
+      ],
+      "V0": 1.936,
+      "Vnull": 1.257,
+      "Vpi": 1.472,
+      "fringe_pd": 7,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 44,
+      "chip": 2,
+      "header": "A",
+      "pin": 55,
+      "net": 89,
+      "stage": "U",
+      "vendor": [
+        173,
+        178
+      ],
+      "elec": "ok",
+      "swing_mV": 14.2,
+      "pds": [
+        11,
+        3,
+        10,
+        0,
+        5,
+        9,
+        13
+      ],
+      "V0": 0.572,
+      "Vnull": 1.72,
+      "Vpi": 1.622,
+      "fringe_pd": 11,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 45,
+      "chip": 2,
+      "header": "A",
+      "pin": 56,
+      "net": 88,
+      "stage": "U",
+      "vendor": [
+        172,
+        179
+      ],
+      "elec": "ok",
+      "swing_mV": 14.2,
+      "pds": [
+        7,
+        0,
+        6,
+        11,
+        10,
+        13,
+        9,
+        1
+      ],
+      "V0": 0.221,
+      "Vnull": 0.819,
+      "Vpi": 0.789,
+      "fringe_pd": 0,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 46,
+      "chip": 2,
+      "header": "A",
+      "pin": 58,
+      "net": 97,
+      "stage": "U",
+      "vendor": [
+        190,
+        189
+      ],
+      "elec": "ok",
+      "swing_mV": 10.2,
+      "pds": [],
+      "V0": 3.793,
+      "Vnull": 1.77,
+      "Vpi": 3.355,
+      "fringe_pd": 3,
+      "fringe_src": "20260730_233554",
+      "analytic": "ok"
+    },
+    {
+      "dac": 47,
+      "chip": 2,
+      "header": "A",
+      "pin": 59,
+      "net": 96,
+      "stage": "U",
+      "vendor": [
+        191,
+        188
+      ],
+      "elec": "ok",
+      "swing_mV": 19.5,
+      "pds": [],
+      "V0": 0.228,
+      "Vnull": 2.756,
+      "Vpi": 2.746,
+      "fringe_pd": 3,
+      "fringe_src": "fringes_test",
+      "analytic": "weak"
+    },
+    {
+      "dac": 48,
+      "chip": 3,
+      "header": "A",
+      "pin": 60,
+      "net": 95,
+      "stage": "U",
+      "vendor": [
+        192,
+        187
+      ],
+      "elec": "ok",
+      "swing_mV": 59.1,
+      "pds": [
+        8,
+        7,
+        10,
+        9,
+        5,
+        1,
+        3,
+        12,
+        6
+      ],
+      "V0": 3.507,
+      "Vnull": 2.096,
+      "Vpi": 2.812,
+      "fringe_pd": 10,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 49,
+      "chip": 3,
+      "header": "A",
+      "pin": 62,
+      "net": 105,
+      "stage": "U",
+      "vendor": [
+        203,
+        204
+      ],
+      "elec": "ok",
+      "swing_mV": 49.8,
+      "pds": [
+        10,
+        9,
+        5,
+        3,
+        12
+      ],
+      "V0": 4.641,
+      "Vnull": 3.189,
+      "Vpi": 3.372,
+      "fringe_pd": 10,
+      "fringe_src": "20260730_203820",
+      "analytic": "ok"
+    },
+    {
+      "dac": 50,
+      "chip": 3,
+      "header": "A",
+      "pin": 63,
+      "net": 104,
+      "stage": "U",
+      "vendor": [
+        202,
+        205
+      ],
+      "elec": "ok",
+      "swing_mV": 83.6,
+      "pds": [
+        10,
+        9,
+        5,
+        3,
+        6,
+        4,
+        12
+      ],
+      "V0": 1.61,
+      "Vnull": 3.293,
+      "Vpi": 2.872,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 51,
+      "chip": 3,
+      "header": "A",
+      "pin": 64,
+      "net": 103,
+      "stage": "U",
+      "vendor": [
+        201,
+        206
+      ],
+      "elec": "dead",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": null,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": ""
+    },
+    {
+      "dac": 52,
+      "chip": 3,
+      "header": "A",
+      "pin": 65,
+      "net": 102,
+      "stage": "U",
+      "vendor": [
+        200,
+        207
+      ],
+      "elec": "ok",
+      "swing_mV": 182.3,
+      "pds": [
+        9,
+        3,
+        10,
+        5,
+        11,
+        6,
+        4,
+        12,
+        7,
+        2,
+        13,
+        0
+      ],
+      "V0": 2.64,
+      "Vnull": 3.882,
+      "Vpi": 2.847,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 53,
+      "chip": 3,
+      "header": "A",
+      "pin": 67,
+      "net": 111,
+      "stage": "U",
+      "vendor": [
+        218,
+        217
+      ],
+      "elec": "ok",
+      "swing_mV": 71.8,
+      "pds": [
+        10,
+        6,
+        9,
+        5,
+        4,
+        3,
+        12,
+        0,
+        1
+      ],
+      "V0": 3.435,
+      "Vnull": 1.98,
+      "Vpi": 2.807,
+      "fringe_pd": 10,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 54,
+      "chip": 3,
+      "header": "A",
+      "pin": 68,
+      "net": 110,
+      "stage": "U",
+      "vendor": [
+        219,
+        216
+      ],
+      "elec": "ok",
+      "swing_mV": 37.6,
+      "pds": [
+        9,
+        10,
+        8,
+        2,
+        7,
+        3,
+        12,
+        5,
+        13,
+        4,
+        6
+      ],
+      "V0": 1.346,
+      "Vnull": 3.218,
+      "Vpi": 2.923,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 55,
+      "chip": 3,
+      "header": "A",
+      "pin": 69,
+      "net": 109,
+      "stage": "U",
+      "vendor": [
+        220,
+        215
+      ],
+      "elec": "ok",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": 2.0,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": "",
+      "analytic": "dead"
+    },
+    {
+      "dac": 56,
+      "chip": 3,
+      "header": "A",
+      "pin": 71,
+      "net": 119,
+      "stage": "U",
+      "vendor": [
+        231,
+        232
+      ],
+      "elec": "ok",
+      "swing_mV": 10.1,
+      "pds": [],
+      "V0": 3.04,
+      "Vnull": 1.62,
+      "Vpi": 2.572,
+      "fringe_pd": 3,
+      "fringe_src": "20260731_004608",
+      "analytic": "ok"
+    },
+    {
+      "dac": 57,
+      "chip": 3,
+      "header": "A",
+      "pin": 72,
+      "net": 118,
+      "stage": "U",
+      "vendor": [
+        230,
+        233
+      ],
+      "elec": "ok",
+      "swing_mV": 14.0,
+      "pds": [
+        6,
+        1
+      ],
+      "V0": 0.781,
+      "Vnull": 0.029,
+      "Vpi": 0.78,
+      "fringe_pd": 6,
+      "fringe_src": "20260730_203820",
+      "analytic": "ok"
+    },
+    {
+      "dac": 58,
+      "chip": 3,
+      "header": "A",
+      "pin": 73,
+      "net": 117,
+      "stage": "U",
+      "vendor": [
+        229,
+        234
+      ],
+      "elec": "ok",
+      "swing_mV": 7.4,
+      "pds": [],
+      "V0": 1.925,
+      "Vnull": 3.462,
+      "Vpi": 2.877,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_233554",
+      "analytic": "ok"
+    },
+    {
+      "dac": 59,
+      "chip": 3,
+      "header": "A",
+      "pin": 74,
+      "net": 116,
+      "stage": "U",
+      "vendor": [
+        228,
+        235
+      ],
+      "elec": "ok",
+      "swing_mV": 13.7,
+      "pds": [],
+      "V0": 0.446,
+      "Vnull": 0.946,
+      "Vpi": 0.834,
+      "fringe_pd": 3,
+      "fringe_src": "20260730_233554",
+      "analytic": "ok"
+    },
+    {
+      "dac": 60,
+      "chip": 3,
+      "header": "A",
+      "pin": null,
+      "net": null,
+      "stage": "spare",
+      "vendor": [
+        null,
+        null
+      ],
+      "elec": "ok",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": null,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": "",
+      "analytic": "spare"
+    },
+    {
+      "dac": 61,
+      "chip": 3,
+      "header": "A",
+      "pin": null,
+      "net": null,
+      "stage": "spare",
+      "vendor": [
+        null,
+        null
+      ],
+      "elec": "ok",
+      "swing_mV": 28.3,
+      "pds": [
+        4,
+        7,
+        5,
+        9,
+        12,
+        8,
+        6,
+        11,
+        1,
+        2
+      ],
+      "V0": 1.397,
+      "Vnull": 0.668,
+      "Vpi": 1.226,
+      "fringe_pd": 4,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 62,
+      "chip": 3,
+      "header": "A",
+      "pin": null,
+      "net": null,
+      "stage": "spare",
+      "vendor": [
+        null,
+        null
+      ],
+      "elec": "dead",
+      "swing_mV": 13.2,
+      "pds": [
+        5,
+        7,
+        1,
+        11
+      ],
+      "V0": null,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": ""
+    },
+    {
+      "dac": 63,
+      "chip": 3,
+      "header": "A",
+      "pin": null,
+      "net": null,
+      "stage": "spare",
+      "vendor": [
+        null,
+        null
+      ],
+      "elec": "ok",
+      "swing_mV": 87.0,
+      "pds": [
+        10,
+        9,
+        3,
+        5,
+        6,
+        11,
+        1,
+        12,
+        8,
+        2
+      ],
+      "V0": 1.274,
+      "Vnull": 2.873,
+      "Vpi": 2.576,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 64,
+      "chip": 4,
+      "header": "B",
+      "pin": 3,
+      "net": 7,
+      "stage": "enc.split",
+      "vendor": [
+        7,
+        24
+      ],
+      "elec": "ok",
+      "swing_mV": 81.2,
+      "pds": [
+        10,
+        9,
+        7,
+        5,
+        3,
+        8,
+        11,
+        6,
+        2,
+        1
+      ],
+      "V0": 3.556,
+      "Vnull": 2.045,
+      "Vpi": 2.909,
+      "fringe_pd": 10,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 65,
+      "chip": 4,
+      "header": "B",
+      "pin": 4,
+      "net": 6,
+      "stage": "enc.split",
+      "vendor": [
+        6,
+        25
+      ],
+      "elec": "ok",
+      "swing_mV": 183.3,
+      "pds": [
+        9,
+        6,
+        10,
+        5,
+        3,
+        8,
+        7,
+        1
+      ],
+      "V0": 4.054,
+      "Vnull": 2.705,
+      "Vpi": 3.019,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 66,
+      "chip": 4,
+      "header": "B",
+      "pin": 5,
+      "net": 5,
+      "stage": "enc.split",
+      "vendor": [
+        5,
+        26
+      ],
+      "elec": "ok",
+      "swing_mV": 16.6,
+      "pds": [
+        9,
+        10
+      ],
+      "V0": 1.045,
+      "Vnull": 2.84,
+      "Vpi": 2.64,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 67,
+      "chip": 4,
+      "header": "B",
+      "pin": 6,
+      "net": 4,
+      "stage": "enc.split",
+      "vendor": [
+        4,
+        27
+      ],
+      "elec": "ok",
+      "swing_mV": 59.5,
+      "pds": [
+        9,
+        10,
+        7,
+        3,
+        4,
+        8,
+        12,
+        5
+      ],
+      "V0": 3.614,
+      "Vnull": 2.087,
+      "Vpi": 2.951,
+      "fringe_pd": 10,
+      "fringe_src": "20260730_203820",
+      "analytic": "ok"
+    },
+    {
+      "dac": 68,
+      "chip": 4,
+      "header": "B",
+      "pin": 7,
+      "net": 3,
+      "stage": "enc.split",
+      "vendor": [
+        3,
+        28
+      ],
+      "elec": "ok",
+      "swing_mV": 59.0,
+      "pds": [
+        7,
+        9,
+        3,
+        10,
+        8,
+        4,
+        5
+      ],
+      "V0": 2.751,
+      "Vnull": 4.115,
+      "Vpi": 3.06,
+      "fringe_pd": 7,
+      "fringe_src": "20260730_203820",
+      "analytic": "ok"
+    },
+    {
+      "dac": 69,
+      "chip": 4,
+      "header": "B",
+      "pin": 8,
+      "net": 2,
+      "stage": "enc.split",
+      "vendor": [
+        2,
+        29
+      ],
+      "elec": "ok",
+      "swing_mV": 10.3,
+      "pds": [
+        3,
+        9
+      ],
+      "V0": 3.552,
+      "Vnull": 2.13,
+      "Vpi": 2.842,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 70,
+      "chip": 4,
+      "header": "B",
+      "pin": 9,
+      "net": 1,
+      "stage": "enc.split",
+      "vendor": [
+        1,
+        30
+      ],
+      "elec": "ok",
+      "swing_mV": 23.5,
+      "pds": [
+        9,
+        3,
+        10,
+        0,
+        5
+      ],
+      "V0": 1.028,
+      "Vnull": 3.021,
+      "Vpi": 2.841,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 71,
+      "chip": 4,
+      "header": "B",
+      "pin": 10,
+      "net": 0,
+      "stage": "enc.split",
+      "vendor": [
+        0,
+        31
+      ],
+      "elec": "ok",
+      "swing_mV": 18.1,
+      "pds": [
+        9,
+        10,
+        5,
+        3
+      ],
+      "V0": 3.207,
+      "Vnull": 1.458,
+      "Vpi": 2.857,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 72,
+      "chip": 4,
+      "header": "B",
+      "pin": 12,
+      "net": 19,
+      "stage": "enc.single",
+      "vendor": [
+        44,
+        35
+      ],
+      "elec": "ok",
+      "swing_mV": 10.6,
+      "pds": [],
+      "V0": 1.651,
+      "Vnull": 2.908,
+      "Vpi": 2.394,
+      "fringe_pd": 6,
+      "fringe_src": "20260730_225742",
+      "analytic": "ok"
+    },
+    {
+      "dac": 73,
+      "chip": 4,
+      "header": "B",
+      "pin": 13,
+      "net": 18,
+      "stage": "enc.single",
+      "vendor": [
+        45,
+        34
+      ],
+      "elec": "ok",
+      "swing_mV": 6.2,
+      "pds": [],
+      "V0": 0.604,
+      "Vnull": 1.658,
+      "Vpi": 1.544,
+      "fringe_pd": 1,
+      "fringe_src": "20260730_225742",
+      "analytic": "ok"
+    },
+    {
+      "dac": 74,
+      "chip": 4,
+      "header": "B",
+      "pin": 14,
+      "net": 17,
+      "stage": "enc.single",
+      "vendor": [
+        46,
+        33
+      ],
+      "elec": "ok",
+      "swing_mV": 6.1,
+      "pds": [],
+      "V0": 2.22,
+      "Vnull": 1.377,
+      "Vpi": 1.741,
+      "fringe_pd": 2,
+      "fringe_src": "20260730_225742",
+      "analytic": "ok"
+    },
+    {
+      "dac": 75,
+      "chip": 4,
+      "header": "B",
+      "pin": 15,
+      "net": 16,
+      "stage": "enc.single",
+      "vendor": [
+        47,
+        32
+      ],
+      "elec": "ok",
+      "swing_mV": 35.8,
+      "pds": [],
+      "V0": 2.932,
+      "Vnull": 2.072,
+      "Vpi": 2.074,
+      "fringe_pd": 12,
+      "fringe_src": "20260730_233554",
+      "analytic": "ok"
+    },
+    {
+      "dac": 76,
+      "chip": 4,
+      "header": "B",
+      "pin": 17,
+      "net": 26,
+      "stage": "V",
+      "vendor": [
+        50,
+        57
+      ],
+      "elec": "ok",
+      "swing_mV": 7.9,
+      "pds": [],
+      "V0": 2.109,
+      "Vnull": 1.336,
+      "Vpi": 1.632,
+      "fringe_pd": 12,
+      "fringe_src": "20260730_225742",
+      "analytic": "ok"
+    },
+    {
+      "dac": 77,
+      "chip": 4,
+      "header": "B",
+      "pin": 18,
+      "net": 25,
+      "stage": "V",
+      "vendor": [
+        49,
+        58
+      ],
+      "elec": "ok",
+      "swing_mV": 7.0,
+      "pds": [],
+      "V0": 0.574,
+      "Vnull": 1.262,
+      "Vpi": 1.123,
+      "fringe_pd": 0,
+      "fringe_src": "20260730_225742",
+      "analytic": "ok"
+    },
+    {
+      "dac": 78,
+      "chip": 4,
+      "header": "B",
+      "pin": 19,
+      "net": 24,
+      "stage": "V",
+      "vendor": [
+        48,
+        59
+      ],
+      "elec": "ok",
+      "swing_mV": 34.9,
+      "pds": [],
+      "V0": 7.23,
+      "Vnull": 4.336,
+      "Vpi": 5.785,
+      "fringe_pd": 12,
+      "fringe_src": "20260731_004608",
+      "analytic": "ok"
+    },
+    {
+      "dac": 79,
+      "chip": 4,
+      "header": "B",
+      "pin": 21,
+      "net": 33,
+      "stage": "V",
+      "vendor": [
+        72,
+        63
+      ],
+      "elec": "ok",
+      "swing_mV": 21.0,
+      "pds": [
+        2,
+        11,
+        7,
+        4,
+        6,
+        5,
+        13,
+        0,
+        12,
+        8,
+        10,
+        1
+      ],
+      "V0": 1.468,
+      "Vnull": 0.809,
+      "Vpi": 1.224,
+      "fringe_pd": 2,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 80,
+      "chip": 5,
+      "header": "B",
+      "pin": 22,
+      "net": 32,
+      "stage": "V",
+      "vendor": [
+        73,
+        62
+      ],
+      "elec": "ok",
+      "swing_mV": 16.6,
+      "pds": [],
+      "V0": 6.059,
+      "Vnull": 3.848,
+      "Vpi": 4.68,
+      "fringe_pd": 8,
+      "fringe_src": "20260730_233554",
+      "analytic": "ok"
+    },
+    {
+      "dac": 81,
+      "chip": 5,
+      "header": "B",
+      "pin": 23,
+      "net": 31,
+      "stage": "V",
+      "vendor": [
+        74,
+        61
+      ],
+      "elec": "ok",
+      "swing_mV": 45.6,
+      "pds": [
+        3,
+        7,
+        9,
+        10,
+        12,
+        8,
+        4,
+        5,
+        11
+      ],
+      "V0": 1.898,
+      "Vnull": 3.52,
+      "Vpi": 2.964,
+      "fringe_pd": 3,
+      "fringe_src": "20260730_203820",
+      "analytic": "ok"
+    },
+    {
+      "dac": 82,
+      "chip": 5,
+      "header": "B",
+      "pin": 24,
+      "net": 30,
+      "stage": "V",
+      "vendor": [
+        75,
+        60
+      ],
+      "elec": "ok",
+      "swing_mV": 90.5,
+      "pds": [
+        9,
+        10,
+        7,
+        5,
+        8,
+        3,
+        2,
+        6,
+        13
+      ],
+      "V0": 0.975,
+      "Vnull": 3.046,
+      "Vpi": 2.886,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 83,
+      "chip": 5,
+      "header": "B",
+      "pin": 26,
+      "net": 40,
+      "stage": "V",
+      "vendor": [
+        78,
+        85
+      ],
+      "elec": "ok",
+      "swing_mV": 43.0,
+      "pds": [
+        10,
+        7,
+        2,
+        13,
+        3,
+        11,
+        4,
+        12,
+        5,
+        8,
+        9,
+        6,
+        0
+      ],
+      "V0": 3.814,
+      "Vnull": 2.406,
+      "Vpi": 2.959,
+      "fringe_pd": 10,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 84,
+      "chip": 5,
+      "header": "B",
+      "pin": 27,
+      "net": 39,
+      "stage": "V",
+      "vendor": [
+        77,
+        86
+      ],
+      "elec": "ok",
+      "swing_mV": 71.8,
+      "pds": [
+        4,
+        3,
+        5,
+        8,
+        9,
+        10,
+        2,
+        6,
+        11,
+        1,
+        12,
+        7
+      ],
+      "V0": 3.259,
+      "Vnull": 1.483,
+      "Vpi": 2.902,
+      "fringe_pd": 3,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 85,
+      "chip": 5,
+      "header": "B",
+      "pin": 28,
+      "net": 38,
+      "stage": "V",
+      "vendor": [
+        76,
+        87
+      ],
+      "elec": "ok",
+      "swing_mV": 95.8,
+      "pds": [
+        4,
+        3,
+        5,
+        9,
+        6,
+        10,
+        11,
+        12,
+        1
+      ],
+      "V0": 3.935,
+      "Vnull": 2.728,
+      "Vpi": 2.837,
+      "fringe_pd": 4,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 86,
+      "chip": 5,
+      "header": "B",
+      "pin": 30,
+      "net": 47,
+      "stage": "V",
+      "vendor": [
+        100,
+        91
+      ],
+      "elec": "ok",
+      "swing_mV": 19.5,
+      "pds": [
+        7,
+        8,
+        10
+      ],
+      "V0": 4.137,
+      "Vnull": 2.864,
+      "Vpi": 2.986,
+      "fringe_pd": 7,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 87,
+      "chip": 5,
+      "header": "B",
+      "pin": 31,
+      "net": 46,
+      "stage": "V",
+      "vendor": [
+        101,
+        90
+      ],
+      "elec": "ok",
+      "swing_mV": 44.2,
+      "pds": [
+        9,
+        7,
+        10,
+        12,
+        3,
+        4,
+        8,
+        5
+      ],
+      "V0": 1.839,
+      "Vnull": 3.575,
+      "Vpi": 3.066,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_225742",
+      "analytic": "ok"
+    },
+    {
+      "dac": 88,
+      "chip": 5,
+      "header": "B",
+      "pin": 32,
+      "net": 45,
+      "stage": "V",
+      "vendor": [
+        102,
+        89
+      ],
+      "elec": "ok",
+      "swing_mV": 9.8,
+      "pds": [
+        8,
+        0,
+        5
+      ],
+      "V0": 5.702,
+      "Vnull": 4.009,
+      "Vpi": 4.054,
+      "fringe_pd": 8,
+      "fringe_src": "20260730_233554",
+      "analytic": "ok"
+    },
+    {
+      "dac": 89,
+      "chip": 5,
+      "header": "B",
+      "pin": 33,
+      "net": 44,
+      "stage": "V",
+      "vendor": [
+        103,
+        88
+      ],
+      "elec": "ok",
+      "swing_mV": 10.2,
+      "pds": [],
+      "V0": 1.704,
+      "Vnull": 3.324,
+      "Vpi": 2.853,
+      "fringe_pd": 2,
+      "fringe_src": "20260730_225742",
+      "analytic": "ok"
+    },
+    {
+      "dac": 90,
+      "chip": 5,
+      "header": "B",
+      "pin": 35,
+      "net": 54,
+      "stage": "V",
+      "vendor": [
+        106,
+        113
+      ],
+      "elec": "ok",
+      "swing_mV": 6.0,
+      "pds": [],
+      "V0": 0.656,
+      "Vnull": 2.134,
+      "Vpi": 2.031,
+      "fringe_pd": 1,
+      "fringe_src": "20260730_225742",
+      "analytic": "ok"
+    },
+    {
+      "dac": 91,
+      "chip": 5,
+      "header": "B",
+      "pin": 36,
+      "net": 53,
+      "stage": "V",
+      "vendor": [
+        105,
+        114
+      ],
+      "elec": "ok",
+      "swing_mV": 7.6,
+      "pds": [
+        7
+      ],
+      "V0": 0.527,
+      "Vnull": 0.941,
+      "Vpi": 0.779,
+      "fringe_pd": 1,
+      "fringe_src": "20260730_225742",
+      "analytic": "ok"
+    },
+    {
+      "dac": 92,
+      "chip": 5,
+      "header": "B",
+      "pin": 37,
+      "net": 52,
+      "stage": "V",
+      "vendor": [
+        104,
+        115
+      ],
+      "elec": "ok",
+      "swing_mV": 13.5,
+      "pds": [],
+      "V0": 1.43,
+      "Vnull": 2.679,
+      "Vpi": 2.265,
+      "fringe_pd": 0,
+      "fringe_src": "20260730_225742",
+      "analytic": "ok"
+    },
+    {
+      "dac": 93,
+      "chip": 5,
+      "header": "B",
+      "pin": 39,
+      "net": 61,
+      "stage": "V",
+      "vendor": [
+        128,
+        119
+      ],
+      "elec": "ok",
+      "swing_mV": 8.8,
+      "pds": [],
+      "V0": 1.49,
+      "Vnull": 3.231,
+      "Vpi": 2.867,
+      "fringe_pd": 11,
+      "fringe_src": "20260730_225742",
+      "analytic": "ok"
+    },
+    {
+      "dac": 94,
+      "chip": 5,
+      "header": "B",
+      "pin": 40,
+      "net": 60,
+      "stage": "V",
+      "vendor": [
+        129,
+        118
+      ],
+      "elec": "ok",
+      "swing_mV": 8.1,
+      "pds": [],
+      "V0": 1.533,
+      "Vnull": 0.958,
+      "Vpi": 1.197,
+      "fringe_pd": 2,
+      "fringe_src": "20260730_225742",
+      "analytic": "ok"
+    },
+    {
+      "dac": 95,
+      "chip": 5,
+      "header": "B",
+      "pin": 41,
+      "net": 59,
+      "stage": "V",
+      "vendor": [
+        130,
+        117
+      ],
+      "elec": "ok",
+      "swing_mV": 34.2,
+      "pds": [
+        9,
+        12,
+        10,
+        3
+      ],
+      "V0": 0.561,
+      "Vnull": 2.993,
+      "Vpi": 2.94,
+      "fringe_pd": 9,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 96,
+      "chip": 6,
+      "header": "B",
+      "pin": 42,
+      "net": 58,
+      "stage": "V",
+      "vendor": [
+        131,
+        116
+      ],
+      "elec": "ok",
+      "swing_mV": 22.5,
+      "pds": [
+        3,
+        7,
+        8,
+        5,
+        0
+      ],
+      "V0": 1.807,
+      "Vnull": 3.355,
+      "Vpi": 2.827,
+      "fringe_pd": 7,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 97,
+      "chip": 6,
+      "header": "B",
+      "pin": 44,
+      "net": 71,
+      "stage": "sigma",
+      "vendor": [
+        137,
+        150
+      ],
+      "elec": "ok",
+      "swing_mV": 51.8,
+      "pds": [
+        3,
+        8,
+        5,
+        9,
+        7,
+        10,
+        4,
+        6
+      ],
+      "V0": 0.558,
+      "Vnull": 2.965,
+      "Vpi": 2.912,
+      "fringe_pd": 3,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 98,
+      "chip": 6,
+      "header": "B",
+      "pin": 45,
+      "net": 70,
+      "stage": "sigma",
+      "vendor": [
+        136,
+        151
+      ],
+      "elec": "dead",
+      "swing_mV": 10.7,
+      "pds": [
+        0,
+        12,
+        10,
+        8,
+        1
+      ],
+      "V0": null,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": ""
+    },
+    {
+      "dac": 99,
+      "chip": 6,
+      "header": "B",
+      "pin": 46,
+      "net": 69,
+      "stage": "sigma",
+      "vendor": [
+        135,
+        152
+      ],
+      "elec": "weak",
+      "swing_mV": 15.1,
+      "pds": [
+        3
+      ],
+      "V0": 0.595,
+      "Vnull": 1.269,
+      "Vpi": 1.121,
+      "fringe_pd": 3,
+      "fringe_src": "20260730_225742",
+      "analytic": "ok"
+    },
+    {
+      "dac": 100,
+      "chip": 6,
+      "header": "B",
+      "pin": 47,
+      "net": 68,
+      "stage": "sigma",
+      "vendor": [
+        134,
+        153
+      ],
+      "elec": "dead",
+      "swing_mV": 11.2,
+      "pds": [
+        3
+      ],
+      "V0": null,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": ""
+    },
+    {
+      "dac": 101,
+      "chip": 6,
+      "header": "B",
+      "pin": 48,
+      "net": 67,
+      "stage": "sigma",
+      "vendor": [
+        133,
+        154
+      ],
+      "elec": "ok",
+      "swing_mV": 18.0,
+      "pds": [
+        7,
+        8,
+        13,
+        0,
+        10
+      ],
+      "V0": 1.117,
+      "Vnull": 0.79,
+      "Vpi": 0.79,
+      "fringe_pd": 10,
+      "fringe_src": "20260730_225742",
+      "analytic": "ok"
+    },
+    {
+      "dac": 102,
+      "chip": 6,
+      "header": "B",
+      "pin": 49,
+      "net": 66,
+      "stage": "sigma",
+      "vendor": [
+        132,
+        155
+      ],
+      "elec": "ok",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": 0.0,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": "",
+      "analytic": "dead"
+    },
+    {
+      "dac": 103,
+      "chip": 6,
+      "header": "B",
+      "pin": 51,
+      "net": 80,
+      "stage": "U",
+      "vendor": [
+        165,
+        158
+      ],
+      "elec": "ok",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": 4.0,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": "",
+      "analytic": "dead"
+    },
+    {
+      "dac": 104,
+      "chip": 6,
+      "header": "B",
+      "pin": 52,
+      "net": 79,
+      "stage": "U",
+      "vendor": [
+        166,
+        157
+      ],
+      "elec": "ok",
+      "swing_mV": 9.8,
+      "pds": [],
+      "V0": 1.729,
+      "Vnull": 0.866,
+      "Vpi": 1.497,
+      "fringe_pd": 12,
+      "fringe_src": "20260731_004608",
+      "analytic": "ok"
+    },
+    {
+      "dac": 105,
+      "chip": 6,
+      "header": "B",
+      "pin": 53,
+      "net": 78,
+      "stage": "U",
+      "vendor": [
+        167,
+        156
+      ],
+      "elec": "ok",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": 0.0,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": "",
+      "analytic": "dead"
+    },
+    {
+      "dac": 106,
+      "chip": 6,
+      "header": "B",
+      "pin": 55,
+      "net": 87,
+      "stage": "U",
+      "vendor": [
+        171,
+        180
+      ],
+      "elec": "ok",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": 1.0,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": "",
+      "analytic": "dead"
+    },
+    {
+      "dac": 107,
+      "chip": 6,
+      "header": "B",
+      "pin": 56,
+      "net": 86,
+      "stage": "U",
+      "vendor": [
+        170,
+        181
+      ],
+      "elec": "ok",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": 4.5,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": "",
+      "analytic": "dead"
+    },
+    {
+      "dac": 108,
+      "chip": 6,
+      "header": "B",
+      "pin": 57,
+      "net": 85,
+      "stage": "U",
+      "vendor": [
+        169,
+        182
+      ],
+      "elec": "ok",
+      "swing_mV": 16.8,
+      "pds": [
+        10,
+        13,
+        0,
+        8
+      ],
+      "V0": 5.0,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": "",
+      "analytic": "dead"
+    },
+    {
+      "dac": 109,
+      "chip": 6,
+      "header": "B",
+      "pin": 58,
+      "net": 84,
+      "stage": "U",
+      "vendor": [
+        168,
+        183
+      ],
+      "elec": "ok",
+      "swing_mV": 76.3,
+      "pds": [
+        3,
+        10,
+        7,
+        4,
+        13,
+        2,
+        5,
+        9,
+        8,
+        6,
+        11,
+        1,
+        12,
+        0
+      ],
+      "V0": 3.805,
+      "Vnull": 2.522,
+      "Vpi": 2.849,
+      "fringe_pd": 3,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 110,
+      "chip": 6,
+      "header": "B",
+      "pin": 60,
+      "net": 94,
+      "stage": "U",
+      "vendor": [
+        193,
+        186
+      ],
+      "elec": "ok",
+      "swing_mV": 128.1,
+      "pds": [
+        10,
+        4,
+        3,
+        7,
+        9,
+        8,
+        6,
+        5
+      ],
+      "V0": 3.678,
+      "Vnull": 1.654,
+      "Vpi": 3.285,
+      "fringe_pd": 10,
+      "fringe_src": "20260730_203820",
+      "analytic": "ok"
+    },
+    {
+      "dac": 111,
+      "chip": 6,
+      "header": "B",
+      "pin": 61,
+      "net": 93,
+      "stage": "U",
+      "vendor": [
+        194,
+        185
+      ],
+      "elec": "dead",
+      "swing_mV": 25.9,
+      "pds": [
+        13,
+        2,
+        11,
+        9,
+        6,
+        8,
+        7,
+        10,
+        1,
+        0,
+        3,
+        5
+      ],
+      "V0": null,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": ""
+    },
+    {
+      "dac": 112,
+      "chip": 7,
+      "header": "B",
+      "pin": 62,
+      "net": 92,
+      "stage": "U",
+      "vendor": [
+        195,
+        184
+      ],
+      "elec": "short",
+      "swing_mV": 21.0,
+      "pds": [
+        6,
+        2,
+        11,
+        9,
+        13,
+        1
+      ],
+      "V0": null,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": ""
+    },
+    {
+      "dac": 113,
+      "chip": 7,
+      "header": "B",
+      "pin": 64,
+      "net": 101,
+      "stage": "U",
+      "vendor": [
+        199,
+        208
+      ],
+      "elec": "short",
+      "swing_mV": 21.5,
+      "pds": [
+        6,
+        7,
+        13,
+        0,
+        11,
+        1,
+        4,
+        12,
+        9,
+        5,
+        10
+      ],
+      "V0": null,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": ""
+    },
+    {
+      "dac": 114,
+      "chip": 7,
+      "header": "B",
+      "pin": 65,
+      "net": 100,
+      "stage": "U",
+      "vendor": [
+        198,
+        209
+      ],
+      "elec": "short",
+      "swing_mV": 24.4,
+      "pds": [
+        13,
+        6,
+        10,
+        4,
+        9,
+        2,
+        8,
+        3
+      ],
+      "V0": null,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": ""
+    },
+    {
+      "dac": 115,
+      "chip": 7,
+      "header": "B",
+      "pin": 66,
+      "net": 99,
+      "stage": "U",
+      "vendor": [
+        197,
+        210
+      ],
+      "elec": "short",
+      "swing_mV": 22.9,
+      "pds": [
+        10,
+        13,
+        9
+      ],
+      "V0": null,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": ""
+    },
+    {
+      "dac": 116,
+      "chip": 7,
+      "header": "B",
+      "pin": 67,
+      "net": 98,
+      "stage": "U",
+      "vendor": [
+        196,
+        211
+      ],
+      "elec": "ok",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": 1.5,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": "",
+      "analytic": "dead"
+    },
+    {
+      "dac": 117,
+      "chip": 7,
+      "header": "B",
+      "pin": 69,
+      "net": 108,
+      "stage": "U",
+      "vendor": [
+        221,
+        214
+      ],
+      "elec": "ok",
+      "swing_mV": 47.5,
+      "pds": [
+        5,
+        3,
+        13,
+        10,
+        0,
+        6
+      ],
+      "V0": 3.886,
+      "Vnull": 2.449,
+      "Vpi": 3.017,
+      "fringe_pd": 5,
+      "fringe_src": "20260730_195023",
+      "analytic": "ok"
+    },
+    {
+      "dac": 118,
+      "chip": 7,
+      "header": "B",
+      "pin": 70,
+      "net": 107,
+      "stage": "U",
+      "vendor": [
+        222,
+        213
+      ],
+      "elec": "dead",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": null,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": ""
+    },
+    {
+      "dac": 119,
+      "chip": 7,
+      "header": "B",
+      "pin": 71,
+      "net": 106,
+      "stage": "U",
+      "vendor": [
+        223,
+        212
+      ],
+      "elec": "ok",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": 4.0,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": "",
+      "analytic": "dead"
+    },
+    {
+      "dac": 120,
+      "chip": 7,
+      "header": "B",
+      "pin": 73,
+      "net": 115,
+      "stage": "U",
+      "vendor": [
+        227,
+        236
+      ],
+      "elec": "dead",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": null,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": ""
+    },
+    {
+      "dac": 121,
+      "chip": 7,
+      "header": "B",
+      "pin": 74,
+      "net": 114,
+      "stage": "U",
+      "vendor": [
+        226,
+        237
+      ],
+      "elec": "ok",
+      "swing_mV": 6.2,
+      "pds": [],
+      "V0": 1.63,
+      "Vnull": 0.918,
+      "Vpi": 1.347,
+      "fringe_pd": 2,
+      "fringe_src": "20260730_233554",
+      "analytic": "ok"
+    },
+    {
+      "dac": 122,
+      "chip": 7,
+      "header": "B",
+      "pin": 75,
+      "net": 113,
+      "stage": "U",
+      "vendor": [
+        225,
+        238
+      ],
+      "elec": "ok",
+      "swing_mV": 11.7,
+      "pds": [],
+      "V0": 0.398,
+      "Vnull": 3.199,
+      "Vpi": 3.174,
+      "fringe_pd": 3,
+      "fringe_src": "20260730_233554",
+      "analytic": "ok"
+    },
+    {
+      "dac": 123,
+      "chip": 7,
+      "header": "B",
+      "pin": 76,
+      "net": 112,
+      "stage": "U",
+      "vendor": [
+        224,
+        239
+      ],
+      "elec": "ok",
+      "swing_mV": 5.6,
+      "pds": [],
+      "V0": 1.011,
+      "Vnull": 0.575,
+      "Vpi": 0.831,
+      "fringe_pd": 3,
+      "fringe_src": "20260730_233554",
+      "analytic": "ok"
+    },
+    {
+      "dac": 124,
+      "chip": 7,
+      "header": "B",
+      "pin": null,
+      "net": null,
+      "stage": "spare",
+      "vendor": [
+        null,
+        null
+      ],
+      "elec": "dead",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": null,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": ""
+    },
+    {
+      "dac": 125,
+      "chip": 7,
+      "header": "B",
+      "pin": null,
+      "net": null,
+      "stage": "spare",
+      "vendor": [
+        null,
+        null
+      ],
+      "elec": "dead",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": null,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": ""
+    },
+    {
+      "dac": 126,
+      "chip": 7,
+      "header": "B",
+      "pin": null,
+      "net": null,
+      "stage": "spare",
+      "vendor": [
+        null,
+        null
+      ],
+      "elec": "dead",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": null,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": ""
+    },
+    {
+      "dac": 127,
+      "chip": 7,
+      "header": "B",
+      "pin": null,
+      "net": null,
+      "stage": "spare",
+      "vendor": [
+        null,
+        null
+      ],
+      "elec": "ok",
+      "swing_mV": 0.0,
+      "pds": [],
+      "V0": null,
+      "Vnull": null,
+      "Vpi": null,
+      "fringe_pd": null,
+      "fringe_src": "",
+      "analytic": "spare"
+    }
+  ]
+}

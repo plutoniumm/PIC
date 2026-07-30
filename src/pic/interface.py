@@ -87,13 +87,21 @@ class PIC:
             )
         return np.clip(v, self.cfg.voltage_min, self.cfg.voltage_max)
 
-    def measure_raw(self, voltages) -> np.ndarray:
-        """Apply 64 voltages, return the 14 raw photodiode voltages."""
+    def measure_raw(self, voltages, retries: int = 3) -> np.ndarray:
+        """Apply the DAC voltages, return the raw photodiode voltages. Re-sends and retries
+        on a transient serial timeout (the CH340 occasionally drops a reply on long runs) so
+        one glitch doesn't kill a whole census/training run."""
         v = self._prep_dac(voltages)
         line = ",".join(f"{x:.1f}" for x in v) + "\n"
-        self.ser.reset_input_buffer()
-        self.ser.write(line.encode())
-        return self._read_floats(self.cfg.num_adc_raw)
+        for attempt in range(retries + 1):
+            self.ser.reset_input_buffer()
+            self.ser.write(line.encode())
+            try:
+                return self._read_floats(self.cfg.num_adc_raw)
+            except PICError:
+                if attempt == retries:
+                    raise
+                time.sleep(0.15)
 
     def measure(self, voltages, settle_s: float | None = None) -> np.ndarray:
         """Return the 10 live photodiode voltages, optionally after a thermal settle."""

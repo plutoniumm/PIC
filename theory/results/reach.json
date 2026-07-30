@@ -1,0 +1,65 @@
+[
+ {
+  "heaters": "all 120 heaters",
+  "target": "self",
+  "err_diag": 0.02801988273859024,
+  "err_strict": 52.77221429347992,
+  "n": 120
+ },
+ {
+  "heaters": "all 120 heaters",
+  "target": "gauss",
+  "err_diag": 0.017459631897509098,
+  "err_strict": 4.6115875244140625,
+  "n": 120
+ },
+ {
+  "heaters": "all 120 heaters",
+  "target": "pm1",
+  "err_diag": 0.01799256820231676,
+  "err_strict": 3.1330841183662415,
+  "n": 120
+ },
+ {
+  "heaters": "characterized only",
+  "target": "self",
+  "err_diag": 0.0767606096342206,
+  "err_strict": 5.4129283875226974,
+  "n": 93
+ },
+ {
+  "heaters": "characterized only",
+  "target": "gauss",
+  "err_diag": 0.08521139062941074,
+  "err_strict": 2.1982538998126984,
+  "n": 93
+ },
+ {
+  "heaters": "characterized only",
+  "target": "pm1",
+  "err_diag": 0.05647915881127119,
+  "err_strict": 1.991255134344101,
+  "n": 93
+ },
+ {
+  "heaters": "drivable (incl. uncal)",
+  "target": "self",
+  "err_diag": 0.05818944051861763,
+  "err_strict": 2.2374791502952576,
+  "n": 108
+ },
+ {
+  "heaters": "drivable (incl. uncal)",
+  "target": "gauss",
+  "err_diag": 0.06050812639296055,
+  "err_strict": 3.6976503133773804,
+  "n": 108
+ },
+ {
+  "heaters": "drivable (incl. uncal)",
+  "target": "pm1",
+  "err_diag": 0.03770368127152324,
+  "err_strict": 5.21914342045784,
+  "n": 108
+ }
+]

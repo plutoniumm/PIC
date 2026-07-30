@@ -126,6 +126,32 @@ Single-shot, power-only characterisation of the Section-A path:
 - **The remaining lever is a measurement upgrade, not a bigger model:** homodyne (recover
   phase/sign, lift small-signal PDs off the ADC floor) and/or √N averaging.
 
+**Section B / 128-channel era** (2026-07-23 the whole setup was disconnected, rewired for the
+8-DAC 128-channel board, and reconnected; work is now on **PIC B**):
+
+- **Everything measured before the rewire is SUPERSEDED for B** — the 2026-07-23 morning 64-ch
+  census (`pic_data/census/probe_b_influence.csv`, swings up to 78 mV, 8 silent channels) was
+  taken through the old PIC-A-era hookup and its DAC map. Kept for provenance only; do not use
+  its channel→PD structure or PD classes for B.
+- **No schematic DAC→heater map is trusted** (picpin decode contradicted on hardware). The B map
+  is being derived empirically: `scripts/probe_channels.py` on the 128-ch firmware
+  (`Arduino/pic128/`), one channel at a time, raw repeats + laser telemetry streamed to
+  `pic_data/census/` (tracked in git).
+- **Firmware facts learned the hard way:** these DACs need the per-write config sequence
+  (`0x03 00 84` / `0x09 00 00` / `0x05 FF FF` after every value write — drive.ino's "proven"
+  block); the one-time `0x03 00 FF` + `0x04 00 01` init from `Fully_automated_PIC.ino` does not
+  reliably bring them up. `pic128.ino` = proven sequence + 0–2 V clamp + 10-sweep on-chip ADC
+  averaging, CS pins {10,9,8,7,6,5,4,3}, accepts 64- or 128-value lines (pads with 0).
+- **Post-rewire census + fringe sweep** (`census_b128_postcycle.csv`, `sweep_b128_fringes.csv`,
+  fits in `fringe_fits_b128.csv`): **68/128 channels live; DAC chip 4 (CS pin 6, ch 64–79) is
+  fully dead** (check its ribbon). **No PD is dead on B**; tiers (0–2 V sweep): strong =
+  PD 3,5,6,7,8,9,10,12 (swing ≥25 mV from ≥2 ch; pd10 from 23 ch, pd8 up to 170 mV), weak/narrow
+  = PD 0,1,2,4,11,13 (≤27 mV). **95 (ch,pd) fringes close within the 0–2 V clamp, Vπ median
+  2.24 V** (range 0.9–4.9); the rest are monotonic partial fringes — full 2π/heater needs >2 V.
+  Single-PD-dominant channels (σ/readout candidates): ch36→pd10, ch37→pd10, ch81→pd9, ch99→pd10;
+  ch0/ch1 dim pd8+10+12 together ⇒ input-stage. Deep channels' 1.5 V fingerprints drift
+  session-to-session — place them by fringes, not single-point deltas.
+
 Per-PD classes (held-out R², 100k):
 
 | class | PDs | R² | note |

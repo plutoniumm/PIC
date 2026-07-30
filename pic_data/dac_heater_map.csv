@@ -1,86 +1,85 @@
 # DAC channel -> geometric heater index (H0..H119; see pic_data/heater_map.csv).
 #
-# STATUS: PROVISIONAL PLACEHOLDER (identity, DAC c -> Hc). NOT a measurement.
-# The daughter-board wiring is unrecorded: NUS/PIC_update.pdf numbers heaters by DAC
-# channel, while H0..H119 here is the GDS geometric order. Nothing ties the two.
+# SOURCE: NUS/picpin.drawio, decoded by scripts/picpin_map.py --promote.
+# STATUS: schematic-derived, NOT hardware-verified -> verified=0 on every row.
 #
-# WHAT THE 75k-ROW DATASETS DO SAY (python scripts/dac_heater_probe.py evidence):
-#   DAC1        drives the TOP reference-arm intensity modulator     -> moves PD1,3,5
-#   DAC14,DAC15 drive the BOTTOM reference-arm modulator (one arm ea) -> moves PD8,10,12,13
-#               (their PD profiles correlate at r=0.9992: same MZI)
-#   DAC0        is electrically silent -> that heater is probably not bonded
-#   DAC16,DAC23 report each OTHER'S reference rail, so the 8-channel shifter block
-#               (DAC16..23) looks REVERSED: DAC16->H23 ... DAC23->H16
-#   DAC24..63   unconstrained: the datasets randomise all channels at once, so a deep
-#               heater's marginal effect averages away.
-# The `evidence` column records this. The mapping below is still plain identity, so the
-# contradiction stays visible rather than being half-corrected on inference.
+# The board's two 96-way connectors each carry 60 of the chip's 120 heater nets
+# (each net = one mirror-shorted Section-A/Section-B pair). The 64-channel DAC
+# board is wired to connector A only: channel n lands on the n-th heater pin,
+# GND and PD pins skipped. 29 of those runs are drawn as edges in the drawio and
+# all 29 agree with this reconstruction; the rest follow by sequential fill.
+# Connector A turns out to be exactly the inner half of every column -- the 60
+# heaters nearest the A|B mirror axis -- so DAC 60..63 have nothing to drive.
 #
-# TO SETTLE IT: python scripts/dac_heater_probe.py sweep   (64 channels x 9 levels, laser lit)
-# Then write the measured mapping here and set verified=1 on the rows it settles.
+# Reaching the other 60 nets needs a second DAC board on connector B; see
+# pic_data/connector_pin_map.csv for its pinout.
+#
+# TO VERIFY: python scripts/dac_heater_probe.py sweep  (64 ch x 9 levels, laser lit)
+# Then set verified=1 on the rows it settles. Note the CONFLICT rows below first.
+#
 # Leave H blank to mark a channel as deliberately unassigned. `#` comments are ignored.
 dac,H,verified,stage,evidence
-0,0,0,enc.split,silent in 75k data (likely unbonded)
-1,1,0,enc.split,supported: top reference LO modulator
-2,2,0,enc.split,
-3,3,0,enc.split,
-4,4,0,enc.split,
-5,5,0,enc.split,
-6,6,0,enc.split,
-7,7,0,enc.split,
-8,8,0,enc.split,
-9,9,0,enc.split,
-10,10,0,enc.split,
-11,11,0,enc.split,
-12,12,0,enc.split,
-13,13,0,enc.split,
-14,14,0,enc.split,supported: bottom reference LO modulator
-15,15,0,enc.split,supported: bottom reference LO modulator
-16,16,0,enc.single,contradicted: shifter block appears reversed
-17,17,0,enc.single,contradicted: shifter block appears reversed
-18,18,0,enc.single,contradicted: shifter block appears reversed
-19,19,0,enc.single,contradicted: shifter block appears reversed
-20,20,0,enc.single,contradicted: shifter block appears reversed
-21,21,0,enc.single,contradicted: shifter block appears reversed
-22,22,0,enc.single,contradicted: shifter block appears reversed
-23,23,0,enc.single,contradicted: shifter block appears reversed
-24,24,0,V,
-25,25,0,V,
-26,26,0,V,
-27,27,0,V,
-28,28,0,V,
-29,29,0,V,
-30,30,0,V,
-31,31,0,V,
-32,32,0,V,
-33,33,0,V,
-34,34,0,V,
-35,35,0,V,
-36,36,0,V,
-37,37,0,V,
-38,38,0,V,
-39,39,0,V,
-40,40,0,V,
-41,41,0,V,
-42,42,0,V,
-43,43,0,V,
-44,44,0,V,
-45,45,0,V,
-46,46,0,V,
-47,47,0,V,
-48,48,0,V,
-49,49,0,V,
-50,50,0,V,
-51,51,0,V,
-52,52,0,V,
-53,53,0,V,
-54,54,0,V,
-55,55,0,V,
-56,56,0,V,
-57,57,0,V,
-58,58,0,V,
-59,59,0,V,
-60,60,0,V,
-61,61,0,V,
-62,62,0,V,
-63,63,0,V,
+0,15,0,enc.split,picpin.drawio pin A1 (drawn edge); CONFLICT: silent in 75k data (2x null) though wired here
+1,14,0,enc.split,"picpin.drawio pin A2 (sequential fill); supported: strongest channel (1342x null), top reference LO modulator"
+2,13,0,enc.split,picpin.drawio pin A3 (sequential fill)
+3,12,0,enc.split,picpin.drawio pin A4 (sequential fill)
+4,11,0,enc.split,picpin.drawio pin A5 (sequential fill)
+5,10,0,enc.split,picpin.drawio pin A6 (sequential fill)
+6,9,0,enc.split,picpin.drawio pin A7 (sequential fill)
+7,8,0,enc.split,picpin.drawio pin A8 (drawn edge)
+8,23,0,enc.single,picpin.drawio pin A10 (drawn edge)
+9,22,0,enc.single,picpin.drawio pin A11 (sequential fill)
+10,21,0,enc.single,picpin.drawio pin A12 (sequential fill)
+11,20,0,enc.single,picpin.drawio pin A13 (drawn edge)
+12,29,0,V,picpin.drawio pin A15 (drawn edge)
+13,28,0,V,picpin.drawio pin A16 (sequential fill)
+14,27,0,V,picpin.drawio pin A17 (drawn edge); supported: very strong (798x null)
+15,37,0,V,picpin.drawio pin A19 (drawn edge); supported: very strong (980x null)
+16,36,0,V,picpin.drawio pin A20 (sequential fill)
+17,35,0,V,picpin.drawio pin A21 (sequential fill)
+18,34,0,V,picpin.drawio pin A22 (drawn edge)
+19,43,0,V,picpin.drawio pin A24 (drawn edge)
+20,42,0,V,picpin.drawio pin A25 (sequential fill)
+21,41,0,V,picpin.drawio pin A26 (drawn edge)
+22,51,0,V,picpin.drawio pin A28 (drawn edge)
+23,50,0,V,picpin.drawio pin A29 (sequential fill)
+24,49,0,V,picpin.drawio pin A30 (sequential fill)
+25,48,0,V,picpin.drawio pin A31 (drawn edge)
+26,57,0,V,picpin.drawio pin A33 (drawn edge)
+27,56,0,V,picpin.drawio pin A34 (sequential fill)
+28,55,0,V,picpin.drawio pin A35 (drawn edge)
+29,65,0,V,picpin.drawio pin A37 (drawn edge)
+30,64,0,V,picpin.drawio pin A38 (sequential fill)
+31,63,0,V,picpin.drawio pin A39 (sequential fill)
+32,62,0,V,picpin.drawio pin A40 (drawn edge)
+33,77,0,sigma,picpin.drawio pin A42 (drawn edge)
+34,76,0,sigma,picpin.drawio pin A43 (sequential fill)
+35,75,0,sigma,picpin.drawio pin A44 (sequential fill)
+36,74,0,sigma,picpin.drawio pin A45 (sequential fill)
+37,73,0,sigma,picpin.drawio pin A46 (sequential fill)
+38,72,0,sigma,picpin.drawio pin A47 (sequential fill)
+39,83,0,U,picpin.drawio pin A49 (drawn edge)
+40,82,0,U,picpin.drawio pin A50 (sequential fill)
+41,81,0,U,picpin.drawio pin A51 (drawn edge)
+42,91,0,U,picpin.drawio pin A53 (drawn edge)
+43,90,0,U,picpin.drawio pin A54 (sequential fill)
+44,89,0,U,picpin.drawio pin A55 (sequential fill)
+45,88,0,U,picpin.drawio pin A56 (drawn edge)
+46,97,0,U,picpin.drawio pin A58 (drawn edge)
+47,96,0,U,picpin.drawio pin A59 (sequential fill)
+48,95,0,U,picpin.drawio pin A60 (drawn edge); supported: strong (168x null)
+49,105,0,U,picpin.drawio pin A62 (drawn edge)
+50,104,0,U,picpin.drawio pin A63 (sequential fill)
+51,103,0,U,picpin.drawio pin A64 (sequential fill)
+52,102,0,U,picpin.drawio pin A65 (drawn edge)
+53,111,0,U,picpin.drawio pin A67 (drawn edge)
+54,110,0,U,picpin.drawio pin A68 (sequential fill)
+55,109,0,U,picpin.drawio pin A69 (drawn edge)
+56,119,0,U,picpin.drawio pin A71 (drawn edge)
+57,118,0,U,picpin.drawio pin A72 (sequential fill)
+58,117,0,U,picpin.drawio pin A73 (sequential fill)
+59,116,0,U,picpin.drawio pin A74 (drawn edge)
+60,,0,,unconnected: connector A has only 60 heater pins
+61,,0,,unconnected: connector A has only 60 heater pins
+62,,0,,unconnected: connector A has only 60 heater pins
+63,,0,,"unconnected: connector A has only 60 heater pins; CONFLICT: diagram says unconnected, but alive at 26x null in 75k data"

@@ -9,15 +9,17 @@ BAUD_RATE = 115200
 RESET_WAIT_S = 2.0  # Arduino auto-resets when the serial port is opened
 READY_BANNER = "DACs initialized and ready"
 
-NUM_DAC = 64  # 4 DAC chips x 16 channels
+NUM_DAC = 128  # live PIC-B board: 8 DAC chips x 16 channels (was 4x16=64 on PIC A).
+# The legacy 100k characterization set is 64-wide and lives entirely in dataset space
+# (src.data/influence/inverse never read this constant), so it is unaffected.
 NUM_ADC_RAW = 14  # photodiodes A0..A13
 DAMAGED_PDS = (0, 2, 7, 11)  # 4 damaged photodiodes -> dropped (14 -> 10)
 LIVE_PDS = tuple(i for i in range(NUM_ADC_RAW) if i not in DAMAGED_PDS)
 NUM_ADC_LIVE = len(LIVE_PDS)  # 10
 
 VOLTAGE_MIN = 0.0
-VOLTAGE_MAX = 4.0  # host operating range (dataset grid step 0.5 V)
-FIRMWARE_VMAX = 2.0  # clamp in the current .ino (configurable, not a chip law)
+VOLTAGE_MAX = 5.0  # host range; raised 4->5 to reach nulls past 4 V on strong monotonic heaters
+FIRMWARE_VMAX = 5.0  # clamp in pic128.ino (== DAC full-scale at the 5 V ref); configurable, not a chip law
 DAC_REF_V = 5.0
 DAC_BITS = 16
 VPI_NOMINAL = 1.5  # ~Vpi (pi phase shift), per the team

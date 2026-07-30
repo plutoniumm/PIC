@@ -1,0 +1,58 @@
+[
+ {
+  "label": "power / all 120 / noiseless",
+  "matrix_err": 0.05683546823759874,
+  "pearson": 0.9907654729330547,
+  "found_gs": 0.8333333333333334,
+  "excess": 0.011043029014758959
+ },
+ {
+  "label": "power / all 120 / ADC floor",
+  "matrix_err": 0.05622764055927595,
+  "pearson": NaN,
+  "found_gs": 0.6666666666666666,
+  "excess": 0.05271172373172651
+ },
+ {
+  "label": "power / characterized only / noiseless",
+  "matrix_err": 0.11847474922736485,
+  "pearson": 0.9511112984512251,
+  "found_gs": 0.5,
+  "excess": 0.08067007189980811
+ },
+ {
+  "label": "power / characterized only / ADC floor",
+  "matrix_err": 0.13099375615517297,
+  "pearson": NaN,
+  "found_gs": 0.8333333333333334,
+  "excess": 0.030620178502351467
+ },
+ {
+  "label": "homodyne / all 120 / noiseless",
+  "matrix_err": 0.035839322643975415,
+  "pearson": 0.5417040326229675,
+  "found_gs": 0.0,
+  "excess": 0.3988715058222987
+ },
+ {
+  "label": "homodyne / all 120 / ADC floor",
+  "matrix_err": 0.04614811080197493,
+  "pearson": 0.40162835546028214,
+  "found_gs": 0.0,
+  "excess": 0.4156778333844009
+ },
+ {
+  "label": "homodyne / characterized only / noiseless",
+  "matrix_err": 0.11289584760864575,
+  "pearson": 0.5968707065397288,
+  "found_gs": 0.16666666666666666,
+  "excess": 0.27490433053665764
+ },
+ {
+  "label": "homodyne / characterized only / ADC floor",
+  "matrix_err": 0.12167497103412946,
+  "pearson": 0.49288756472422923,
+  "found_gs": 0.5,
+  "excess": 0.2841528452904827
+ }
+]

@@ -22,14 +22,23 @@ def fit_fringe(v, p, vpi0: float = 1.5):
     except Exception:
         return None
     A, B, phi2, phi0 = popt
-    resid = p - model(v, *popt)
+    # Canonicalize so the returned (A,B,phi2,phi0) reconstruct the SAME curve the rmse and
+    # fringe_extrema read off. curve_fit may return phi2<0 or B<0; naively storing abs(B)
+    # without shifting phi0 reflects the curve about A and swaps its max/min (which then
+    # swaps V0/Vnull in fringe_extrema). Fold the signs into phi0 instead.
+    if phi2 < 0:
+        phi2, phi0 = -phi2, -phi0
+    if B < 0:
+        B, phi0 = -B, phi0 + np.pi
+    phi0 = phi0 % (2 * np.pi)
+    resid = p - model(v, A, B, phi2, phi0)
     return {
         "A": float(A),
-        "B": float(abs(B)),
+        "B": float(B),
         "phi2": float(phi2),
-        "phi0": float(phi0 % (2 * np.pi)),
-        "Vpi": float(np.sqrt(np.pi / abs(phi2))) if phi2 else float("nan"),
-        "visibility": float(abs(B) / A) if A else float("nan"),
+        "phi0": float(phi0),
+        "Vpi": float(np.sqrt(np.pi / phi2)) if phi2 else float("nan"),
+        "visibility": float(B / A) if A else float("nan"),
         "rmse": float(np.sqrt(np.mean(resid**2))),
     }
 

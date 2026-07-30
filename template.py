@@ -238,7 +238,27 @@ def laser_session(laser, *, duration_s, power_dbm, bfm_off=None, emit_eps=0.05):
             if sleep_s:
                 time.sleep(sleep_s)
 
+        def set_power(dbm):
+            """Change the live output power mid-session and update the keepalive target so
+            it holds the NEW setpoint (not the one the session opened at). Lets one lit
+            session sweep several dbm levels without re-latching the laser each time."""
+            with lock:
+                laser.set(dbm)
+                s.sp = float(laser.dev.read_setting("cw_current"))
+                s.mA = laser.measured_mA()
+
+        def telemetry():
+            """(bfm optical power, diode temp, measured mA) read under the lock -- the
+            laser-side state to log alongside a measurement."""
+            with lock:
+                bfm = float(laser.dev.measure("bfm_optical_power"))
+                temp = float(laser.dev.measure("diode_temperature"))
+                mA = float(laser.measured_mA())
+            return bfm, temp, mA
+
         s.keepalive = keepalive
+        s.set_power = set_power
+        s.telemetry = telemetry
         s.expired = lambda: stopped.is_set() or time.time() >= s.deadline
         yield s
     finally:
@@ -374,38 +394,69 @@ def run_experiment(
 
 
 # ------------------------------------------------------------------- step / settling probe
-def _report_step(res, t, channels, step_v, power_dbm, window):
-    """Terse per-live-PD settling digest + a recommended host settle_s."""
+def _report_step_edge(label, res, t):
+    """One edge's per-live-PD settling table; returns ([(swing, settle)...], read rate)
+    for live PDs with a finite settle. The swing rides along so the digest can drop
+    PDs whose swing is at the noise floor (where the band crossing is meaningless)."""
     ts, fin, sw = res["t_settle"], res["final"], res["swing"]
     n = len(t)
     span = float(t[-1] - t[0]) if n > 1 else 0.0
     rate = (n - 1) / span if span > 0 else float("nan")
     print(
-        f"\n[step] settling @ {power_dbm:+.1f} dBm, channels {list(channels)} "
-        f"-> {step_v:g} V, window={window}"
-    )
-    print(
-        f"  {n} reads over {span:.2f}s  "
+        f"\n  [{label}]  {n} reads over {span:.2f}s  "
         f"(~{1000 * span / max(n - 1, 1):.0f} ms/read, {rate:.1f} reads/s)"
     )
-    print("  per live PD:   final V   swing mV   settle s")
-    settles = []
+    print("    per live PD:   final V   swing mV   settle s")
+    pairs = []
     for k in LIVE_PDS:
         st = ts[k]
         if np.isfinite(st) and st > t[0]:
-            settles.append(st)
+            pairs.append((float(sw[k]), float(st)))
         ststr = f"{st:6.2f}" if np.isfinite(st) else " n/a "
-        print(f"    pd{k:<2}   {fin[k]:7.3f}   {sw[k] * 1000:8.1f}   {ststr}")
-    if settles:
-        rec = max(settles) * 1.2
-        print(f"\n  -> recommended host settle_s: {rec:.2f}s (slowest live PD +20%)")
+        print(f"      pd{k:<2}   {fin[k]:7.3f}   {sw[k] * 1000:8.1f}   {ststr}")
+    return pairs, rate
+
+
+def _report_step(edges, channels, step_v, power_dbm, window, floor=0.005):
+    """Digest across the captured edges (heat-up / cool-down) + a recommended settle_s.
+    ``edges`` is a list of ``(label, settling_dict, t)``. Only PDs whose swing clears a
+    noise gate (2x the band ``floor``) feed the recommendation -- a swing ~= the floor
+    makes the band crossing land on noise, not on real settling. Returns the number."""
+    print(
+        f"\n[step] settling @ {power_dbm:+.1f} dBm, channels {list(channels)} "
+        f"-> {step_v:g} V and back, window={window}"
+    )
+    all_pairs, rate = [], float("nan")
+    for label, res, t in edges:
+        pairs, r = _report_step_edge(label, res, t)
+        all_pairs += pairs
+        if r == r:  # keep a valid rate for the note below
+            rate = r
+    gate = 2 * floor
+    strong = [st for sw, st in all_pairs if sw > gate]
+    max_sw = max((sw for sw, _ in all_pairs), default=0.0)
+    if strong:
+        rec = max(strong) * 1.2
+        print(
+            f"\n  -> recommended host settle_s: {rec:.2f}s "
+            f"(slowest edge/PD with swing > {gate * 1000:.0f} mV, +20%)"
+        )
+    elif max_sw > 0:
+        rec = 0.0
+        print(
+            f"\n  -> swings <= {gate * 1000:.0f} mV (~2x the band) on every live PD -- "
+            f"settling not reliably resolvable at this SNR (strongest {max_sw * 1000:.1f} "
+            "mV). Drive a heater with a stronger PD response, or fit the exponential edge."
+        )
     else:
+        rec = 0.0
         print("\n  -> no resolvable transient (settled within the first read).")
     if rate == rate:  # not NaN
         print(
             f"     firmware already averages {ADC_AVG_MS} ms internally; a rolling window "
             f"of {window} reads (~{window / rate:.1f}s @ {rate:.1f}/s) smooths the rest."
         )
+    return rec
 
 
 def run_step_response(
@@ -426,13 +477,14 @@ def run_step_response(
     tick_s: float = 0.5,
     emit_eps: float = 0.05,
 ) -> dict:
-    """Light the chip, apply a step (``base`` -> ``step_channels`` at ``step_v``), and
-    poll every PD as fast as the firmware replies for ``seconds`` -- i.e. how long the PD
-    voltages take to stabilise. Per-PD settling is read off a rolling mean over ``window``
-    reads (the smoothing). Same watchdog/lock safety as :func:`run_experiment` via
-    :func:`laser_session`; the poll keepalives the laser so it can't self-disable mid-
-    capture. Every read is one CSV row. Returns a summary (incl. the ``settling_time``
-    dict, raw trace, and recommended settle_s)."""
+    """Light the chip, then capture BOTH thermal edges of a heater: step
+    ``base`` -> ``step_channels`` at ``step_v`` (heat-up) and back to ``base`` (cool-down),
+    polling every PD as fast as the firmware replies for ``seconds`` per edge -- i.e. how
+    long the PD voltages take to stabilise heating up vs. cooling down. Per-PD settling is
+    read off a rolling mean over ``window`` reads (the smoothing). Same watchdog/lock safety
+    as :func:`run_experiment` via :func:`laser_session`; the poll keepalives the laser so it
+    can't self-disable mid-capture. Every read is one CSV row (``phase`` = up / down).
+    Returns a summary (per-edge ``settling_time`` dicts, raw traces, recommended settle_s)."""
     nd = pic.cfg.num_dac
     base = np.zeros(nd) if base is None else np.asarray(base, float).copy()
     v_step = base.copy()
@@ -457,7 +509,7 @@ def run_step_response(
         f.flush()
 
     summary = {"out_path": out_path}
-    t = raw = None
+    t_up = raw_up = t_dn = raw_dn = None
     try:
         # 1. dark baseline -- laser OFF
         print("dark baseline (laser off) ...")
@@ -470,10 +522,10 @@ def run_step_response(
             logrow(time.perf_counter() - t0d, "dark", pds)
         summary["dark_mean_live"] = np.mean(dark, 0)[list(LIVE_PDS)].tolist()
 
-        # 2. laser ON, presettle at base, then step + poll
+        # 2. laser ON, presettle cold, then heat-up edge + cool-down edge
         print(f"laser ON -> {power_dbm:+.1f} dBm ...")
         with laser_session(
-            laser, duration_s=seconds + presettle_s + 15.0, power_dbm=power_dbm,
+            laser, duration_s=2 * seconds + presettle_s + 15.0, power_dbm=power_dbm,
             bfm_off=bfm_off, emit_eps=emit_eps,
         ) as ls:
             summary.update(
@@ -487,27 +539,33 @@ def run_step_response(
             pic.measure_raw(base)  # hold base cold, laser lit
             ls.keepalive(presettle_s)
             print(
-                f"step: channels {list(step_channels)} -> {step_v:g} V, "
+                f"heat-up: channels {list(step_channels)} -> {step_v:g} V, "
                 f"polling {seconds:g}s ..."
             )
-            t, raw = poll_pds(
-                pic, v_step, seconds, on_tick=ls.keepalive, tick_s=tick_s
-            )
-            for ti, pr in zip(t, raw):
-                logrow(float(ti), "signal", pr)
+            t_up, raw_up = poll_pds(pic, v_step, seconds, on_tick=ls.keepalive, tick_s=tick_s)
+            for ti, pr in zip(t_up, raw_up):
+                logrow(float(ti), "up", pr)
+            print(f"cool-down: -> 0 V, polling {seconds:g}s ...")
+            t_dn, raw_dn = poll_pds(pic, base, seconds, on_tick=ls.keepalive, tick_s=tick_s)
+            for ti, pr in zip(t_dn, raw_dn):
+                logrow(float(ti), "down", pr)
     finally:
         f.close()
 
-    if t is None or len(t) < 2:
+    if t_up is None or len(t_up) < 2:
         print("  step aborted before enough reads -- no settling estimate.")
         return summary
-    res = settling_time(t, raw, window=window, rel_band=rel_band, floor=floor)
-    summary.update(settling=res, t=t, raw=raw)
-    settled = res["t_settle"][list(LIVE_PDS)]
-    settled = settled[np.isfinite(settled) & (settled > t[0])]
-    summary["recommended_settle_s"] = float(settled.max() * 1.2) if settled.size else 0.0
-    _report_step(res, t, step_channels, step_v, power_dbm, window)
-    print(f"  wrote {len(t)} poll rows -> {out_path}")
+    res_up = settling_time(t_up, raw_up, window=window, rel_band=rel_band, floor=floor)
+    edges = [("heat-up", res_up, t_up)]
+    summary.update(settling_up=res_up, t_up=t_up, raw_up=raw_up)
+    if t_dn is not None and len(t_dn) >= 2:
+        res_dn = settling_time(t_dn, raw_dn, window=window, rel_band=rel_band, floor=floor)
+        edges.append(("cool-down", res_dn, t_dn))
+        summary.update(settling_down=res_dn, t_down=t_dn, raw_down=raw_dn)
+    rec = _report_step(edges, step_channels, step_v, power_dbm, window, floor=floor)
+    summary["recommended_settle_s"] = rec
+    n_rows = len(t_up) + (len(t_dn) if t_dn is not None else 0)
+    print(f"  wrote {n_rows} poll rows -> {out_path}")
     return summary
 
 
@@ -535,6 +593,10 @@ class _FakeDev:
             return 0.2 + (0.04 * self.p.sp if self.p._on else 0.0)
         if name == "diode_cw_current":
             return self.p.measured_mA()
+        if name == "diode_temperature":
+            # mock only: real hardware reads the laser's sensor. Self-heats with drive
+            # current (TEC off), so the mock's temp feature actually varies.
+            return 25.0 + 0.08 * self.p.measured_mA()
         return 0
 
 

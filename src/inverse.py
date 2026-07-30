@@ -66,12 +66,37 @@ class MonteCarloInverse:
 
 
 class GradientInverse:
-    """Gradient-based inverse on a differentiable forward surrogate (grey-box or NN). Stub."""
+    """Projected-gradient optimiser over a differentiable torch objective.
 
-    def __init__(self, forward):
-        self.forward = forward
+    ``objective(v)`` maps a leaf tensor of decision variables to a scalar tensor to
+    MAXIMISE; gradients come from autograd (backprop through a frozen surrogate). After
+    each Adam step ``v`` is projected back onto the box ``[vmin, vmax]``. This is the
+    gradient counterpart to :class:`MonteCarloInverse`; ``scripts/pic_gd.py`` builds the
+    surrogate-DPNN objective and drives this. torch is imported lazily so importing this
+    module stays torch-free."""
 
-    def run(self, *args, **kw):
-        raise NotImplementedError(
-            "gradient inverse pending a differentiable forward model"
-        )
+    def __init__(self, objective, vmin: float = 0.0, vmax: float = 4.0):
+        self.objective = objective
+        self.vmin, self.vmax = vmin, vmax
+
+    def run(self, v0, iters: int = 400, lr: float = 0.05, log_every: int = 50,
+            verbose: bool = False):
+        import torch
+
+        v = torch.tensor(np.asarray(v0, float), dtype=torch.float32, requires_grad=True)
+        opt = torch.optim.Adam([v], lr=lr)
+        hist = []
+        for it in range(iters):
+            opt.zero_grad()
+            obj = self.objective(v)
+            (-obj).backward()
+            opt.step()
+            with torch.no_grad():
+                v.clamp_(self.vmin, self.vmax)
+            hist.append(float(obj.detach()))
+            if verbose and log_every and (it % log_every == 0 or it == iters - 1):
+                print(f"  iter {it + 1:4d}/{iters}: objective {hist[-1]:+.5f}")
+        with torch.no_grad():
+            final = float(self.objective(v))
+        return {"v": v.detach().numpy(), "obj": final,
+                "obj0": hist[0] if hist else final, "history": hist}

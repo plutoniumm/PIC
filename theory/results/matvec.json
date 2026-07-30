@@ -1,0 +1,30 @@
+[
+ {
+  "label": "all 120 / noiseless",
+  "matrix_err": 0.04067138209939003,
+  "vec_err": 3.230172207095942,
+  "sign_acc": 0.611111111111111,
+  "cos": 0.5356343327338268
+ },
+ {
+  "label": "all 120 / ADC floor",
+  "matrix_err": 0.03932145765672127,
+  "vec_err": 0.9081499547360599,
+  "sign_acc": 0.7037037037037037,
+  "cos": 0.7371846938237668
+ },
+ {
+  "label": "characterized only / noiseless",
+  "matrix_err": 0.0986443820099036,
+  "vec_err": 1.1197703938969623,
+  "sign_acc": 0.75,
+  "cos": 0.6817856006753692
+ },
+ {
+  "label": "characterized only / ADC floor",
+  "matrix_err": 0.10858848815162976,
+  "vec_err": 1.4791677083050396,
+  "sign_acc": 0.6875,
+  "cos": 0.5977146671705863
+ }
+]

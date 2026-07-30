@@ -4,7 +4,7 @@ from src.pic import PIC, MockPIC        # hardware / driver layer
 from src import mzi, forward, inverse   # modelling layer
 """
 
-from . import pic, mzi, data, influence, forward, inverse, characterize, pic_neurophox
+from . import pic, mzi, data, influence, forward, inverse, characterize, census, pic_neurophox
 
 __all__ = [
     "pic",
@@ -14,5 +14,6 @@ __all__ = [
     "forward",
     "inverse",
     "characterize",
+    "census",
     "pic_neurophox",
 ]
