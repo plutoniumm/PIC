@@ -29,7 +29,7 @@ class Hardware:
     known[h]          driveable AND characterized -> phase is commandable
     """
 
-    def __init__(self, path: str = CONFIG, vmax: float = 4.0):
+    def __init__(self, path: str = CONFIG, vmax: float = 4.0, phi0_offset=None):
         cfg = json.load(open(path))
         self.cfg, self.vmax = cfg, vmax
         self.vpi = np.full(NH, np.nan)
@@ -51,6 +51,14 @@ class Hardware:
                 self.vpi[h] = float(vpi)
                 # max pass at V0 => phi(V0) == 0 (mod 2pi)
                 self.phi0[h] = (-math.pi * (float(v0) / float(vpi)) ** 2) % (2 * math.pi)
+
+        # backprop drift-correction: add an inferred per-heater phi0 offset (radians), applied
+        # only to characterised heaters. This is how a "corrected" config differs from baseline
+        # -- a pure phase-offset shift, no V0 root-flip (see theory/drift_infer.py).
+        if phi0_offset is not None:
+            off = np.asarray(phi0_offset, float)
+            fin = np.isfinite(self.phi0) & np.isfinite(off)
+            self.phi0[fin] = (self.phi0[fin] + off[fin]) % (2 * math.pi)
 
         self.known = self.driveable & np.isfinite(self.vpi)
 
