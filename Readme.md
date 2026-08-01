@@ -20,7 +20,7 @@ python ui.py                 # opens http://localhost:8787   (--port N, --no-ope
 python ui.py --mock          # attach the mock laser + mock PIC at startup
 ```
 
-The page *is* the chip: it draws the real 6×6P schematic from `src.pic.layout` (the same
+The page *is* the chip: it draws the real 6×6P schematic from `pic.layout` (the same
 scene graph, built off the GDS netlist) and paints live state onto it. The laser feeds the
 input coupler on the left with a power slider and an ON/OFF button; every heater is tinted
 by its supplied DAC voltage; every photodiode shows its measured value where it physically
@@ -47,7 +47,7 @@ monitor photodiode rose off its dark baseline) from **ARMED · no light**.
 > and `... sweep` to settle it on hardware.
 
 Every action, board error, and server drop-out surfaces as a toast. Thin shell over
-`src.pic`; plain Vue 3, no build step.
+`pic`; plain Vue 3, no build step.
 
 ### PIC replica — `src/pic_neurophox.py`
 
@@ -69,22 +69,29 @@ A **structural** replica — mesh phases are free (random) until the heater→ph
 calibration exists (`from_voltages` is the stub it will fill). Needs tensorflow (in the
 `pic` env; ~6 s one-off load).
 
-*Legacy:* `Monte Carlo for PIC.ipynb` — all-in-one MC optimiser over serial (finds DAC
-volts hitting a target 10-value output). Firmware: flash
-`Fully_automated_PIC/Fully_automated_PIC.ino` (Arduino, 115200 baud; 64 floats out → 14
-mean PD volts in).
+*Legacy:* `Monte Carlo for PIC.ipynb` (all-in-one MC optimiser over serial) was removed in the
+cleanup — recoverable from git history. Firmware still flashes from
+`Arduino/Fully_automated_PIC.ino` (Arduino, 115200 baud; 64 floats out → 14 mean PD volts in);
+the live host optimizer scaffolds are `src/inverse.py` and `scripts/pic_gd.py`.
 
 
 ## Code layout
 
-- **`src/pic/`** — hardware interface (`from src.pic import PIC, MockPIC, find_port, acquisition, …`):
-  `config` (constants), `interface` (`PIC` pyserial driver matching the `.ino` + `MockPIC`,
-  no-hardware), `acquisition` (`sweep_channel`, `measure_averaged`, `collect_dataset`,
-  `homodyne_sweep`/`fit_homodyne`).
-- **`src/`** — modelling: `mzi` (two-phase-shifter transfer + Clements mesh), `data`,
-  `influence` (DAC→PD η² map), `forward` (`BlackBoxForward` working, `GreyBoxForward`
-  scaffold), `inverse` (`MonteCarloInverse`, `GradientInverse` scaffold), `characterize`
-  (per-heater φ²/φ⁰ fringe fits), `pic_neurophox` (the replica above).
+- **`pic/` — the unified rig library (`import pic`).** `from pic import Rig` is the primary
+  entry: one object driving laser + board (+ an optional model), each `"hw"` or `"mock"`
+  (`Rig(laser="mock", board="mock").open()`; then `.session(...)`, `.measure(v)`, `.predict(H)`,
+  `.close()`). Under it: `interface` (`PIC` pyserial driver matching the `.ino` + `MockPIC`,
+  no-hardware), `config`, `acquisition` (`sweep_channel`, `measure_averaged`, `collect_dataset`,
+  `homodyne_sweep`/`fit_homodyne`), `layout`/`wiring`/`homodyne`, `session` (the dual-device
+  experiment layer, was `template.py`), `devices` (`Laser`/`MockLaser`/`PDMv5`, was `laser/`),
+  `model` (`MockModel`/`DpnnModel`/`TwinModel`), `compute.ising`/`compute.matvec`, `bringup`.
+  CLI: `python -m pic <measure|ising|matvec|bringup>`. Legacy paths (`from src.pic import …`,
+  `from laser.laser import Laser`, `from template import …`) still work as thin shims.
+- **`theory/`** — pure-math simulation (differentiable digital twin + Ising/matvec kernels);
+  imported by `pic.compute` and `pic.model`.
+- **`src/`** — modelling: `data`, `inverse` (`MonteCarloInverse`, `GradientInverse`),
+  `characterize` (per-heater φ²/φ⁰ fringe fits), `census` / `sweep_analysis` (the PIC-B fringe
+  pipeline), `prune` (the DPNN pruning core), `pic_neurophox` (the replica above).
 - **`scripts/`** — analysis / schematic / hardware scripts; index in **`scripts/README.md`**.
 
 

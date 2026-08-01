@@ -54,7 +54,8 @@ class Hardware:
 
         # backprop drift-correction: add an inferred per-heater phi0 offset (radians), applied
         # only to characterised heaters. This is how a "corrected" config differs from baseline
-        # -- a pure phase-offset shift, no V0 root-flip (see theory/drift_infer.py).
+        # -- a pure phase-offset shift, no V0 root-flip. Consumed by scripts/ising_ab.py (--dphi);
+        # the drift-inference investigation that produced these offsets is archived in hw.md.
         if phi0_offset is not None:
             off = np.asarray(phi0_offset, float)
             fin = np.isfinite(self.phi0) & np.isfinite(off)
