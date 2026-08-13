@@ -13,41 +13,23 @@ out. Chip/vendor background in `NUS/` and `CLAUDE.md`.
 Run everything from the **repo root** with the **`pic`** conda env (Python 3.14):
 `conda activate pic` (or `/usr/local/Caskroom/miniconda/base/envs/pic/bin/python`).
 
-### `ui.py` — browser console (a live view of the chip)
+### The rig — `from pic import Rig`
 
+```python
+from pic import Rig
+with Rig(laser="hw", board="hw") as rig:        # each of laser/board: "hw" | "mock"
+    with rig.session(duration_s=60, power_dbm=5):   # watchdog'd laser session
+        pd = rig.measure(volts)                      # 128 DAC volts in -> 14 PD volts out
 ```
-python ui.py                 # opens http://localhost:8787   (--port N, --no-open)
-python ui.py --mock          # attach the mock laser + mock PIC at startup
-```
 
-The page *is* the chip: it draws the real 6×6P schematic from `pic.layout` (the same
-scene graph, built off the GDS netlist) and paints live state onto it. The laser feeds the
-input coupler on the left with a power slider and an ON/OFF button; every heater is tinted
-by its supplied DAC voltage; every photodiode shows its measured value where it physically
-sits. Click a heater to drive it. Scroll to zoom, drag to pan, **fit** to reset.
+Laser control and the live PD dashboard are on the `./do` dispatcher (`./do laser state 1`,
+`./do laser set 5`, `./do measure`); characterization is `./do heaters`. Only one process
+may hold the Arduino serial port at a time.
 
-**Laser and PIC are separate devices with separate connect buttons and separate `mock`
-toggles**, so you can mock either one alone. Ports auto-detect (the Arduino is the numeric
-CH340, the laser the FTDI; neither can grab the other's port), and `i` shows what actually
-connected — port, firmware, key/interlock preflight.
-
-The **auto-off** countdown in the header is a real watchdog: `threading.Timer` in the
-server hard-offs the laser when it expires, so closing the browser cannot leave the laser
-lit. The countdown is server-authoritative and resynced every poll; `+Ns` re-arms it.
-`SIGINT`/`SIGTERM`/`SIGHUP` all ramp the laser down and zero the DACs before exiting.
-Power above **+5 dBm** is refused unless explicitly unlocked (PD-safe policy for this rig).
-
-`laser_status == 1` does not prove emission, so the panel distinguishes **EMITTING** (the
-monitor photodiode rose off its dark baseline) from **ARMED · no light**.
-
-> ⚠ Heater *positions* on the diagram are provisional: see `pic_data/dac_heater_map.csv`.
-> The 64 DAC channels drive 64 of the 120 heaters, and which is which was never recorded.
-> Voltages are real; the heater each channel lands on is a labelled guess. Undriven heaters
-> render hollow. Run `python scripts/dac_heater_probe.py evidence` for what the data says,
-> and `... sweep` to settle it on hardware.
-
-Every action, board error, and server drop-out surfaces as a toast. Thin shell over
-`pic`; plain Vue 3, no build step.
+> The live browser console (`ui.py` + `ui/`, an HTTP server on `:8787` that painted laser/
+> heater/PD state onto the schematic) was **removed** in the paper cleanup — recoverable from
+> git history. The scene graph it drew, `pic.layout`, stays: it still backs
+> `scripts/pic_state_diagram.py`, and `theory/twin.py` matches its heater numbering.
 
 ### PIC replica — `src/pic_neurophox.py`
 
@@ -109,6 +91,16 @@ volts (string), cols 1–14 = 14 raw PD volts. **Not** the splitting-tree 6×6.
 
 Every unique input was measured **exactly once** — no independent repeats, so √N averaging
 can't be tested offline (needs fresh acquisition). ~38% of rows are exact duplicates.
+
+
+## Prior work — `Anagha/` (PIC-A, untracked)
+
+The Section-A predecessor work (Anagha Gayathri, Pranav): 128 full-range 0–5 V per-channel
+sweeps, a 20×200 repeat-noise set, thermal-crosstalk studies, and a TEC-controlled forward
+NN reaching **R² ≈ 0.86** (vs 0.70 without TEC). 353 MB, kept on disk and gitignored —
+**inventory, paper mapping and open discrepancies in [`Anagha/README.md`](Anagha/README.md)**.
+Read it before writing the characterisation section; it contradicts the findings below on
+which PDs are dead, and it suggests TEC control is the missing lever behind the ceiling.
 
 
 ## Findings (compacted research log)

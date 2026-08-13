@@ -1,7 +1,7 @@
 """Chip layout as a renderer-independent scene graph.
 
-Where every heater, photodiode, MZI and rail sits, as data rather than draw calls, so the
-live browser console (`ui.py` -> SVG) can paint measurements onto the real structure.
+Where every heater, photodiode, MZI and rail sits, as data rather than draw calls, so a
+renderer can paint measurements onto the real structure (`scripts/pic_state_diagram.py`).
 Geometry is stylised but faithful to the GDS trace in `pic_data/netlist_6x6P.json`; the
 heater numbering H0..H119 is the same descending-x, descending-y order that
 `pic_data/heater_map.csv` records, and `verify_against_netlist()` asserts the counts.

@@ -1,4 +1,8 @@
-"""Hardware homodyne readout -- the real-chip counterpart of ``theory/readout.py``.
+"""NOTE (2026-08-13): the driver scripts this module names (homodyne_pdmap,
+homodyne_calibrate, char_h23_homodyne) were removed in the cleanup -- the branch is closed,
+see homodyne.md. Recover them from git history if the bottom LO arm is ever fixed.
+
+Hardware homodyne readout -- the real-chip counterpart of ``theory/readout.py``.
 
 ``theory/readout.py`` runs the 2-shot homodyne recovery against the differentiable twin
 (fields in, PD banks out, all in torch). This module runs the SAME math against a real
@@ -140,8 +144,9 @@ class Homodyne:
         if bad:
             nets = {name: LO_PHASE_NET[name] for name in bad}
             raise RuntimeError(
-                f"LO phase heater(s) uncommandable: {nets}. Characterize with "
-                "scripts/char_h23_homodyne.py (H23) before homodyne on that arm.")
+                f"LO phase heater(s) uncommandable: {nets}. The H23 characterisation "
+                "scripts were removed (superseded by pic.compute.matvec, which needs no "
+                "LO); recover them from git history to use this path.")
 
     def read_raw(self, phases):
         """Program ``phases`` and return the dark-subtracted 14 raw PD volts."""

@@ -16,8 +16,12 @@ slides/
 venv/
 env/
 
-ui/
 runs/
+
+# --- PIC-A predecessor material (Anagha / Pranav): 353 MB of raw datasets and
+#     one-off analysis scripts. Kept on disk, inventoried in Anagha/README.md,
+#     deliberately out of git history. ---
+Anagha/
 
 # --- Jupyter ---
 .ipynb_checkpoints/
@@ -58,3 +62,16 @@ PIC_flipped.png
 
 # --- Large raw experiment dumps (not derived artifacts; keep them out of git) ---
 pic_data/testing_working_ps_hybrid_*.xlsx
+
+# --- LaTeX build artifacts (the paper source and its images are tracked; the
+#     intermediates are not) ---
+paper/*.aux
+paper/*.log
+paper/*.blg
+paper/*.bbl
+paper/*.out
+paper/*.xdv
+paper/*.synctex.gz
+
+# --- Long-running solver logs under theory/results (the .json results are tracked) ---
+theory/results/*.log

@@ -1,0 +1,89 @@
+{
+ "instances_identical": true,
+ "n_instances": 6,
+ "runs": {
+  "6A_baseline": {
+   "gs_rate": 0.16666666666666666,
+   "mean_excess": 0.1590984522256188,
+   "mean_ecorr": 0.6028030791218728
+  },
+  "6A_n4": {
+   "gs_rate": 0.3333333333333333,
+   "mean_excess": 0.32558530241206834,
+   "mean_ecorr": 0.6167312723629113
+  },
+  "6B_corrected": {
+   "gs_rate": 0.5,
+   "mean_excess": 0.07709292850498416,
+   "mean_ecorr": 0.8192864775589506
+  },
+  "6B_n4": {
+   "gs_rate": 0.16666666666666666,
+   "mean_excess": 0.23180951383388507,
+   "mean_ecorr": 0.6219612569577805
+  },
+  "multi_n4": {
+   "gs_rate": 0.5,
+   "mean_excess": 0.14882687706657008,
+   "mean_ecorr": 0.6193085564112447
+  },
+  "multi_n4_reanchored": {
+   "gs_rate": 0.5,
+   "mean_excess": 0.11190148939464689,
+   "mean_ecorr": 0.7012746183014413
+  }
+ },
+ "between": {
+  "6A_baseline->6B_corrected": {
+   "mean": 0.21648339843707762,
+   "sd": 0.23064816072524252,
+   "d_excess": -0.08200552372063465,
+   "gs_from": 0.16666666666666666,
+   "gs_to": 0.5,
+   "note": "reported hardware result"
+  },
+  "multi_n4->multi_n4_reanchored": {
+   "mean": 0.08196606189019663,
+   "sd": 0.0851581704451413,
+   "d_excess": -0.03692538767192319,
+   "gs_from": 0.5,
+   "gs_to": 0.5,
+   "note": "re-anchor arm"
+  },
+  "6A_n4->6B_n4": {
+   "mean": 0.005229984594869179,
+   "sd": 0.2689995622485984,
+   "d_excess": -0.09377578857818328,
+   "gs_from": 0.3333333333333333,
+   "gs_to": 0.16666666666666666,
+   "note": "does not reproduce"
+  }
+ },
+ "within": {
+  "A_uncorrected": {
+   "mean": 0.013928193241038426,
+   "sd": 0.3646547783997982
+  },
+  "B_corrected": {
+   "mean": -0.19732522060117,
+   "sd": 0.3113056441414004
+  }
+ },
+ "pooled_gs": {
+  "A_uncorrected": {
+   "found": 3,
+   "total": 12
+  },
+  "B_corrected": {
+   "found": 4,
+   "total": 12
+  }
+ },
+ "power": {
+  "paired_sd": 0.1949352978063274,
+  "largest_observed_effect": 0.21648339843707762,
+  "n_instances_for_3sigma": 7.297503083327752
+ },
+ "paired_runner_used": [],
+ "verdict": "SUGGESTIVE, reported. 2 of 3 A->B comparisons improve; in the reported pair (6A_baseline -> 6B_corrected) ground-state rate, mean excess and E-corr all move together in the predicted direction, and the re-anchor arm corroborates. Caveats kept: the third pairing does not reproduce, paired per-instance scatter (sd ~0.25) is comparable to the largest effect, and no run used main_ab -- the paired runner that would remove drift as a confound entirely. One main_ab session settles it."
+}

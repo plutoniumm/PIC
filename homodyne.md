@@ -147,3 +147,14 @@ twin. Target ~0.1–0.2 rel err against the twin's predicted field on known inpu
 - **Safety.** Hardware paths go through `template.laser_session` (watchdog hard-off +
   keepalive + emission check). +15 dBm ceiling. Never open the PIC serial port while
   `ui.py` holds it.
+
+---
+
+**Status (2026-08-13): branch closed.** The bottom LO arm (H23) was coupling-limited and
+never characterised, so two-LO phase calibration never ran. Signed matrix-vector products
+are obtained instead by the phase-dither / 4-pass differential route in
+`theory/intensity_matvec.py` and `pic.compute.matvec`, which needs no local oscillator and
+scored better in the twin. The four driver scripts (`char_h23_homodyne.py`,
+`homodyne_calibrate.py`, `homodyne_pdmap.py`, `homodyne_peakup.py`) were removed in the
+2026-08-13 cleanup; recover them from git history if the arm is ever fixed. The library
+side (`pic/homodyne.py`, `theory/readout.py`) is left in place.

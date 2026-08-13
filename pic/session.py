@@ -32,8 +32,8 @@ SAFETY (all learned the hard way in this project -- do not weaken):
     PD reads to hold the laser lit across the measurement.
 
 Two independent serial devices: the laser is the FTDI, the PIC is the numeric CH340. We
-open the laser first, learn its port, and pick the PIC port explicitly EXCLUDING it. Note
-`ui.py` owns the Arduino port while running -- stop it before running a test here.
+open the laser first, learn its port, and pick the PIC port explicitly EXCLUDING it. Only
+one process may hold the Arduino port -- stop any other reader before running a test here.
 """
 
 from __future__ import annotations
@@ -169,7 +169,7 @@ def _resolve_pic_port(explicit, laser_port):
     if not cands:
         raise PICError(
             "no PIC serial port found (after excluding the laser). "
-            "Pass --pic-port or set $PIC_PORT; is ui.py holding the port?"
+            "Pass --pic-port or set $PIC_PORT; is another process holding the port?"
         )
     return cands[0]
 

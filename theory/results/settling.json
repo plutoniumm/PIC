@@ -1,0 +1,27 @@
+{
+ "heat_up": {
+  "n_pds": 3,
+  "tau_s": [
+   0.24,
+   0.71
+  ],
+  "t99_s": [
+   0.56,
+   1.27
+  ],
+  "duration_s": 8.0
+ },
+ "cool_down_long": {
+  "n_pds": 1,
+  "tau_s": [
+   0.14,
+   0.14
+  ],
+  "t99_s": [
+   7.98,
+   7.98
+  ],
+  "duration_s": 25.0
+ },
+ "source": "runs/step_heatcool.csv + _long.csv (2026-07-21, 8 heaters stepped 1.5 V, +5 dBm, window=10)"
+}
