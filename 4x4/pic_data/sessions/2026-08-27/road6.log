@@ -1,0 +1,14 @@
+########## 1/5 characterize every channel that moves light
+characterizing 16 heaters x 96 levels x 3 base biases x 4 input port(s); session 479 min
+  +8.0 dBm -> setpoint 19.4  (~6.3 mW; measured I 17 mA)
+  read noise per detector (mV): PD0:0.2  PD1:0.4  PD2:0.1  PD3:0.0
+  H15:theta5     PD1 port2 base0  vis 0.922  amp 191.8mV  r2 +1.000  Vpi 4.43  ok
+  H12:theta4     PD3 port2 base1  vis 0.997  amp  80.9mV  r2 +0.999  Vpi 3.40  ok
+  H11:theta3     PD0 port3 base0  vis 1.080  amp 113.5mV  r2 +0.999  Vpi 5.28  ok
+  H8:theta2      PD3 port0 base0  vis 1.040  amp 299.6mV  r2 +1.000  Vpi 4.81  ok
+  H4:theta1      PD1 port3 base0  vis 0.631  amp  20.0mV  r2 +0.979  Vpi 3.13  ok
+  H3:theta0      PD0 port0 base2  vis 0.756  amp 162.8mV  r2 +0.998  Vpi 4.50  ok
+  H18:phi0       held at 0 V, not swept
+  H9:phi1        PD3 port0 base2  vis 0.043  amp  11.3mV  r2 +0.644  Vpi 2.47  REJECTED (invisible in intensity)
+  H14:phi2       held at 0 V, not swept
+  H13:phi3       PD1 port0 base2  vis 1.353  amp  63.2mV  r2 +0.996  Vpi 4.74  ok

@@ -1,0 +1,53 @@
+########## role probe: which non-theta channels actually move the light
+chip 26.50 C
+
+ DAC  pad labelled      Vmax  modulation  verdict
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-gojira-Documents-GitHub-nosync-PIC/dc76370f-cff6-4d83-9819-456d61215fd2/scratchpad/roles.py", line 34, in <module>
+    with rig.session(duration_s=1500, power_dbm=DBM):
+         ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Caskroom/miniconda/base/envs/pic/lib/python3.13/contextlib.py", line 141, in __enter__
+    return next(self.gen)
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/session.py", line 70, in laser_session
+    tec.wait_stable()
+    ~~~~~~~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/tec.py", line 92, in wait_stable
+    raise TECError(f"chip did not reach {self._setpoint:.2f} +/- {self.tolerance:.2f} C "
+                   f"within {timeout_s:.0f} s (now {self.temperature():.2f} C)")
+pic.devices.tec.TECError: chip did not reach 25.00 +/- 0.05 C within 600 s (now 26.58 C)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-gojira-Documents-GitHub-nosync-PIC/dc76370f-cff6-4d83-9819-456d61215fd2/scratchpad/roles.py", line 28, in <module>
+    with Rig(pic_port="/dev/cu.usbmodem11201", tec="/dev/cu.usbmodem11101",
+         ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+             switch="board") as rig:
+             ^^^^^^^^^^^^^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/rig.py", line 177, in __exit__
+    self.close()
+    ~~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/rig.py", line 167, in close
+    self.laser.off()
+    ~~~~~~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/laser.py", line 343, in off
+    self.hw_off()
+    ~~~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/laser.py", line 274, in hw_off
+    if self.is_on():
+       ~~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/laser.py", line 154, in is_on
+    self.dev.read_setting("laser_status"),
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/pdmv5.py", line 206, in read_setting
+    body = self._txn(_CMD_READ, bytes([(rid >> 8) & 0xFF, rid & 0xFF]))
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/pdmv5.py", line 159, in _txn
+    self.ser.reset_input_buffer()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/local/Caskroom/miniconda/base/envs/pic/lib/python3.13/site-packages/serial/serialposix.py", line 683, in reset_input_buffer
+    self._reset_input_buffer()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/local/Caskroom/miniconda/base/envs/pic/lib/python3.13/site-packages/serial/serialposix.py", line 677, in _reset_input_buffer
+    termios.tcflush(self.fd, termios.TCIFLUSH)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+termios.error: (6, 'Device not configured')

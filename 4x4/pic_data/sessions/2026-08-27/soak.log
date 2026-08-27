@@ -1,2 +1,9 @@
 soak: 20 min at 20 C, laser dark, heaters cold -- the chip has been cycled
 25->30->25->30->25->20 tonight and the settling is mechanical, not just thermal
+########## recapture, 3 repeats (the 2-repeat table lost to the stale one)
+    tec.wait_stable()
+    ~~~~~~~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/tec.py", line 92, in wait_stable
+    raise TECError(f"chip did not reach {self._setpoint:.2f} +/- {self.tolerance:.2f} C "
+                   f"within {timeout_s:.0f} s (now {self.temperature():.2f} C)")
+pic.devices.tec.TECError: chip did not reach 25.00 +/- 0.05 C within 60 s (now 26.46 C)

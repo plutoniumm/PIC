@@ -1,0 +1,75 @@
+armed: waiting for /dev/cu.usbserial-AU05XLI8 to hold for 30 s
+laser port stable -- starting the road
+########## 1/5 characterize every channel that moves light
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/__main__.py", line 661, in main
+    return a.fn(a)
+           ~~~~^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/__main__.py", line 381, in cmd_char
+    with rig.session(duration_s=dur, power_dbm=a.dbm) as s:
+         ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Caskroom/miniconda/base/envs/pic/lib/python3.13/contextlib.py", line 141, in __enter__
+    return next(self.gen)
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/session.py", line 154, in laser_session
+    laser.off()
+    ~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/laser.py", line 343, in off
+    self.hw_off()
+    ~~~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/laser.py", line 274, in hw_off
+    if self.is_on():
+       ~~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/laser.py", line 154, in is_on
+    self.dev.read_setting("laser_status"),
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/pdmv5.py", line 206, in read_setting
+    body = self._txn(_CMD_READ, bytes([(rid >> 8) & 0xFF, rid & 0xFF]))
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/pdmv5.py", line 175, in _txn
+    raise PDMv5Error(f"no valid response to cmd 0x{cmd:02x} ({last})")
+pic.devices.pdmv5.PDMv5Error: no valid response to cmd 0x11 (no/again bad frame)
+########## 2/5 transfer table at 25 C, 3 repeats
+    termios.tcflush(self.fd, termios.TCIFLUSH)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+termios.error: (6, 'Device not configured')
+########## 3/5 refit the twin on that table
+       0.        ]), pd_gain=array([0.94500204, 1.35984655, 1.1209292 , 0.69422327]), pd_offset=array([0., 0., 0., 0.]), meta={'source': 'learn.transfer_fit.fit', 'data': 'pic_data/sessions/2026-08-27/raw_transfers_big.json', 'n_states': 100, 'roles': {'theta': [5, 4, 3, 2, 1, 0], 'phi': [6, 7, 8, 9, 10, 11]}, 'free_vpi': [0, 1, 2, 3, 4, 5, 9, 10], 'free_phi0': [0, 1, 2, 3, 4, 5, 9, 10, 11], 'gauge_phi0': [6, 7, 8], 'observable_rank': 9, 'priors': True, 'r2_val': 0.49896402755445246, 'r2_train': 0.4885360512490502, 'pearson_val': 0.7128551605262792, 'mae_val': 0.1382675253637723, 'r2_val_by_port': [0.26039181805393286, 0.23053061336304004, 0.7090488414419142, 0.7351427878674782], 'r2_val_by_port_modulation': [-0.46954634000293205, -0.469391071976591, 0.08616479527776744, -3.6081390510787994], 'r2_val_ports012': 0.45476156045829197, 'r2_val_modulation': -0.36279861167257677, 'val_states': [3, 6, 8, 10, 13, 14, 18, 23, 28, 37, 42, 43, 48, 51, 54, 61, 63, 64, 68, 71, 87, 90, 93, 96, 99], 'note': 'phi0 is DAC-indexed and only valid with `roles`; gauge entries are 0 because intensity cannot see them, not because they were measured. pd_gain carries measured ratios on an arbitrary absolute scale.'}), error=MeshError(kappa=array([[0.05020259, 0.57880026],
+       [0.05511958, 0.91416071],
+       [0.6736686 , 0.94992526],
+       [0.94972598, 0.05072522],
+       [0.94974134, 0.05043056],
+       [0.22782327, 0.05037643]]), loss_db=array([0., 0., 0., 0., 0., 0.])), roles=RoleMap(theta=(5, 4, 3, 2, 1, 0), phi=(6, 7, 8, 9, 10, 11)), r2_val=0.49896402755445246, r2_train=0.4885360512490502, r_val=0.7128551605262792, mae_val=0.1382675253637723, r2_val_by_port=array([0.26039182, 0.23053061, 0.70904884, 0.73514279]), r2_val_by_port_modulation=array([-0.46954634, -0.46939107,  0.0861648 , -3.60813905]), free_vpi=array([ 0,  1,  2,  3,  4,  5,  9, 10]), free_phi0=array([ 0,  1,  2,  3,  4,  5,  9, 10, 11]), frozen_phi0=array([6, 7, 8]), rank=9)]}
+########## 4/5 matvec, drift correction on
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/rig.py", line 60, in __init__
+    self.laser = make_laser(laser, laser_port)
+                 ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/rig.py", line 33, in make_laser
+    return Laser(port=port)
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/laser.py", line 89, in __init__
+    self.dev = PDMv5(port or self.autodetect())
+                             ~~~~~~~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/laser.py", line 122, in autodetect
+    raise LaserError(
+        "no AeroDiode FTDI serial port found -- is the laser plugged in?"
+    )
+pic.devices.laser.LaserError: no AeroDiode FTDI serial port found -- is the laser plugged in?
+########## 5/5 8x8 in sixteen 2x2 tiles, drift correction on
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               laser_port=a.laser_port, pic_port=a.pic_port,
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               dynamic=getattr(a, "dynamic", False),
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               keep_laser=getattr(a, "keep_laser", False)).open()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/rig.py", line 60, in __init__
+    self.laser = make_laser(laser, laser_port)
+                 ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/rig.py", line 33, in make_laser
+    return Laser(port=port)
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/laser.py", line 89, in __init__
+    self.dev = PDMv5(port or self.autodetect())
+                             ~~~~~~~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/laser.py", line 122, in autodetect
+    raise LaserError(
+        "no AeroDiode FTDI serial port found -- is the laser plugged in?"
+    )
+pic.devices.laser.LaserError: no AeroDiode FTDI serial port found -- is the laser plugged in?
