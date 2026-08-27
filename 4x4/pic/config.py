@@ -103,9 +103,25 @@ SWITCH_SETTLE_S = 1.0  # mrunal/Setup.ino SWITCH_DELAY_MS
 # Chip TEC. Unlike the 6x6 rig this one has a calibrated cooler, so the substrate sits at
 # a fixed temperature instead of wandering -- which is what made drift the dominant error
 # there. Hold the chip here and treat a reading outside the band as a stale measurement.
+# 25 C, and nothing moves it. This is asserted on every TEC port open -- the Arduino resets
+# on connect and forgets whatever the last process set -- so it is the only place the chip's
+# operating point actually lives.
+#
+# 20 C was measured to hold tighter (sd 0.030 at drive 0.68 V) and was the operating point
+# for part of 2026-08-27. It stopped being reachable: after several hours the loop railed at
+# drive +2.00 V and sat flat at 26.5 C, 6.5 C above target, having slewed 25 -> 20 in 25
+# seconds earlier the same evening. The TEC pumps heat into a sink whose own temperature had
+# risen, so the achievable delta is measured from the sink and not from room air. 25 C was
+# comfortable throughout (drive +0.52 V, sd 0.020) and is what the bench can hold all day.
+#
+# Changing it costs more than it looks: every thermal excursion re-anchors the transfer
+# table, and the chip was cycled 25->30->25->30->25->20 over one session chasing this.
 TEC_SETPOINT_C = 25.0
 TEC_TOLERANCE_C = 0.05
-TEC_SETTLE_S = 60.0
+# A reset lands the chip near ambient, and pulling ~7 C back down runs at ~0.5 C/min. The
+# old 60 s gate was sized for holding a setpoint, not for reaching one from cold, and it
+# failed a capture that was merely still on its way.
+TEC_SETTLE_S = 600.0
 
 
 @dataclass

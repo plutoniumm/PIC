@@ -326,7 +326,7 @@ def _rel(A, B) -> float:
 
 def compose(box: HeaterBox, twin: Twin | None = None, k: int = TILE_K, noise: float = 0.0,
             repeats: int = 1, trials: int = 4, seed: int = 0, rails=None, probe=None,
-            **fit_kw) -> dict:
+            plan_fn=None, **fit_kw) -> dict:
     """The group property, measured: host two orthogonal matrices and run one through the
     other.
 
@@ -349,8 +349,14 @@ def compose(box: HeaterBox, twin: Twin | None = None, k: int = TILE_K, noise: fl
     for t in range(trials):
         rng = np.random.default_rng(seed + 17 * t)
         Oa, Ob = random_orthogonal(rng, k), random_orthogonal(rng, k)
-        pa = plan_matvec(Oa, box, twin, rails=rails, seed=seed + t, **fit_kw)
-        pb = plan_matvec(Ob, box, twin, rails=rails, seed=seed + t + 50, **fit_kw)
+        # `plan_fn` is how the bench gets its own planner in. Planning through the twin is
+        # right on the twin and wrong on the chip: `matrix_err` there is 1.14 relative, worse
+        # than predicting a uniform matrix, so a twin-planned pair hosts two matrices nobody
+        # has seen and the composed product comes back a near-orthogonal matrix at 13x the
+        # wrong scale -- which reads as manifold_dist 0.925 and gets blamed on the projection.
+        plan = plan_fn or (lambda B, s: plan_matvec(B, box, twin, rails=rails, seed=s,
+                                                    **fit_kw))
+        pa, pb = plan(Oa, seed + t), plan(Ob, seed + t + 50)
         pr = twin_probe(twin, box, noise=noise, repeats=repeats, rng=rng) if probe is None \
             else probe
         Ah = matmat(pa, pr, np.eye(k))

@@ -765,8 +765,13 @@ def main(rig, a) -> int:
     if a.unitary:
         probe = rig_probe(rig, calib, power="laser" if a.optical_input else "digital",
                           dbm=a.dbm, normalise=norm)
+        # the same planner the rest of this module switched to: the group property is a
+        # statement about the chip, so both factors have to be hosted the way the chip is
+        # actually programmed, not the way the twin imagines it
+        pf = None if tab is None else (
+            lambda B, _s: plan_from_table(B, tab, box, rails=None, mode=a.mode))
         g = compose(box, twin, k=a.block or TILE_K, trials=a.cols, seed=a.seed, probe=probe,
-                    restarts=a.restarts, steps=a.steps)
+                    plan_fn=pf, restarts=a.restarts, steps=a.steps)
         print(f"\ngroup property over {g['trials']} pairs of orthogonal matrices, composed "
               f"by feeding the measured A through program b")
         print(f"  distance to O(k) before projection   {g['dist_c']:.4f}   "
