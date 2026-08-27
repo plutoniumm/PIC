@@ -1,0 +1,31 @@
+hw 1: powering on
+  [OK] connected, key ON, interlocks closed
+  ceilings clamped to 250 mA
+  TEC OFF (open-loop; room temp-controlled)
+  LASER ON at floor setpoint 5 (~0.2 mW). Use `set <dBm>` to ramp.
+  ramp setpoint 5.0 -> 19.4  (0.2s @ 60/s)
+  +8.0 dBm -> setpoint 19.4  (~6.3 mW; measured I 17 mA)
+heater box: 8 steerable channels, widest span 1.51 pi (measured calibration)
+transfer table: 100 measured states from /Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic_data/sessions/2026-08-27/raw_transfers_big.json
+
+target B:
+[[ 0.126 -0.132]
+ [ 0.64   0.105]]
+
+rails out(1, 2) in(1, 2), shift decomposition
+hosted residual 0.0195 (picked off the measured table)   twin predicts 0.0274 vs target
+MEASURED matrix vs target 0.0506   (shape 0.0050, brightness x0.950, cond 4.5)
+x                            B x                          measured                         err
+[ 0.13 -0.13]                [0.03 0.07]                  [0.03 0.06]                    0.055
+[0.64 0.1 ]                  [0.07 0.42]                  [0.06 0.4 ]                    0.049
+[-0.54  0.36]                [-0.12 -0.31]                [-0.11 -0.29]                  0.053
+[1.3  0.95]                  [0.04 0.93]                  [0.04 0.89]                    0.048
+mean vector error 0.0513, sign accuracy 100%
+cost: 1 heater writes, 4 switch moves, 4 reads for the matrix and 4 vectors -- the vectors are arithmetic on the held sweep, so their error is a function of the measured matrix, not a second opinion on it
+
+the mesh does not host this target: the 0.0506 above is MEASURED, and it is in the MATRIX, not the readout. Try --scan for better rails, or a smaller block.
+hw 0: powering off
+  ramp setpoint 19.4 -> 0.0  (0.3s @ 60/s)
+  LASER OFF -- current 0, output disabled, TEC off. Safe to turn the key off / unplug.
+hw 0: powering off
+  LASER OFF -- current 0, output disabled, TEC off. Safe to turn the key off / unplug.

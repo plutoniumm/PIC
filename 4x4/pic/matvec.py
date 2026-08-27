@@ -1,6 +1,6 @@
 """Run `theory.intensity_matvec` on the rig: signed y = B x from photodiodes alone.
 
-The maths is next door and hardware-free; this is the three things it needs from a bench.
+The maths is next door and hardware-free; this is the four things it needs from a bench.
 
 **The box.** `theory` owns the heater law but not the board, so the per-channel voltage
 ceiling has to come from here: `pic.config.VOLTAGE_MAX_CH` clamps the 60 ohm heaters to
@@ -21,6 +21,16 @@ by that factor at the next, which is where a vector error of 1.1 against a hoste
 of 0.0005 came from. The sweep costs three extra switch moves per heater state and no extra
 thermal settle, and it pays for itself the moment a second vector is measured under the
 same program.
+
+**The number that was missing.** `run` used to report `matrix_err` out of `plan.predict()`,
+which is the twin's arithmetic on the twin's own fitted block and never touches an
+instrument. On 2026-08-27 it read 0.0002 on a bench run whose vectors came back 1.1 out with
+25% of the signs right, and nothing in the run could tell a bad plan from a bad readout. The
+hosted block is now MEASURED -- `measured_matrix` cycles the switch and reads it off the
+photodiodes, which the column normalisation above was going to cost anyway -- and the twin's
+prediction is printed beside it under a name that says what it is. On this die the gap is
+large: `plan_from_table` has the measurement, and it is why the default planner on hardware
+picks a measured heater state rather than fitting one.
 
 **Where the multiply happens.** With the 1x4 switch only one port is lit at a time, so the
 accumulation over input rails is digital no matter what -- that is the hardware, not a
@@ -60,14 +70,20 @@ from theory.intensity_matvec import (
     BEST_RAILS, HeaterBox, MatvecPlan, Program, Term, block_rails, plan_matvec,
     scan_rails, score, sinkhorn, validate,
 )
-from theory.matmat import BlockPlan, TILE_K, CountedProbe, compose, plan_block
+from theory.matmat import (
+    BlockPlan, TILE_K, CountedProbe, compose, matmat as tile_matmat, plan_block,
+)
 
 from .config import DEFAULT_SETTLE_S, VOLTAGE_MAX, VOLTAGE_MAX_CH
 from .layout import N_HEATERS, REACHABLE_DACS
-from .normalise import sweep
+from .normalise import load_session, sweep
 
 ROOT = Path(__file__).resolve().parent.parent
 TRANSFER_GLOB = "pic_data/sessions/*/raw_transfers*.json"
+
+# `theory.intensity_matvec.plan_matvec`'s own constants, named here because the table
+# planner has to reproduce its decomposition exactly or the two are not comparable.
+SHIFT_MARGIN, SINK_FLOOR = 0.25, 1e-3
 
 
 def bench_box(calib: Calibration | None = None, vmax=None, known=None) -> HeaterBox:
@@ -218,7 +234,9 @@ def rig_probe(rig, calib: Calibration | None = None, power: str = "digital",
         i = calib.to_intensity(np.asarray(rig.outputs(v), float)) / max(scale[port], 1e-9)
         return i if power == "laser" else i * float(p)
 
-    return probe
+    # counted from outside, because this path really does pay one read per request -- which
+    # is exactly the accounting `SweepProbe` had to take over for itself
+    return CountedProbe(probe)
 
 def measure_transfer(probe, volts, n: int = NMODE) -> np.ndarray:
     """|U|^2 at one heater state, through whatever probe is in use.
@@ -250,13 +268,25 @@ def measured_matrix(plan: MatvecPlan, probe) -> np.ndarray:
     return M
 
 
-def measured_block_matrix(plan: BlockPlan, probe) -> np.ndarray:
-    """`BlockPlan.predict()` with every tile measured instead of predicted."""
+def measured_block_matmat(plan: BlockPlan, probe, X) -> tuple[np.ndarray, np.ndarray]:
+    """Measure every tile AND push X through it, one visit per tile. Returns (B, Y).
+
+    One function and not two, because the expensive state is the heater program: measuring
+    the tiles in one pass and applying them in another visits each program twice and the
+    probe's cache holds one state, so a four-tile product pays eight thermal settles instead
+    of four. Interleaved, the measurement is free -- the sweep that reads the tile is the
+    sweep its columns are then served from.
+
+    This is `BlockPlan.matmat`'s loop, tile-major for the same reason it is there."""
     (M, N), k = plan.B.shape, plan.k
+    Xp = np.zeros(((N + k - 1) // k * k, np.atleast_2d(X).shape[1]))
+    Xp[:N] = np.atleast_2d(X)
     Bh = np.zeros(((M + k - 1) // k * k, (N + k - 1) // k * k))
+    Y = np.zeros(((M + k - 1) // k * k, Xp.shape[1]))
     for (i, j), tile in plan.tiles.items():
         Bh[i * k:(i + 1) * k, j * k:(j + 1) * k] = measured_matrix(tile, probe)
-    return Bh[:M, :N]
+        Y[i * k:(i + 1) * k] += tile_matmat(tile, probe, Xp[j * k:(j + 1) * k])
+    return Bh[:M, :N], Y[:M]
 
 
 def shape_scale(M, B) -> tuple[float, float]:
@@ -292,10 +322,11 @@ def load_transfers(path=None, calib: Calibration | None = None,
     """The measured transfer table on file, or None if there is none.
 
     The newest session wins and its LARGEST table wins, so a `raw_transfers_big.json`
-    dropped beside `raw_transfers.json` is picked up without a flag. The stored `raw` is
-    per (port, photodiode) and goes through the same `Calibration.to_transfer` the live
-    probe uses, which is what makes a plan picked off the table and a matrix measured on the
-    bench the same object rather than two conventions that happen to agree."""
+    dropped beside `raw_transfers.json` is picked up without a flag. `pic.normalise.
+    load_session` handles the file's port-major storage, and the sweeps then go through the
+    same `Calibration.to_transfer` the live probe uses -- which is what makes a plan picked
+    off the table and a matrix measured on the bench the same object rather than two
+    conventions that happen to agree."""
     calib = calib or Calibration.load_or_nominal()
     if path is not None:
         cands = [Path(path)]
@@ -306,36 +337,49 @@ def load_transfers(path=None, calib: Calibration | None = None,
         cands = [q for q in cands if q.parent == cands[-1].parent]
     best = None
     for q in cands:
-        states = json.loads(q.read_text()).get("states", [])
-        if not states:
+        d = load_session(q)
+        if not d["raws"]:
             continue
-        T = np.stack([calib.to_transfer(np.asarray(s["raw"], float).T) for s in states])
+        # the session's own switch-off dark, not the calibration's: it was measured in the
+        # same session as these sweeps, and a stale floor is the one nuisance a column sum
+        # cannot divide out because it is additive rather than multiplicative.
+        T = np.stack([calib.to_transfer(r, d["dark"]) for r in d["raws"]])
         if best is None or len(T) > len(best):
-            best = Transfers(np.asarray([s["volts"] for s in states], float), T, q)
+            best = Transfers(np.asarray(d["volts"], float), T, q)
     return best
 
 
-def _pick_state(H, transfers: Transfers, rails, floor: float = 1e-3) -> Term:
+def _shift(B, margin: float = SHIFT_MARGIN, floor: float = SINK_FLOOR):
+    """B -> (c, sinkhorn(B + c)). Hoisted out of `_pick_state` because it depends only on
+    the target: `rank_rails` reuses one factorisation across all 36 rail pairs, which is the
+    difference between a ranking that is worth running and one that is not."""
+    c = max(0.0, -float(np.asarray(B, float).min())) + margin * float(np.abs(B).mean())
+    return c, sinkhorn(np.asarray(B, float) + c, floor=floor)
+
+
+def _pick_state(H, transfers: Transfers, rails, floor: float = SINK_FLOOR, sink=None) -> Term:
     """The table state whose MEASURED block best realises the nonnegative piece H.
 
     Scored on the recovered matrix, not on the block. `Term.matrix()` undoes the Sinkhorn
     diagonals and the hosted scale before anything reaches the answer, and those diagonals
     weight the entries very unevenly, so the block residual an optimiser would minimise is
     not the error the caller gets."""
-    A, r, s = sinkhorn(H, floor=floor)
+    A, r, s = sinkhorn(H, floor=floor) if sink is None else sink
     blocks = transfers.block(rails)
     scale = (blocks * A).sum((-2, -1)) / max(float((A * A).sum()), 1e-18)
     rec = np.einsum("i,nij,j->nij", 1 / r, blocks, 1 / s) / np.where(
         scale > 0, scale, 1.0)[:, None, None]
     err = np.linalg.norm(rec - H, axis=(-2, -1)) / max(np.linalg.norm(H), 1e-18)
     k = int(np.argmin(np.where(scale > 0, err, np.inf)))
-    return Term(1.0, Program(transfers.volts[k], np.zeros_like(transfers.volts[k]),
-                             float(scale[k]), blocks[k], float(err[k])), r, s)
+    # copies, not views: the Program is handed to a driver and to `plan_from_table`, which
+    # writes phases into it, and the table has to survive being planned against repeatedly.
+    return Term(1.0, Program(transfers.volts[k].copy(), np.zeros(len(transfers.volts[k])),
+                             float(scale[k]), blocks[k].copy(), float(err[k])), r, s)
 
 
 def plan_from_table(B, transfers: Transfers, box: HeaterBox | None = None, rails=None,
-                    mode: str = "shift", floor: float = 1e-3,
-                    margin: float = 0.25) -> MatvecPlan:
+                    mode: str = "shift", floor: float = SINK_FLOOR,
+                    margin: float = SHIFT_MARGIN, sink=None) -> MatvecPlan:
     """Plan B onto a heater state PICKED from measured transfers, with no twin in the loop.
 
     `plan_matvec` fits volts through `theory.twin`, and on this chip that model is not
@@ -349,10 +393,13 @@ def plan_from_table(B, transfers: Transfers, box: HeaterBox | None = None, rails
     Picking is the stronger one: for every state in the table, recover the signed matrix its
     measured block realises under the plan's own arithmetic, and keep the closest. The
     residual it reports is then a measurement, and `measured_matrix` re-reading the same
-    state on the bench is a genuine check of it rather than a tautology. On the 16-state
-    table a random signed 2x2 lands at a median 0.21 relative matrix error and 94% of signs
-    -- against 1.1 and 25% for the fitted plan. The table is the resolution limit, so more
-    states is how that number falls; a better optimiser is not."""
+    state on the bench is a genuine check of it rather than a tautology.
+
+    The table size is the resolution limit and nothing else is, which is the useful thing
+    about it. A random signed 2x2 on the default rails lands at a median matrix error of
+    0.232 with 93% of signs over 16 measured states and 0.094 with 98% over 100 -- against
+    1.1 and 25% for the plan fitted through the twin. More states is how that number falls;
+    a better optimiser is not."""
     B = np.asarray(B, float)
     rails = block_rails(B.shape[0]) if rails is None else rails
     if mode == "split":
@@ -360,8 +407,8 @@ def plan_from_table(B, transfers: Transfers, box: HeaterBox | None = None, rails
         neg = _pick_state(np.clip(-B, 0, None), transfers, rails, floor)
         terms, offset = (pos, Term(-1.0, neg.prog, neg.r, neg.s)), 0.0
     elif mode == "shift":
-        offset = max(0.0, -float(B.min())) + margin * float(np.abs(B).mean())
-        terms = (_pick_state(B + offset, transfers, rails, floor),)
+        offset, sink = _shift(B, margin, floor) if sink is None else (sink[0], sink[1])
+        terms = (_pick_state(B + offset, transfers, rails, floor, sink),)
     else:
         raise ValueError(f"mode={mode!r}; use 'shift' or 'split'")
     if box is not None:
@@ -385,37 +432,60 @@ def plan_block_from_table(B, transfers: Transfers, box: HeaterBox | None = None,
     return BlockPlan(B, k, rails, tiles)
 
 
-def rank_rails(transfers: Transfers, k: int = 2, trials: int = 24, seed: int = 0,
-               mode: str = "shift") -> list[dict]:
+def rank_rails(transfers: Transfers, k: int = 2, trials: int = 24,
+               seed: int = 0) -> list[dict]:
     """Rank rail pairs on MEASURED transfers rather than on the twin.
 
     `theory.intensity_matvec.scan_rails` ranks by fitting the twin, so on this die it ranks
     a model. The table answers the operational question directly -- host random signed
-    targets on each pair, see what comes back -- and carries the three measurements that
-    explain the answer:
+    targets on each pair, see what comes back -- and carries four measurements that explain
+    the answer, none of which orders the rails on its own:
 
       `host`   median relative error of the recovered matrix over the random targets. This
                is the ranking; the rest is why.
-      `det`    |det| of the measured block, best over states. A pair that cannot be made
-               well-conditioned can only ever host near-singular targets, and no optimiser
-               reports that because the twin it optimises against is not the block.
+      `cond`   median condition number of the measured block over the states. This is the
+               conditioning number to read, because it is scale-free: |det| of a 2x2 goes as
+               the square of whatever scale the readout applied, so the stored per-column
+               scale being up to 5x wrong moved |det| by two orders of magnitude on this
+               bench while the condition number moved from 2.0 to 1.8. A pair whose `cond`
+               stays large is ill-conditioned in the chip and no readout fixes it.
+      `det`    |det| of the measured block, best over states, under the column
+               normalisation. Kept because it is the quantity that says how far from
+               singular the BEST state on that pair is, in the units the plan works in;
+               read it beside `cond`, never instead of it.
       `steer`  mean swing of a block entry across the states -- the diameter of the
-               reachable set, measured. Port 3's dominant output moves 0.38 to 0.55 where
-               port 1's moves 0.003 to 0.98, so any pair containing port 3 is close to a
-               fixed matrix and sinks on its own, without that having to be known first.
+               reachable set, measured, and the single best predictor of `host` of the
+               three (rank correlation +0.41, against +0.33 for `cond` and +0.26 for
+               `det`). Port 3 is the least steerable rail on the bench -- its dominant
+               output moves 0.38 to 0.55 where port 1's moves 0.003 to 0.98 -- but that is
+               a handicap and not a disqualification, and the measurement is worth more
+               than the intuition: out(1,3) in(0,3) still ranks 4th of 36. What sinks to
+               last is the pair with no steering left on EITHER rail, out(0,3) in(2,3) at
+               0.205.
       `bright` fraction of the injected light landing on the output rails, mean over states.
                It divides straight into the read noise.
+
+    `shift` only. Measured on the 100-state table at the default rails, `split` hosts the
+    MATRIX better -- 0.076 against 0.108 at zero noise, because two independent state picks
+    are more freedom than one -- and is nonetheless the wrong decomposition: its vector
+    error is 0.40 against 0.15, and stays 2.7x worse out to 2.5% read noise, because each
+    sign-split half is sparse, its Sinkhorn diagonals are large, and the two terms very
+    nearly cancel. It also costs a second program, so a second thermal settle per vector.
+    Ranking rails on it would rank them for a job nobody should run.
     """
     rng = np.random.default_rng(seed)
-    targets = [rng.normal(size=(k, k)) for _ in range(trials)]
+    targets = [(B, _shift(B)) for B in (rng.normal(size=(k, k)) for _ in range(trials))]
     rows = []
     for out in itertools.combinations(range(NMODE), k):
         for inp in itertools.combinations(range(NMODE), k):
             blocks = transfers.block((out, inp))
             errs = [score(plan_from_table(B, transfers, rails=(out, inp),
-                                          mode=mode).predict().ravel(), B.ravel())[0]
-                    for B in targets]
+                                          sink=sink).predict().ravel(), B.ravel())[0]
+                    for B, sink in targets]
+            cond = np.linalg.cond(blocks)
             rows.append({"out": out, "in": inp, "host": float(np.median(errs)),
+                         "cond": float(np.median(cond)),
+                         "illcond": float(np.mean(cond > 100)),
                          "det": float(np.abs(np.linalg.det(blocks)).max()),
                          "steer": float((blocks.max(0) - blocks.min(0)).mean()),
                          "bright": float(blocks.sum((1, 2)).mean())})
@@ -452,11 +522,14 @@ def run(rig, B, box: HeaterBox | None = None, vectors=None, rails=None, mode: st
     plan = (plan_from_table(B, transfers, box, rails=rails, mode=mode) if transfers
             else plan_matvec(B, box, twin, rails=rails, mode=mode, seed=seed, **fit_kw))
     probe = rig_probe(rig, calib, power=power, dbm=dbm, normalise=normalise, repeats=repeats)
+    if not hasattr(probe, "per_column"):     # the deprecated static closure counts nothing
+        probe = CountedProbe(probe)
     rng = np.random.default_rng(seed)
     xs = [rng.normal(size=B.shape[1]) for _ in range(4)] if vectors is None else list(vectors)
 
     measured = measured_matrix(plan, probe)
     m_shape, m_scale = shape_scale(measured, B)
+    m_cond = float(np.linalg.cond(measured))
     rows = []
     for x in xs:
         if refresh and hasattr(probe, "invalidate"):
@@ -467,9 +540,12 @@ def run(rig, B, box: HeaterBox | None = None, vectors=None, rails=None, mode: st
                      "err": e, "sign": s})
     return {"plan": plan, "rows": rows, "measured": measured, "cost": probe,
             "matrix_err": score(measured.ravel(), B.ravel())[0],
-            "matrix_shape": m_shape, "matrix_scale": m_scale,
+            "matrix_shape": m_shape, "matrix_scale": m_scale, "matrix_cond": m_cond,
             "twin_matrix_err": score(plan.predict().ravel(), B.ravel())[0],
-            "planner": "table" if transfers else "twin", "refresh": bool(refresh),
+            # a probe with no cache to invalidate re-reads every pass whatever `refresh`
+            # says, so the vectors are independent measurements and the digest must say so
+            "planner": "table" if transfers else "twin",
+            "refresh": bool(refresh) or not hasattr(probe, "invalidate"),
             "vec_err": float(np.mean([r["err"] for r in rows])),
             "sign_acc": float(np.mean([r["sign"] for r in rows]))}
 
@@ -501,8 +577,7 @@ def run_block(rig, B, box: HeaterBox | None = None, k: int = TILE_K, cols: int =
         probe = CountedProbe(probe)
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(B.shape[1], cols)) if X is None else np.atleast_2d(X)
-    measured = measured_block_matrix(plan, probe)
-    Y = plan.matmat(probe, X)
+    measured, Y = measured_block_matmat(plan, probe, X)
     err, sign = score(Y.ravel(), (B @ X).ravel())
     return {"plan": plan, "X": X, "Y": Y, "Y_true": B @ X, "cost": probe,
             "measured": measured, "matrix_err": score(measured.ravel(), B.ravel())[0],
@@ -521,7 +596,8 @@ def _plan_line(res) -> str:
             f"{res['twin_matrix_err']:.4f} vs target\n"
             f"MEASURED matrix vs target {res['matrix_err']:.4f}"
             + (f"   (shape {res['matrix_shape']:.4f}, brightness "
-               f"x{res['matrix_scale']:.3f})" if "matrix_scale" in res else ""))
+               f"x{res['matrix_scale']:.3f}, cond {res['matrix_cond']:.1f})"
+               if "matrix_scale" in res else ""))
 
 
 def digest_block(res) -> str:
@@ -571,11 +647,13 @@ def _selftest(seed: int = 0):
     the residual below is not zero.
 
     Then the two claims the measurement path rests on. `measured_matrix` must reduce to
-    `MatvecPlan.predict()` when the bench IS the twin, or the gap reported on hardware is a
-    difference of arithmetic rather than a fact about the chip. And `rank_rails` must, from
-    the measured table alone, put the rail pair in `BEST_RAILS` on top and keep input port 3
-    -- whose dominant output swings 0.38 to 0.55 against port 1's 0.003 to 0.98 -- out of
-    the leaders."""
+    `MatvecPlan.predict()` when the bench IS the twin, or the gap it reports on hardware is
+    a difference of arithmetic rather than a fact about the chip. And `rank_rails`, from the
+    measured table alone, must independently recover `BEST_RAILS` into its leaders and sink
+    the least steerable pair -- out(0,3) in(2,3), whose block entries move 0.21 across a
+    hundred states where the best pair's move 0.82 -- into its tail. Top-3 and bottom-third
+    rather than exact ranks: the leaders sit within 0.01 of each other, which is inside the
+    spread over target draws, so anything sharper would be asserting noise."""
     from theory.intensity_matvec import twin_probe
     from theory.twin import Twin
 
@@ -612,19 +690,26 @@ def _selftest(seed: int = 0):
     assert got["static"].min() < -0.01 <= got["column"].min(), (got["static"].min(),
                                                                got["column"].min())
 
-    same = float(np.abs(measured_matrix(clean["plan"], twin_probe(Twin(), box))
-                        - clean["plan"].predict()).max())
+    tprobe = twin_probe(Twin(), box)
+    Mm = measured_matrix(clean["plan"], tprobe)
+    same = float(np.abs(Mm - clean["plan"].predict()).max())
+    # the differential pair must BE the measured matrix applied to x. Both shots come off
+    # one column-normalised sweep, so a scale they failed to share would show up right here
+    # -- which is the check the sign errors on 2026-08-27 needed and nothing performed.
+    xd = np.array([0.7, -1.3])
+    signed = float(np.abs(clean["plan"].matvec(tprobe, xd) - Mm @ xd).max())
     tab = load_transfers(calib=Calibration.load_or_nominal())
-    ranked = rank_rails(tab, trials=8) if tab is not None else []
-    hosted = [r for r in ranked if 3 not in r["in"]]
+    ranked = rank_rails(tab) if tab is not None else []
     assert same < 1e-5, same
+    assert signed < 1e-6, signed
     if ranked:
-        assert (ranked[0]["out"], ranked[0]["in"]) == BEST_RAILS, ranked[0]
-        assert all(3 not in r["in"] for r in ranked[:3]), ranked[:3]
-        # port 3 is not merely worse on average, it is worse than every pair without it
-        assert hosted[-1]["host"] < np.median([r["host"] for r in ranked if 3 in r["in"]])
+        top = [(r["out"], r["in"]) for r in ranked[:3]]
+        stuck = min(ranked, key=lambda r: r["steer"])
+        assert BEST_RAILS in top, top
+        assert ranked.index(stuck) >= 2 * len(ranked) // 3, (stuck, ranked.index(stuck))
     return {"free": free, "span_max": float(box.span_pi[box.trainable].max(initial=0.0)),
-            "measured_vs_predicted": same, "table": tab, "ranked": ranked,
+            "measured_vs_predicted": same, "differential": signed,
+            "table": tab, "ranked": ranked,
             "fit_err": clean["fit_err"], "vec_err": clean["vec_err"],
             "sign_acc": clean["sign_acc"], "noisy_err": noisy["vec_err"],
             "noisy_sign": noisy["sign_acc"], "passes": clean["passes"],
@@ -636,17 +721,20 @@ def _selftest(seed: int = 0):
 def main(rig, a) -> int:
     """`python -m pic matvec`. `rig` is open and inside a laser session, or None for
     `--scan`, which is a fit and needs no light."""
-    mock = getattr(a, "mock", False) and not getattr(a, "sim", False)
+    sim = getattr(a, "sim", False)
     calib, twin = (rig.calib if rig is not None else Calibration.load_or_nominal()), None
-    if mock:
+    if getattr(a, "mock", False) and not sim:
         calib, twin = mock_truth()
     box = bench_box(calib)
     rng = np.random.default_rng(a.seed)
     B = np.atleast_2d(np.loadtxt(a.target) if a.target else rng.normal(size=(a.k, a.k)))
-    # the table is THIS die measured, so it says nothing about the mock, which is a
-    # different simulated chip on purpose.
+    # the table is THIS die MEASURED, so against either simulated instrument it is data
+    # about a different chip -- which is the whole point of them, and would turn the
+    # measured/predicted gap into a statement about the simulator.
     planner = getattr(a, "planner", "auto")
-    tab = None if (mock or planner == "twin") else load_transfers(calib=calib)
+    tab = (load_transfers(calib=calib)
+           if planner == "table" or (planner == "auto"
+                                     and not (getattr(a, "mock", False) or sim)) else None)
     if planner == "table" and tab is None:
         print("no measured transfer table on file -- falling back to the twin")
 
@@ -659,11 +747,12 @@ def main(rig, a) -> int:
         if tab is not None:
             print(f"\nmeasured rail ranking for a {B.shape[0]}x{B.shape[0]} block over "
                   f"{len(tab)} states, best hosting first:")
-            print(f"  {'out':<9}{'in':<9}{'host err':>9}{'|det|':>8}{'steer':>8}"
-                  f"{'bright':>8}")
+            print(f"  {'out':<9}{'in':<9}{'host err':>9}{'cond':>7}{'ill':>6}{'|det|':>8}"
+                  f"{'steer':>8}{'bright':>8}")
             for r in rank_rails(tab, k=B.shape[0])[:6]:
                 print(f"  {str(r['out']):<9}{str(r['in']):<9}{r['host']:>9.3f}"
-                      f"{r['det']:>8.3f}{r['steer']:>8.3f}{r['bright']:>8.3f}")
+                      f"{r['cond']:>7.1f}{r['illcond']:>6.0%}{r['det']:>8.3f}"
+                      f"{r['steer']:>8.3f}{r['bright']:>8.3f}")
         A = sinkhorn(np.abs(B) + 0.05)[0]
         print(f"\ntwin rail scan for the same block (feasible first, brightest among those)"
               f"{' -- a ranking of the model, not the die' if tab is not None else ''}:")
@@ -739,18 +828,28 @@ if __name__ == "__main__":
           f"costs nothing")
     print(f"  the measured matrix reduces to the predicted one to {r['measured_vs_predicted']:.1e} "
           f"when the bench is the twin, so any gap on the die is the die")
+    print(f"  the differential pair reproduces that matrix on a signed x to "
+          f"{r['differential']:.1e}: both shots share one column-normalised sweep")
 
     tab, ranked = r["table"], r["ranked"]
     if tab is None:
         print("\nno measured transfer table on file -- rails can only be ranked on the twin")
     else:
         print(f"\nrails ranked on {len(tab)} MEASURED states from {tab.path}")
-        print(f"  {'out':<9}{'in':<9}{'host err':>9}{'|det|':>8}{'steer':>8}{'bright':>8}")
+        print(f"  {'out':<9}{'in':<9}{'host err':>9}{'cond':>7}{'ill':>6}{'|det|':>8}"
+              f"{'steer':>8}{'bright':>8}")
         for row in ranked[:5]:
             print(f"  {str(row['out']):<9}{str(row['in']):<9}{row['host']:>9.3f}"
-                  f"{row['det']:>8.3f}{row['steer']:>8.3f}{row['bright']:>8.3f}")
-        p3 = [row for row in ranked if 3 in row["in"] or 3 in row["out"]]
-        print(f"  best pair touching port 3 ranks {ranked.index(p3[0]) + 1} of "
-              f"{len(ranked)} at {p3[0]['host']:.3f} host error, steer "
-              f"{p3[0]['steer']:.3f}: it is nearly unsteerable and the ranking finds that "
-              f"without being told")
+                  f"{row['cond']:>7.1f}{row['illcond']:>6.0%}{row['det']:>8.3f}"
+                  f"{row['steer']:>8.3f}{row['bright']:>8.3f}")
+        print(f"  `ill` is the fraction of states whose block has condition number over 100 "
+              f"-- states the chip cannot host a general target in, whatever the readout "
+              f"does. |det| is scale-dependent and `cond` is not; read them together")
+        stuck = min(ranked, key=lambda row: row["steer"])
+        print(f"  BEST_RAILS out{BEST_RAILS[0]} in{BEST_RAILS[1]} ranks "
+              f"{[(row['out'], row['in']) for row in ranked].index(BEST_RAILS) + 1} of "
+              f"{len(ranked)} on measured data, which is the twin's one confirmed call")
+        print(f"  least steerable pair out{stuck['out']} in{stuck['in']} (steer "
+              f"{stuck['steer']:.3f}, |det| {stuck['det']:.3f}) ranks "
+              f"{ranked.index(stuck) + 1}: unsteerable is unusable, and the ranking finds "
+              f"that without being told which port is bad")

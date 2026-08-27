@@ -631,6 +631,17 @@ def main(argv=None):
                    help="read one port at a time and divide by the calibration's stored "
                         "input_scale, as before the four-port sweep. Deprecated and wrong "
                         "on this bench (see pic.normalise); here to reproduce old runs")
+    p.add_argument("--planner", default="auto", choices=("auto", "table", "twin"),
+                   help="where the heater state comes from: 'table' picks the measured "
+                        "state that best hosts the target, 'twin' fits volts through the "
+                        "model. 'auto' is the table on hardware and the twin against either "
+                        "simulator, because the table is measurements of the real die")
+    p.add_argument("--refresh", action="store_true",
+                   help="re-sweep the chip for every vector instead of reusing the held "
+                        "state, so the vector error carries read noise; costs a thermal "
+                        "settle per vector")
+    p.add_argument("--repeats", type=int, default=1,
+                   help="photodiode reads averaged per port; error falls as 1/sqrt(N)")
     p.add_argument("--restarts", type=int, default=16)
     p.add_argument("--steps", type=int, default=400)
     p.add_argument("--seed", type=int, default=0)

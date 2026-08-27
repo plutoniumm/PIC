@@ -17,6 +17,7 @@
 #   ./do program --random  # decompose a random unitary onto the chip and read it back
 #   ./do ising --mock      # Ising ground states from the four-port intensity probe
 #   ./do matvec --mock     # signed y = B x from the photodiodes, no homodyne
+#   ./do matvec --mock --k 8 --block 2 --cols 4  # an 8x8 tiled into 2x2 blocks
 #   ./do dataset --combos 200  # N combos x 4 ports -> pic_data/transfer.csv
 #   ./do train --rounds 4  # train both surrogates from hardware
 #   ./do figs              # redraw the rig diagrams into figs/ (no hardware)
@@ -46,7 +47,7 @@ need() {  # need <import test> <what to install>
   echo "$PY"
 }
 
-usage() { sed -n '2,22p' "$ROOT/do" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
+usage() { sed -n '2,23p' "$ROOT/do" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
 
 cmd="${1:-}"; [ $# -gt 0 ] && shift
 case "$cmd" in

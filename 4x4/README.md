@@ -55,6 +55,9 @@ resolve.
 | `mrunal/` | Vendor documents, bench reports, bring-up firmware. Read its README. |
 | `theory/drift.py` | Drift inference from a four-port unitarity probe. Rank 9, nullity 6. |
 | `pic/drift.py` | The closed loop: anchor, re-probe, gate, pre-distort. `--dynamic`. |
+| `theory/intensity_matvec.py` | Signed `y = B x` from the photodiodes alone: Sinkhorn, the switched linearisation, the shift decomposition. |
+| `theory/matmat.py` | The rungs above it: `Y = B X` under one program, a big matrix tiled into 2x2 blocks, and the O(k) projection that checks a composed product. |
+| `pic/matvec.py` | Both on the rig. `--block K` tiles, `--cols N` walks columns, `--unitary` runs the group check. |
 | `learn/unitary_fit.py` | The 52-parameter physics surrogate. |
 | `learn/dpnn.py` | The reduced pruned network, carried over from the 6x6. Six squared voltages plus the lit input port and the laser telemetry, four photodiodes out. |
 | `learn/train_hw.py` | Online trainer: fits both on the same buffer, every round. |
