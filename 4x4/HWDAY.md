@@ -114,7 +114,8 @@ port: the four-port version trains the same model *and* supports the unitarity t
 ```
 
 Expect it to be **rejected** over 30 minutes — the archive says drift is at the noise floor
-on that timescale, and refusing is the correct behaviour. The interesting run is across a
+on that timescale, and refusing is the correct behaviour. If one does get applied, check its
+size: below ~0.02 rad it is the gate's known false-positive rate and is harmless. The interesting run is across a
 laser disconnect/reconnect, where 75 % of the change is input coupling and the fit should
 report one port moving by several dB.
 

@@ -52,6 +52,7 @@ class Normalisation:
     best_volts: dict        # pd -> (heater vector, input port) that produced `full`
     extinction: np.ndarray  # (4,) dimmest lit reading; the mesh's own floor, for reference
     reads: int = 0          # how much hardware time this cost
+    ports: tuple = ()       # which input ports were actually surveyed
 
     @property
     def pd_offset(self) -> np.ndarray:
@@ -72,9 +73,24 @@ class Normalisation:
     def input_scale(self) -> np.ndarray:
         """Per-port coupling, relative to the best port -- the "in" half of the
         normalisation. On this bench it should come back with one port several dB down;
-        that is the known bad launch, not a mesh property."""
-        pf = np.clip(self.port_full, 1e-12, None)
-        return pf / pf.max()
+        that is the known bad launch, not a mesh property.
+
+        A port that was not surveyed gets 1.0, meaning "no correction known", never 0.
+        Returning 0 would be read as infinite loss and divide that column to infinity --
+        which is exactly what a `--ports 0,1` run produced before this guard."""
+        pf = np.array(self.port_full, float)
+        seen = np.zeros(len(pf), bool)
+        seen[list(self.ports)] = True
+        seen &= pf > 0
+        if not seen.any():
+            return np.ones_like(pf)
+        out = np.ones_like(pf)
+        out[seen] = pf[seen] / pf[seen].max()
+        return out
+
+    @property
+    def measured_ports(self) -> np.ndarray:
+        return np.array(sorted(self.ports), int)
 
     @property
     def contrast_db(self) -> np.ndarray:
@@ -98,7 +114,9 @@ class Normalisation:
         rows = [f"  PD{j}  dark {self.dark[j]*1e3:7.2f} mV   full {self.full[j]*1e3:7.2f} mV"
                 f"   contrast {self.contrast_db[j]:5.1f} dB"
                 f"{'   DEAD' if self.dead[j] else ''}" for j in range(len(self.dark))]
-        ports = "  ".join(f"port {k}: {v*1e3:.1f} mV" for k, v in enumerate(self.port_full))
+        ports = "  ".join(f"port {k}: {v*1e3:.1f} mV" if k in self.ports
+                          else f"port {k}: not surveyed"
+                          for k, v in enumerate(self.port_full))
         return ("\n".join(rows) + f"\n  input coupling at full scale -- {ports}"
                 + f"\n  {self.reads} reads")
 
@@ -186,7 +204,8 @@ def measure(rig, *, ports=None, levels: int = 9, passes: int = 2,
 
     return Normalisation(dark=np.asarray(dark, float), full=track.hi.copy(),
                          port_full=port_full, best_volts=track.arg,
-                         extinction=track.lo.copy(), reads=track.reads)
+                         extinction=track.lo.copy(), reads=track.reads,
+                         ports=tuple(ports))
 
 
 def apply_to(calib, norm: Normalisation):
@@ -199,6 +218,7 @@ def apply_to(calib, norm: Normalisation):
         "port_full_v": norm.port_full.tolist(),
         "contrast_db": np.round(norm.contrast_db, 2).tolist(),
         "input_scale": np.round(norm.input_scale, 4).tolist(),
+        "ports_surveyed": list(norm.ports),
         "dead_pds": np.flatnonzero(norm.dead).tolist(),
         "full_port": {str(j): int(pv[1]) for j, pv in norm.best_volts.items()},
     }
@@ -258,6 +278,14 @@ def _selftest(seed: int = 0):
     assert both_col < raw_col, (both_col, raw_col)
     assert norm.input_scale.min() < 0.5, norm.input_scale     # the bad launch must show
     assert np.all(norm.contrast_db < 60), norm.contrast_db
+
+    # a subset-of-ports run must not leave a zero scale behind: dividing by it sends that
+    # column to infinity, and a partial survey is a normal thing to run
+    with Rig(laser="mock", board="sim", tec="mock", switch="mock") as rig2:
+        part = measure(rig2, ports=[0, 1], levels=5, passes=1, repeats=1)
+    assert np.all(part.input_scale > 0) and np.all(np.isfinite(part.input_scale)), \
+        part.input_scale
+    assert np.all(np.isfinite(part.normalise(raws[0]))), part.input_scale
     return dict(norm=norm, raw_row=raw_row, raw_col=raw_col, out_row=out_row,
                 both_col=both_col, peak=peak, reads=norm.reads,
                 lo=float(unit.min()), hi=float(unit.max()))

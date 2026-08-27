@@ -59,7 +59,8 @@ def cmd_selftest(a):
     from .drift import _selftest as drift_selftest
     r = drift_selftest()
     print(f"closed loop {r['before']:.4f} -> {r['after']:.4f}, "
-          f"port-3 coupling {r['port3_db']:+.1f} dB, below-noise drift refused")
+          f"port-3 coupling {r['port3_db']:+.1f} dB, "
+          f"below-noise refused {r['refused']}/{r['n_quiet']}")
 
     print("normalise ", end="", flush=True)
     from .normalise import _selftest as norm_selftest
