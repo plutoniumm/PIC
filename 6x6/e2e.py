@@ -4,11 +4,11 @@ Confirms the whole optical chain -- laser -> fiber -> chip -> photodiodes -> Ard
 host. Prints a DARK (laser off) baseline then one row per power level; if the live PDs
 climb above dark, light is reaching the detectors.
 
-    ./test                       # sweep +5/+10/+15 dBm, DACs at 0, read the 10 live PDs
-    ./test 3 9 15                # custom dBm levels
-    ./test --raw 20 60 100       # levels are raw setpoints, not dBm
-    ./test --dac 5:2,9:4         # set some DAC heaters before reading (default: all 0)
-    ./test --mock                # no hardware -- exercises the harness end to end
+    python e2e.py                       # sweep +5/+10/+15 dBm, DACs at 0, read the 10 live PDs
+    python e2e.py 3 9 15                # custom dBm levels
+    python e2e.py --raw 20 60 100       # levels are raw setpoints, not dBm
+    python e2e.py --dac 5:2,9:4         # set some DAC heaters before reading (default: all 0)
+    python e2e.py --mock                # no hardware -- exercises the harness end to end
 
 Two independent serial devices: the laser is the FTDI adapter, the PIC is the Arduino.
 The PIC autodetect and the laser FTDI share the usbserial glob, so we find the laser

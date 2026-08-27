@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# ./do -- task dispatcher for the 4x4 rig. Run from this directory.
+#
+#   ./do selftest          # no hardware: every model self-test plus a mock rig pass
+#   ./do laser state 1     # laser ON  (checks key + interlocks, enables at a floor)
+#   ./do laser set 13      # ramp to +13 dBm output
+#   ./do laser set 5 -t 30 # ramp to +5 dBm, hold 30 s, then auto power-off
+#   ./do laser state 0     # ramp to 0, verify, then disable
+#   ./do laser status      # full device readout
+#   ./do status            # laser + TEC + calibration state
+#   ./do measure           # live photodiode readout, heaters at 0 V
+#   ./do char --write      # sweep all 18 heaters, fit fringes, write pic_data/calib.json
+#   ./do program --random  # decompose a random unitary onto the chip and read it back
+#   ./do train --rounds 4  # train both surrogates from hardware
+#
+# Append --mock to any hardware command to run it with nothing plugged in.
+# Override the interpreter with PYTHON=/path/to/python.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+pick_python() {  # arg: an import the interpreter must satisfy
+  local test="${1:-import serial}" cands=() p
+  [ -n "${PYTHON:-}" ] && cands+=("$PYTHON")
+  cands+=(/usr/local/Caskroom/miniconda/base/envs/pic/bin/python python3 python)
+  for p in "${cands[@]}"; do
+    if command -v "$p" >/dev/null 2>&1 && "$p" -c "$test" >/dev/null 2>&1; then
+      echo "$p"; return 0
+    fi
+  done
+  return 1
+}
+
+need() {  # need <import test> <what to install>
+  PY="$(pick_python "$1")" || { echo "no python with $2 found -- use the 'pic' conda env" >&2
+    exit 3; }
+  echo "$PY"
+}
+
+usage() { sed -n '2,18p' "$ROOT/do" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
+
+cmd="${1:-}"; [ $# -gt 0 ] && shift
+case "$cmd" in
+  laser)
+    sub="${1:-}"; [ $# -gt 0 ] && shift
+    [ "$sub" = state ] && sub=hw   # `state` is a nicer alias for `hw`
+    [ -z "$sub" ] && usage
+    PY="$(need 'import serial' pyserial)"
+    exec env PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PY" \
+      -c 'import sys; from pic.devices.laser import main; sys.exit(main())' "$sub" "$@"
+    ;;
+  selftest|status|measure|char|program)
+    PY="$(need 'import numpy, scipy' 'numpy+scipy')"
+    exec env PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PY" -m pic "$cmd" "$@"
+    ;;
+  train)
+    PY="$(need 'import torch, numpy' 'torch+numpy')"
+    exec env PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PY" -m learn.train_hw "$@"
+    ;;
+  ""|-h|--help|help) usage 0 ;;
+  *) echo "./do: unknown command '$cmd'" >&2; usage ;;
+esac
