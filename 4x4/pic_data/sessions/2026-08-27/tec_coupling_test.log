@@ -1,0 +1,6 @@
+heater load when on: 856 mW
+  baseline, heaters OFF    28.68 -> 27.25 C  (-1.43)  min 27.25 max 28.74  drive +2.0
+  heaters ALL AT CEILING   27.24 -> 29.28 C  (+2.04)  min 27.24 max 29.29  drive +2.0
+  heaters OFF again        29.28 -> 27.03 C  (-2.25)  min 27.03 max 29.28  drive +2.0
+
+[exited with code 0]

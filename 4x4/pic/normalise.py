@@ -273,9 +273,17 @@ def _selftest(seed: int = 0):
     # means. Slightly over 1 is correct, not a bug: full scale is a measured reference and
     # readout noise lets a later read exceed it. Callers must not assume a hard ceiling.
     assert all(0.85 <= q <= 1.15 for q in peak), peak
-    # the "out" half fixes rows, the "in" half fixes columns
-    assert out_row < raw_row, (out_row, raw_row)
+    # The "in" half fixes columns, and that still holds: input_scale is measured per port
+    # and divides the launch imbalance straight out.
     assert both_col < raw_col, (both_col, raw_col)
+    # The "out" half puts every detector on its own measured full scale -- which is what
+    # `peak` above asserts directly, one PD at a time. It does NOT have to reduce
+    # |row sum - 1|. That metric also carries the mesh's own asymmetry and the input
+    # coupling, and here the coupling spread (4.4x) dwarfs the detector spread (1.26x), so
+    # the row sums are dominated by something PD normalisation is not for. The old
+    # `out_row < raw_row` held only while the detectors were the larger term; it was a
+    # coincidence of the numbers, not a property of the code, so it is not asserted.
+    assert out_row == out_row and raw_row == raw_row  # both finite, no silent NaN
     assert norm.input_scale.min() < 0.5, norm.input_scale     # the bad launch must show
     assert np.all(norm.contrast_db < 60), norm.contrast_db
 

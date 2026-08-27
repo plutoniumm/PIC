@@ -43,35 +43,22 @@ from theory.layout import (  # noqa: F401  (re-exported: this is the one layout 
 
 from .config import WIRED_DACS
 
-# DAC channel -> heater pad UHn, keyed on the +ve pad the bench reports give rather than on
-# the heater name beside it; see the module docstring for the one place those disagree. The
-# other 12 channels are not connected yet and hold the identity map as a placeholder.
-WIRED_MAP = {0: "UH15", 1: "UH12", 2: "UH11", 3: "UH8", 4: "UH4", 5: "UH3"}
-
-def _heater_of_dac():
-    """A permutation, not a patched identity: the six documented channels take their
-    heaters, and the rest fill in with whatever is left, in order. Overwriting entries of
-    an identity map instead would leave five heaters on two channels each and five reachable
-    from none, which is the kind of map that produces a plausible-looking dead channel."""
-    fixed = {d: int(pad[2:]) - 1 for d, pad in WIRED_MAP.items()}
-    rest = [h for h in range(N_HEATERS) if h not in set(fixed.values())]
-    out, it = np.empty(N_HEATERS, int), iter(rest)
-    for d in range(N_HEATERS):
-        out[d] = fixed[d] if d in fixed else next(it)
-    return out
-
-
-HEATER_OF_DAC = _heater_of_dac()
-DAC_OF_HEATER = np.argsort(HEATER_OF_DAC)
-assert sorted(HEATER_OF_DAC.tolist()) == list(range(N_HEATERS))
-VERIFIED = False  # true only for the six channels in WIRED_MAP
+# The permutation that used to live here is gone, and deliberately. It existed because
+# `theory.layout` indexed by heater pad on the guess that UH(n+1) ran in DAC order, so a
+# shim was needed to get from a DAC channel to a heater. `theory.layout` is now indexed by
+# DAC channel directly, from the measured wiring map, and the shim had become a second,
+# contradictory opinion: it printed DAC0 as H2:alpha3 where theory.layout says H15:theta5.
+# Two layouts is one too many. This module now re-exports the measured one.
+HEATER_OF_DAC = np.arange(N_HEATERS)
+DAC_OF_HEATER = np.arange(N_HEATERS)
+VERIFIED = True   # the six internal phase shifters are measured, not assumed
 
 ACTIVE_DACS = np.sort(DAC_OF_HEATER[ACTIVE_IDX])
 AUX_DACS = np.sort(DAC_OF_HEATER[AUX_IDX])
 WIRED = np.array(sorted(WIRED_DACS), int)
 # what a sweep can actually drive today: wired channels that the mesh model uses
 REACHABLE_DACS = np.array(sorted(set(WIRED.tolist()) & set(ACTIVE_DACS.tolist())), int)
-LABEL_OF_DAC = {d: HEATERS[int(HEATER_OF_DAC[d])].label for d in range(N_HEATERS)}
+LABEL_OF_DAC = {d: HEATERS[d].label for d in range(N_HEATERS)}
 
 
 def to_dac(v_heater) -> np.ndarray:
@@ -90,5 +77,5 @@ def wiring_table() -> str:
     rows = [f"{'dac':>3}  {'heater':<6} {'role':<10} wired"]
     for d in range(N_HEATERS):
         h = HEATERS[int(HEATER_OF_DAC[d])]
-        rows.append(f"{d:>3}  {h.pad:<6} {h.role:<10} {'yes' if d in WIRED_MAP else 'no'}")
+        rows.append(f"{d:>3}  {h.pad:<6} {h.role:<10} {'yes' if d in WIRED_DACS else 'no'}")
     return "\n".join(rows)

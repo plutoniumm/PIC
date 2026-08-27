@@ -2,7 +2,7 @@
 
     from learn import unitary_fit, dpnn
 
-`unitary_fit` is the physics: 56 parameters, unitary by construction, invertible in closed
+`unitary_fit` is the physics: 52 parameters, unitary by construction, invertible in closed
 form. `dpnn` is the pruned network carried over from the 6x6 rig, reduced to this chip's
 width. `prune` is the pruning core both share. Everything here needs torch, so nothing
 imports it at module scope -- `import pic` stays light.

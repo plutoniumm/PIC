@@ -1,10 +1,12 @@
 """The efficient surrogate: fit the instrument itself, not a function of it.
 
-Fifty-six parameters describe this chip completely.
+Fifty-two parameters describe this chip completely.
 
-    Vpi, phi0   per heater            36
+    Vpi, phi0   per heater            32
     coupler kappa   per MZI, two each 12
     gain, offset    per photodiode     8
+
+(36 + 12 + 8 = 56 was the count at 18 heaters; the DAC81416 drives 16.)
 
 Everything else is fixed by the fact that a lossless mesh is unitary. That constraint is
 not a regulariser bolted on afterwards, it is the model: `theory.twin` composes MZIs, so
@@ -77,7 +79,7 @@ class InstrumentModel(torch.nn.Module):
         return torch.pi * (V / torch.exp(self.log_vpi)) ** 2 + self.phi0
 
     def forward(self, V, X=None):
-        """V: (B, 18) volts. X: (B, 4) complex input fields, default all light in port 0."""
+        """V: (B, 16) volts. X: (B, 4) complex input fields, default all light in port 0."""
         self.twin.kappa = self.kappa  # live parameter, so gradients reach the couplers
         U = self.twin.matrix(self.phases(V))
         if X is None:
@@ -269,7 +271,7 @@ def _selftest(n: int = 300, seed: int = 0, verbose: bool = True):
 
     Also fits the black-box surrogate on the same random data, so the sample-efficiency
     claim in the docstring is measured rather than asserted."""
-    from pic.config import VOLTAGE_MAX
+    from pic.config import DRIVE_MAX_V, drive_to_volts
 
     from . import dpnn
 
@@ -305,8 +307,12 @@ def _selftest(n: int = 300, seed: int = 0, verbose: bool = True):
     ident = calib0.meta["identified"]
     vpi_err = float(np.abs(calib0.vpi[ident] - truth_c.vpi[ident]).max())
 
-    # stage 2: random operating points across the input ports, joint fit from the bootstrap
-    V = rng.uniform(0, VOLTAGE_MAX, (n, N_HEATERS))
+    # stage 2: random operating points across the input ports, joint fit from the bootstrap.
+    # Drawn in the uniform drive command and expanded per channel, which is what the bench
+    # does -- so the three channels with no confirmed resistance sit at 0 V here too and
+    # their Vpi is correctly left unidentified rather than fitted to data that cannot exist.
+    D = rng.uniform(0, DRIVE_MAX_V, (n, N_HEATERS))
+    V = drive_to_volts(D)
     X = np.stack([inputs[i] for i in rng.integers(0, len(inputs), n)])
     Y = measure(V, X)
 
@@ -316,13 +322,16 @@ def _selftest(n: int = 300, seed: int = 0, verbose: bool = True):
         print(f"  bootstrap: {out['sweep_reads']} sweep reads -> {len(ident)}/{N_HEATERS} "
               f"heaters identified, worst Vpi error {vpi_err:.5f} V")
         print("  joint fit at the production budget, this takes a few minutes ...")
-    _, c, e, r2 = fit(V, Y, X, calib0=calib0, seed=seed)
+    phys, c, e, r2 = fit(V, Y, X, calib0=calib0, seed=seed)
+    # the network works in drive commands and needs to be told which port is lit; `inputs`
+    # includes the two-port splitter probes, which port_features takes as launched intensity
     tel = np.tile([13.0, 0.8, 25.0, 14.0, 25.0], (n, 1))
-    _, _, r2d, dmeta = dpnn.fit(V, tel, Y, epochs=300, seed=seed)
+    _, _, r2d, dmeta = dpnn.fit(D, X, tel, Y, epochs=300, seed=seed)
     out["r2_physics"], out["r2_dpnn"] = r2, float(np.mean(r2d))
+    out["n_params_physics"] = int(phys.n_params())
     out["n_params_dpnn"] = int(dmeta["n_params"])
     if verbose:
-        print(f"  n={n}   physics (56p) R2 {r2:+.4f}   "
+        print(f"  n={n}   physics ({phys.n_params()}p) R2 {r2:+.4f}   "
               f"dpnn ({dmeta['n_params']}p) R2 {float(np.mean(r2d)):+.4f}")
     return out
 

@@ -14,7 +14,7 @@ import time
 
 import numpy as np
 
-from .config import NUM_ADC_RAW, NUM_DAC, OUT_PDS, PICConfig, out_mask
+from .config import NUM_ADC_RAW, NUM_DAC, OUT_PDS, VOLTAGE_MAX_CH, PICConfig, out_mask
 
 
 class PICError(RuntimeError):
@@ -90,7 +90,11 @@ class PIC:
         if not np.all(np.isfinite(v)):
             bad = np.where(~np.isfinite(v))[0][:8].tolist()
             raise PICError(f"non-finite DAC voltage(s) at index {bad}; refusing to send")
-        return np.clip(v, self.cfg.voltage_min, self.cfg.voltage_max)
+        # Per-channel, not the scalar ceiling. The firmware clamps too, and that is what
+        # protects the hardware -- but if the host clips at 3 V and the firmware clips a
+        # 60R channel to 1.5 V, every fit on that channel is against volts that never
+        # landed, and the Vpi it produces is wrong in a way nothing downstream can see.
+        return np.clip(v, self.cfg.voltage_min, np.asarray(VOLTAGE_MAX_CH, float))
 
     def measure_raw(self, voltages, retries: int = 3) -> np.ndarray:
         """Apply the DAC voltages, return all `num_adc_raw` photodiode volts. Retries a
@@ -114,6 +118,29 @@ class PIC:
             self.measure_raw(voltages)
             time.sleep(settle_s)
         return self.measure_raw(voltages)[self._mask]
+
+    def select_port(self, port: int) -> int:
+        """Route the laser to input `port` (0-indexed) via the firmware's `P<1..4>`.
+
+        `port = -1` sends `P0`, the switch's open channel, which is dark.
+
+        The Sercalo hangs off the board's Serial1, not off a port of its own, so port
+        selection is a board command. The firmware waits out the mechanical settle and
+        echoes `PORT <n>`; a missing or disagreeing echo means the mirror did not move,
+        which would otherwise show up as a whole sweep silently taken at the wrong port."""
+        self.ser.reset_input_buffer()
+        self.ser.write(f"P{int(port) + 1}\n".encode())
+        deadline = time.time() + self.cfg.timeout_s + 2.0
+        while time.time() < deadline:
+            raw = self.ser.readline().decode("utf-8", "ignore").strip()
+            if raw.startswith("PORT"):
+                got = int(raw.split()[-1]) - 1
+                if got != int(port):
+                    raise PICError(f"switch went to port {got}, asked for {port}")
+                return got
+            if raw.startswith("ERR"):
+                raise PICError(f"firmware refused port {port}: {raw!r}")
+        raise PICError(f"no PORT echo for port {port} from {self.cfg.port}")
 
     def set_zero(self):
         self.measure_raw(np.zeros(self.cfg.num_dac))
@@ -199,4 +226,4 @@ def twin_forward(calib=None, error=None, x=None, seed: int = 0, dark: float = 0.
     return forward
 
 
-assert NUM_DAC == 18  # the firmware sketch and pic.layout must agree on the width
+assert NUM_DAC == 16  # the firmware sketch and pic.layout must agree on the width

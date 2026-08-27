@@ -18,6 +18,7 @@ from .config import VOLTAGE_MAX, out_mask
 from .devices.laser import Laser
 from .devices.mock import MockLaser
 from .devices.switch import make_switch
+from theory.layout import N_HEATERS
 from .devices.tec import make_tec
 from .interface import PIC, MockPIC
 from .session import _resolve_pic_port, laser_session
@@ -54,10 +55,12 @@ def make_board(spec, port=None, laser_port=None, switch=None):
 
 class Rig:
     def __init__(self, laser="hw", board="hw", tec="mock", switch="mock", model=None, *,
+                 keep_laser: bool = False,
                  calib=None, laser_port=None, pic_port=None, dynamic=False):
         self.laser = make_laser(laser, laser_port)
         self.tec = make_tec(tec)
         self.switch = make_switch(switch)
+        self.keep_laser = bool(keep_laser)
         self._board_spec = board
         self._pic_port = pic_port
         self.board = None  # opened lazily so the board port can exclude the laser's
@@ -91,11 +94,17 @@ class Rig:
 
     def open(self):
         self.laser.open()
+        self._laser_was_on = bool(getattr(self.laser, "is_on", lambda: False)())
+        if self._laser_was_on and not self.keep_laser:
+            print("  note: laser was already on; it will be turned off on exit "
+                  "(pass --keep-laser to leave it lit)")
         self.tec.open()
         self.switch.open()
         laser_port = getattr(getattr(self.laser, "dev", None), "port", None)
         self.board = make_board(self._board_spec, self._pic_port, laser_port, self.switch)
         self.board.open()
+        if hasattr(self.switch, "attach"):   # board-routed switch: it needs the open board
+            self.switch.attach(self.board)
         return self
 
     def select_input(self, port: int) -> int:
@@ -106,7 +115,8 @@ class Rig:
     def session(self, *, duration_s, power_dbm, **kw):
         """Guarded laser session: background watchdog, emission verify, TEC gate."""
         return laser_session(self.laser, duration_s=duration_s, power_dbm=power_dbm,
-                             tec=self.tec, **kw)
+                             tec=self.tec,
+                             read_pds=lambda: self.outputs(np.zeros(N_HEATERS)), **kw)
 
     def measure(self, v) -> np.ndarray:
         """Set the 18 DAC volts, return the raw photodiode volts."""
@@ -150,7 +160,11 @@ class Rig:
                 self.board.close()
         finally:
             try:
-                self.laser.off()
+                # Off by default, always. Leaving a lit diode behind with no watchdog on it
+                # is the one failure mode that damages hardware unattended, and convenience
+                # is not worth it -- `keep_laser` makes the exception explicit and opt-in.
+                if not (self.keep_laser and getattr(self, "_laser_was_on", False)):
+                    self.laser.off()
             finally:
                 self.laser.close()
                 self.tec.close()

@@ -12,7 +12,7 @@ hitting an arbitrary target. Excess loss is separate and makes the mesh sub-unit
 set it to zero and `U^H U = I` holds to 1e-6 in complex64.
 
     twin = Twin()                         # ideal
-    U = twin.matrix(phases)               # phases: (18,) or (B, 18) -> (4,4) or (B,4,4)
+    U = twin.matrix(phases)               # phases: (16,) or (B, 16) -> (4,4) or (B,4,4)
     twin = Twin(MeshError.sample(seed=0)) # a plausible fabricated instance
 
 The 18-vector is in heater order (`theory.layout`): theta heaters carry the *internal*
@@ -110,7 +110,7 @@ class Twin:
         self.amp = 10 ** (-loss_db / 20)
 
     def matrix(self, phases):
-        """(18,) or (B, 18) heater phases -> (4,4) or (B,4,4) complex transfer.
+        """(16,) or (B, 16) heater phases -> (4,4) or (B,4,4) complex transfer.
 
         Column j of the result is the output field for light injected in port j."""
         ph = phases if torch.is_tensor(phases) else torch.as_tensor(phases, dtype=torch.float32)

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .config import VOLTAGE_MAX, VPI_NOMINAL
+from .config import VOLTAGE_MAX, VOLTAGE_MAX_CH, VPI_NOMINAL
 from theory.clements import NMODE
 
 # The band a thermo-optic shifter on this process can plausibly sit in. A fit outside it is
@@ -159,6 +159,50 @@ NO_FIT = {"visibility": 0.0, "amplitude": 0.0, "rmse": float("nan"), "r2": float
 MIN_AMPLITUDE_V = 0.017
 
 
+MIN_SNR = 6.0   # a fringe must stand this far above its own detector's read noise
+
+
+def read_noise(pic, n: int = 16, settle_s: float = 1.0) -> np.ndarray:
+    """Per-detector read-noise standard deviation, measured at rest.
+
+    A single absolute amplitude threshold assumes every photodiode is equally quiet. On
+    this bench PD0's dark scatter is ~170x PD1's, so an amplitude gate that PD1 passes on
+    signal, PD0 passes on noise -- and since `better` fell back to ranking by amplitude,
+    the noisiest detector won every channel that had no real fringe. Ranking on SNR needs
+    a per-detector noise floor, and the only trustworthy one is measured.
+
+    Measured over the same timescale the sweep runs at, which is the whole difficulty. Taken
+    back-to-back this reports PD0 at 0.2 mV; spread over seconds the same detector reports
+    ~44 mV, because its noise is slow rather than white. A sweep point is seconds from its
+    neighbours, so the slow figure is the one that decides whether a fringe is real, and a
+    fast sample flatters the noisiest detector by two orders of magnitude."""
+    z = np.zeros(pic.cfg.num_dac)
+    a = np.array([pic.measure(z, settle_s=settle_s) for _ in range(n)])
+    return a.std(axis=0)
+
+
+STRONG_SNR, STRONG_R2 = 12.0, 0.95
+
+
+def passes(f, min_visibility: float = 0.05, min_amplitude: float = MIN_AMPLITUDE_V,
+           min_r2: float = 0.5) -> bool:
+    """Is this fit trustworthy? The single definition -- `better` ranks with it and
+    `characterize` records with it, so a channel accepted while sweeping cannot come out of
+    the file rejected. Two copies of this rule is exactly the bug that lost dac9."""
+    snr = f.get("snr", np.inf)
+    r2 = f.get("r2") or 0
+    if f.get("amplitude", 0) < min_amplitude or snr < MIN_SNR or r2 < min_r2:
+        return False
+    # Visibility is amplitude/mean, so it collapses whenever a real fringe rides a bright
+    # DC pedestal -- which is what a heater modulating a bright output looks like. It cost
+    # H13 a 38 mV fringe at r2 0.986 and SNR 50. Measured against each detector's own noise,
+    # SNR says the same thing without the blind spot, so a clearly strong and clearly
+    # sinusoidal fit overrides it.
+    if snr >= STRONG_SNR and r2 >= STRONG_R2:
+        return True
+    return f.get("visibility", 0) >= min_visibility
+
+
 def better(a, b, min_visibility: float = 0.05, min_amplitude: float = MIN_AMPLITUDE_V,
            min_r2: float = 0.5) -> dict:
     """Pick the more trustworthy of two fringe fits.
@@ -174,20 +218,21 @@ def better(a, b, min_visibility: float = 0.05, min_amplitude: float = MIN_AMPLIT
     passes 12 channels of 12 that have no heater on them, contrast plus amplitude still
     passes one at r2 = 0.19."""
     def ok(f):
-        return (f.get("visibility", 0) >= min_visibility
-                and f.get("amplitude", 0) >= min_amplitude
-                and (f.get("r2") or 0) >= min_r2)
+        return passes(f, min_visibility, min_amplitude, min_r2)
 
     ok_a, ok_b = ok(a), ok(b)
     if ok_a != ok_b:
         return a if ok_a else b
     if ok_a:
         return a if a["score"] <= b["score"] else b
-    return a if a.get("amplitude", 0) >= b.get("amplitude", 0) else b
+    # Neither is trustworthy. Rank by SNR, never by raw amplitude: the loudest trace on a
+    # noisy detector is not a better candidate than a quiet one on a clean detector.
+    return a if a.get("snr", 0) >= b.get("snr", 0) else b
 
 
 def best_fringe(levels, curves, pds=None, min_visibility: float = 0.05,
-                min_amplitude: float = MIN_AMPLITUDE_V, min_r2: float = 0.5) -> dict:
+                min_amplitude: float = MIN_AMPLITUDE_V, min_r2: float = 0.5,
+                noise=None) -> dict:
     """Fit one heater's sweep against every detector it was recorded on, keep the best.
     `curves` is (levels, n_detectors)."""
     curves = np.atleast_2d(np.asarray(curves, float))
@@ -201,6 +246,8 @@ def best_fringe(levels, curves, pds=None, min_visibility: float = 0.05,
         except (RuntimeError, ValueError):
             continue
         f["pd"] = int(p)
+        nz = 1e-6 if noise is None else max(float(np.ravel(noise)[k]), 1e-6)
+        f["snr"] = float(f.get("amplitude", 0.0)) / nz
         best = better(f, best, min_visibility, min_amplitude, min_r2)
     return best
 
@@ -246,6 +293,116 @@ def random_bases(n: int, rng=None, channels=None, vmax: float = VOLTAGE_MAX):
     return out
 
 
+def sensitive_base(dac, calib, fitted, tries=3000, seed=0):
+    """Bias the known heaters so detector response to `dac` is as large as possible.
+
+    Brightness is the wrong objective. A heater needs two things to be measurable: light has
+    to arrive on its arm, and the phase it imposes has to survive the rest of the mesh and
+    reach a detector. A heater downstream of it can null that modulation before any PD sees
+    it, so a bias can be bright at every output and still leave the target invisible.
+
+    So maximise |d T[pd, port] / d phase_target| over all (pd, port) -- the largest response
+    any detector has to moving this heater -- rather than the light level. Only `fitted`
+    channels are moved; unknown phases stay at 0 V rather than being guessed at.
+
+    Returns (base_volts, predicted_sensitivity)."""
+    import numpy as _np
+    import torch as _torch
+
+    from theory.layout import N_HEATERS
+    from theory.twin import Twin
+
+    twin = Twin()
+    rng = _np.random.default_rng(seed)
+    movable = [int(c) for c in fitted
+               if VOLTAGE_MAX_CH[int(c)] > 0 and int(c) != int(dac)]
+    if not movable:
+        return _np.zeros(N_HEATERS), 0.0
+    hi = _np.asarray([VOLTAGE_MAX_CH[c] for c in movable], float)
+
+    def sens(v):
+        ph = _torch.tensor(calib.phases(v), dtype=_torch.float64, requires_grad=True)
+        T = twin.matrix(ph).abs() ** 2
+        # the strongest single response, so a heater only needs ONE good detector
+        g = _torch.autograd.grad(T.abs().max(), ph, retain_graph=False)[0]
+        return float(abs(g[int(dac)]))
+
+    best, best_s = _np.zeros(N_HEATERS), -1.0
+    for _ in range(tries):
+        v = _np.zeros(N_HEATERS)
+        v[movable] = rng.uniform(0.0, hi)
+        sc = sens(v)
+        if sc > best_s:
+            best, best_s = v, sc
+    return best, best_s
+
+
+def open_base(calib, fitted, target=None, tries=4000, seed=0):
+    """Bias the *characterized* heaters so every output carries light.
+
+    Random bases find a heater only when they happen to leave light on its arm, and a heater
+    whose detectors are all dark cannot be fitted however hard it is driven. Once some
+    heaters are known, that is no longer a lottery: the twin predicts |U x|^2 for any bias,
+    so we can pick one that opens the mesh up rather than waiting to get lucky.
+
+    The objective is the *worst* output over all four input ports, not the total -- a bias
+    that dumps everything into one bright detector is what leaves the others blocked, which
+    is the failure this exists to avoid. Only `fitted` channels are moved; the rest stay at
+    0 V because their phase is unknown and setting them would be guessing."""
+    import numpy as _np
+
+    from theory.layout import N_HEATERS
+    from theory.twin import Twin
+
+    twin = Twin()
+    rng = _np.random.default_rng(seed)
+    fitted = [int(c) for c in fitted if VOLTAGE_MAX_CH[int(c)] > 0]
+    if not fitted:
+        return _np.zeros(N_HEATERS)
+
+    hi = _np.asarray([VOLTAGE_MAX_CH[c] for c in fitted], float)
+    best, best_score = _np.zeros(N_HEATERS), -_np.inf
+    for _ in range(tries):
+        v = _np.zeros(N_HEATERS)
+        v[fitted] = rng.uniform(0.0, hi)
+        T = twin.transfer(calib.phases(v)) if hasattr(twin, "transfer") else None
+        if T is None:
+            U = twin.matrix(torch.as_tensor(calib.phases(v)))
+            T = (U.abs() ** 2).detach().numpy()
+        score = float(_np.min(T))          # worst (output, port) pair
+        if score > best_score:
+            best, best_score = v, score
+    return best
+
+
+def transparent_base(dac, calib, vmax=None):
+    """A base bias that opens the path *up to* `dac` and leaves everything after it dark.
+
+    Random bases find a heater only when they happen to leave light on its arm, which is why
+    an all-zero sweep identifies the first column and little else. The 6x6's answer is to
+    walk the mesh outside-in: hold every heater upstream of the frontier at its most
+    transparent setting so the frontier heater sees as much light as the mesh can deliver,
+    and leave everything downstream at 0 V so it cannot re-route what comes back out.
+
+    "Transparent" is the reachable voltage whose phase lands nearest a bar state (a multiple
+    of 2 pi). On this chip no heater spans a full period, so that is a nearest-approach, not
+    an exact null -- which is worth knowing when a frontier heater still comes back weak."""
+    from theory.layout import HEATERS, N_HEATERS
+
+    vmax = VOLTAGE_MAX_CH if vmax is None else vmax
+    col = HEATERS[int(dac)].column
+    v = np.zeros(N_HEATERS)
+    for h in HEATERS:
+        if h.role != "theta" or h.column >= col or vmax[h.h] <= 0:
+            continue
+        ph = calib.phi0[h.h]
+        target = 2 * np.pi * np.round(ph / (2 * np.pi))     # nearest bar state
+        cand = np.linspace(0.0, vmax[h.h], 64)
+        got = np.pi * (cand / calib.vpi[h.h]) ** 2 + ph
+        v[h.h] = cand[int(np.argmin(np.abs(got - target)))]
+    return v
+
+
 def characterize(pic, session, *, pd=None, levels=None, channels=None, bases=None,
                  switch=None, ports=None, settle_s: float = 0.5, repeats: int = 5,
                  min_visibility: float = 0.05, min_amplitude: float = MIN_AMPLITUDE_V,
@@ -270,7 +427,21 @@ def characterize(pic, session, *, pd=None, levels=None, channels=None, bases=Non
 
     pds = list(OUT_PDS) if pd is None else [int(pd)]
 
-    levels = grid() if levels is None else np.asarray(levels, float)
+    # Per channel, because the ceiling is per channel. A single commanded grid gets clipped
+    # by the driver on the 60R and dark channels, but the fit is handed the *commanded*
+    # voltages -- so above 1.5 V the fringe flattens while the axis keeps going, and Vpi
+    # comes out biased high. On a dark channel it is worse: nothing moves at all and the fit
+    # ascribes whatever drifted to a voltage axis that never existed.
+    base_levels = grid() if levels is None else np.asarray(levels, float)
+
+    def levels_for(c):
+        vmax = VOLTAGE_MAX_CH[int(c)]
+        if vmax <= 0:
+            return None                       # nothing to sweep; do not invent an axis
+        top = float(base_levels.max())
+        return base_levels if top <= vmax + 1e-9 else base_levels * (vmax / top)
+
+    levels = base_levels
     channels = ACTIVE_DACS if channels is None else np.asarray(channels, int)
     bases = random_bases(3, channels=channels) if bases is None else list(bases)
     ports = ([None] if switch is None
@@ -279,14 +450,35 @@ def characterize(pic, session, *, pd=None, levels=None, channels=None, bases=Non
 
     vpi = np.full(N_HEATERS, VPI_NOMINAL)
     phi0 = np.zeros(N_HEATERS)
-    results = {}
+    noise = read_noise(pic)[pds]
+    if verbose:
+        print("  read noise per detector (mV): "
+              + "  ".join(f"PD{p}:{1e3 * n:.1f}" for p, n in zip(pds, noise)))
+    results, raw = {}, {}
     for c in channels:
         if session.expired():
             if verbose:
                 print("  watchdog reached; keeping the partial characterization.")
             break
+        levels = levels_for(c)
+        if levels is None:
+            f = dict(NO_FIT)
+            f["dac"], f["label"] = int(c), role[int(c)]
+            f["ok"], f["fingerprint"] = False, []
+            f["note"] = "held at 0 V (resistance unconfirmed); not swept"
+            results[int(c)] = f
+            if verbose:
+                print(f"  {role[int(c)]:<14} held at 0 V, not swept")
+            continue
         f = dict(NO_FIT)
-        for port in ports:
+        # Modulation depth on every (port, detector), not just the winning one. `better`
+        # keeps a single best fit because that is what Vpi needs, but the map from DAC to
+        # mesh position is carried by the *pattern* -- a first-column MZI moves a different
+        # set of outputs from a third-column one, and that distinction is invisible in the
+        # one number the fit reports. The sweep already measures it; only the keeping is new.
+        fp = np.full((len(ports), len(pds)), np.nan)
+        raw_c = np.full((len(ports), len(bases), len(levels), len(pds)), np.nan)
+        for pi, port in enumerate(ports):
             if session.expired():
                 break
             if port is not None:
@@ -300,14 +492,30 @@ def characterize(pic, session, *, pd=None, levels=None, channels=None, bases=Non
                     v[c] = lv
                     ys.append(settled_read(pic, v, settle_s, repeats)[pds])
                     session.keepalive()
-                g = best_fringe(levels, np.asarray(ys), pds, min_visibility, min_amplitude,
-                                min_r2)
+                ys = np.asarray(ys)
+                raw_c[pi, bi] = ys
+                depth = ys.max(axis=0) - ys.min(axis=0)
+                fp[pi] = depth if np.isnan(fp[pi]).all() else np.fmax(fp[pi], depth)
+                g = best_fringe(levels, ys, pds, min_visibility, min_amplitude,
+                                min_r2, noise=noise)
                 g["base"], g["port"] = bi, port
                 f = better(g, f, min_visibility, min_amplitude, min_r2)
-        f["ok"] = bool(f["visibility"] >= min_visibility
-                       and f.get("amplitude", 0) >= min_amplitude
-                       and (f.get("r2") or 0) >= min_r2)
+        # One gate, not two. This used to re-derive `ok` with its own copy of the rule, so
+        # the SNR override in `better` applied when ranking candidates and then vanished
+        # when the winner was recorded -- a channel accepted during the sweep came out of
+        # the file rejected. Ask `better` instead, by comparing the fit against a reject.
+        f["ok"] = passes(f, min_visibility, min_amplitude, min_r2)
         f["dac"], f["label"] = int(c), role[int(c)]
+        f["fingerprint"] = fp.tolist()
+        raw[int(c)] = raw_c
+        # Keep every trace, not just the winning one. All of a heater's (port, base) sweeps
+        # share the same Vpi and phi0 -- only A and B change with the upstream state -- so
+        # fitting them together turns ~11 points into ~88 AND breaks the degeneracy that
+        # makes (A, B, Vpi) inseparable over a sub-pi segment, because the degenerate
+        # direction differs in each trace. `better` keeps one fit and discards the rest,
+        # which is the right call for ranking and the wrong one for estimating Vpi.
+        f["levels"] = np.asarray(levels, float).tolist()
+        f["curves"] = raw_c.tolist()
         if f["ok"]:
             vpi[c], phi0[c] = f["vpi"], f["phi0"]
         results[int(c)] = f

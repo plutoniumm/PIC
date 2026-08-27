@@ -55,6 +55,7 @@ class _Session:
 
 @contextmanager
 def laser_session(laser, *, duration_s, power_dbm, tec=None, bfm_off=None, emit_eps=0.05,
+                  read_pds=None, pd_eps=0.02,
                   require_stable=True):
     """Bounded, watchdog-guarded laser-on session. The only copy of the laser safety logic.
 
@@ -88,6 +89,7 @@ def laser_session(laser, *, duration_s, power_dbm, tec=None, bfm_off=None, emit_
     s.stopped = stopped
     s.tec = tec
     s.bfm_off = _bfm() if bfm_off is None else bfm_off  # laser still off here
+    s.pds_off = None if read_pds is None else read_pds()   # dark baseline on the chip
     try:
         with lock:
             laser.on(power_dbm)  # open (idempotent) + enable + ramp, one call
@@ -99,6 +101,18 @@ def laser_session(laser, *, duration_s, power_dbm, tec=None, bfm_off=None, emit_
         s.deadline = time.time() + duration_s
         s.bfm_on = _bfm()
         s.emitted = (s.bfm_on - s.bfm_off) > emit_eps
+        # The beam monitor is the wrong sole witness on this unit: it reads near 3.5 V with
+        # the laser off, so a real turn-on moves it by less than the threshold and a lit
+        # chip reports as dark. The detectors on the far end of the fibre are the better
+        # evidence -- if they brighten, light reached the chip, whatever the monitor says.
+        if not s.emitted and read_pds is not None and s.pds_off is not None:
+            import numpy as _np
+            lit = float(_np.max(_np.asarray(read_pds(), float)
+                                - _np.asarray(s.pds_off, float)))
+            if lit > pd_eps:
+                s.emitted = True
+                s.emitted_via = f"chip detectors (+{1e3 * lit:.0f} mV); monitor saw only " \
+                                f"{s.bfm_on - s.bfm_off:+.3f} V"
         s.chip_c = float("nan") if tec is None else tec.temperature()
 
         def keepalive(sleep_s: float = 0.0):

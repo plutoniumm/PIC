@@ -21,16 +21,68 @@ BAUD_RATE = 115200
 RESET_WAIT_S = 2.0  # the board resets when the serial port is opened
 READY_BANNER = "pic4x4 ready"
 
-NUM_DAC = N_HEATERS   # 18; the firmware sends exactly this many, no padding
+NUM_DAC = 16          # DAC81416 channels; must match NUM_DAC in pic4x4.ino
 NUM_ADC_RAW = 4       # A0..A3, one per mesh output through a PD-TIA (mrunal/PD_TIA_circuit.pdf)
 OUT_PDS = (0, 1, 2, 3)  # the four mesh outputs, in rail order
 MON_PDS = ()          # this block carries no tap monitors
 NUM_OUT = len(OUT_PDS)
 
-# The bring-up board (mrunal/Setup.ino) drives only 6 DAC channels of the 18 heaters, one
-# chip on CS 10. Everything here is written for the full 18; see pic.layout.WIRED_DACS for
-# what is actually reachable today.
-WIRED_DACS = tuple(range(6))
+# The DAC81416 has 16 channels on one chip at CS 10, and the packaged part exposes 18 heater
+# pads -- so two heaters have no driver at all. Of the 16, three (H18, H14, H6) were never
+# resistance-checked and are held dark, leaving 13 drivable. Map and resistances are from
+# Arduino/pin_check/pin_check.ino, which is the notebook decode.
+DAC_HEATER = ("H15", "H12", "H11", "H8", "H4", "H3", "H18", "H9",
+              "H14", "H13", "H10", "H6", "H7", "H5", "H2", "H1")
+HEATER_OHMS = (114.1, 62.3, 118.8, 114.1, 57.8, 113.5, None, 57.2,
+               None, 114.9, 56.4, None, 116.1, 117.1, 116.8, 114.1)
+# Raised from the documents' 30 mA on a deliberate call: nothing in ananya/ or mrunal/ gives
+# an absolute maximum, a derating curve or a source for the 30 -- it is asserted twice and
+# never justified. Span goes as V^2, so 40 mA buys (40/30)^2 = 1.78x more phase on every
+# channel -- enough to put several heaters past pi, which is the threshold that decides
+# whether an MZI can reach every splitting ratio. The risk is lifetime, not immediate
+# failure; nothing here is a datasheet limit. Put this back to 30 to revert everything.
+HEATER_MAX_MA = 40.0
+
+# Per-channel ceiling, not a global one. The heaters come in two resistance groups and a
+# single 3 V clamp puts 52 mA through the 60R group -- 1.7x its rating. `None` resistance
+# means no confirmed value, so that channel stays at 0 V.
+# Per channel from its own measured resistance, not a two-group approximation: V = I*R, so
+# a 118.8 ohm heater may take more than a 113.5 ohm one at the same current. Rounded down to
+# 0.05 V so a rounding error cannot push a channel over the limit.
+VOLTAGE_MAX_CH = tuple(0.0 if r is None
+                       else float(int(1e-3 * HEATER_MAX_MA * r / 0.05) * 0.05)
+                       for r in HEATER_OHMS)
+WIRED_DACS = tuple(i for i, v in enumerate(VOLTAGE_MAX_CH) if v > 0)   # 13 channels
+
+# One command scale for every channel. Callers work in "drive volts" 0..DRIVE_MAX_V and the
+# scale opens each channel up to its own real ceiling, so nothing above has to carry a
+# per-channel limit around. The 3 V channels get x2, the 1.5 V channels x1, the dark ones 0.
+#
+# Quantisation survives it: the DAC is 16 bits over 5 V, so an LSB is 76 uV and doubling it
+# still leaves 39,300 steps across a 3 V channel. Phase goes as V^2, so the coarsest phase
+# step sits at full drive and is pi*(2*76uV)*2*Vmax/Vpi^2 -- under 1e-4 rad. Not a limit.
+DRIVE_MAX_V = 1.5
+DRIVE_SCALE = tuple(v / DRIVE_MAX_V for v in VOLTAGE_MAX_CH)
+
+
+def drive_to_volts(drive):
+    """Uniform 0..DRIVE_MAX_V command -> real per-channel volts.
+
+    This equalises the *command range*, not the phase range: span goes as (Vmax/Vpi)^2, so
+    a 60R heater at 1.5 V still covers ~0.11 pi against a 120R heater's ~0.43 pi. Uniform
+    drive makes the model and the surrogates rectangular; it does not buy reach."""
+    d = np.clip(np.asarray(drive, float), 0.0, DRIVE_MAX_V)
+    return d * np.asarray(DRIVE_SCALE, float)
+
+
+def volts_to_drive(volts):
+    """Real per-channel volts -> the uniform command, for code that has to cross back.
+
+    A dark channel has no inverse and maps to 0, which is the only voltage it can be at
+    anyway. Volts above a channel's ceiling clamp, exactly as the driver clamps them."""
+    s = np.asarray(DRIVE_SCALE, float)
+    live = s > 0
+    return np.clip(np.asarray(volts, float) / np.where(live, s, 1.0), 0.0, DRIVE_MAX_V) * live
 
 VOLTAGE_MIN = 0.0
 FIRMWARE_VMAX = 3.0  # clamp in pic4x4.ino; must match, or host volts vanish at the DAC
@@ -39,7 +91,7 @@ DAC_BITS = 16
 ADC_REF_V = 5.0
 ADC_BITS = 10
 
-ADC_AVG_N = 5        # full ADC sweeps averaged per firmware reply
+ADC_AVG_N = 16       # full ADC sweeps averaged per firmware reply; must match pic4x4.ino AVG_N
 DEFAULT_TIMEOUT_S = 3.0
 DEFAULT_SETTLE_S = 0.5  # thermo-optic settle before a read (mrunal/Setup.ino HEATER_DELAY_MS)
 

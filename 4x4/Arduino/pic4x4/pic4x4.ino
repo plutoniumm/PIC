@@ -23,12 +23,25 @@
 
 const int NUM_CHIPS = 2;
 const int CS[NUM_CHIPS] = {10, 9};   // chip k drives channels 16k .. 16k+15
-const int NUM_DAC = 18;              // heaters UH1..UH18
-const float VMAX = 3.0;              // per-channel ceiling
+const int NUM_DAC = 16;              // DAC81416 channels, ch0..ch15
+
+// Per-channel ceiling: V = I*R from each heater's own measured resistance at the current
+// limit in pic/config.py (HEATER_MAX_MA). Raised from 30 mA to 40 mA deliberately --
+// span goes as V^2, so this is 1.78x more phase everywhere, and no document gives an
+// absolute maximum to weigh it against. Keep this table and pic.config in step. A single
+// global 3.0 V is WRONG and unsafe: the 60R group draws 52 mA at 3 V. Index is DAC channel.
+// 0.0 marks H18/H14/H6, whose resistance was never confirmed -- they stay dark.
+//        ch:   0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15
+// heater:    H15  H12  H11   H8   H4   H3  H18   H9  H14  H13  H10   H6   H7   H5   H2   H1
+const float VMAX[NUM_DAC] = {
+           4.55, 2.45, 4.75, 4.55, 2.30, 4.50, 0.00, 2.25, 0.00, 4.55, 2.25, 0.00, 4.60, 4.65, 4.65, 4.55
+};
 const float DAC_REF = 5.0;           // DAC full-scale reference
 
 const int NUM_PINS = 4;              // one PD-TIA per mesh output, A0..A3
-const int AVG_N = 5;                 // full ADC sweeps averaged per reply
+const int AVG_N = 16;                // full ADC sweeps averaged per reply. 16 not 5: PD0's
+                                     // read noise is ~170x the other detectors', and averaging
+                                     // is the only lever that costs nothing but time.
 const int SWITCH_SETTLE_MS = 1000;
 
 float values[NUM_DAC];
@@ -57,7 +70,10 @@ void loop() {
 
   if (buf[0] == 'P' || buf[0] == 'p') {              // "P<1..4>": select an input port
     int port = atoi(buf + 1);
-    if (port < 1 || port > 4) {
+    // 0 is the Sercalo's open channel: the common port routes to nothing, which is the
+    // optical dark the photodiode normalisation measures its zero against. Without it the
+    // only way to go dark is to turn the laser off, which also moves the PD baselines.
+    if (port < 0 || port > 4) {
       Serial.println("ERR port");
       return;
     }
@@ -79,8 +95,9 @@ void loop() {
 }
 
 void setDAC(int ch, float voltage) {
+  if (ch < 0 || ch >= NUM_DAC) return;
   if (voltage < 0.0) voltage = 0.0;
-  if (voltage > VMAX) voltage = VMAX;
+  if (voltage > VMAX[ch]) voltage = VMAX[ch];
   unsigned int code = (unsigned int)((voltage * 65535.0) / DAC_REF);
   int cs = CS[ch / 16];
   int channel = ch % 16;

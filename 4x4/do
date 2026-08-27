@@ -2,19 +2,27 @@
 # ./do -- task dispatcher for the 4x4 rig. Run from this directory.
 #
 #   ./do selftest          # no hardware: every model self-test plus a mock rig pass
+#   ./do e2e --mock        # staged bring-up check: which link of the chain is broken
 #   ./do laser state 1     # laser ON  (checks key + interlocks, enables at a floor)
 #   ./do laser set 8       # ramp to +8 dBm (what this chip's best data used)
 #   ./do laser set 5 -t 30 # ramp to +5 dBm, hold 30 s, then auto power-off
 #   ./do laser state 0     # ramp to 0, verify, then disable
 #   ./do laser status      # full device readout
 #   ./do status            # laser + TEC + calibration state
-#   ./do measure           # live photodiode readout, heaters at 0 V
+#   ./do measure           # live photodiode dashboard, heaters at 0 V
+#   ./do measure --ports 0,1,2,3   # cycle the input switch while streaming
+#   ./do tec               # live chip temperature + controller drive
+#   ./do tec 22            # retarget to 22 C, then stream
 #   ./do char --write      # sweep all 18 heaters, fit fringes, write pic_data/calib.json
 #   ./do program --random  # decompose a random unitary onto the chip and read it back
+#   ./do ising --mock      # Ising ground states from the four-port intensity probe
+#   ./do matvec --mock     # signed y = B x from the photodiodes, no homodyne
 #   ./do dataset --combos 200  # N combos x 4 ports -> pic_data/transfer.csv
 #   ./do train --rounds 4  # train both surrogates from hardware
+#   ./do figs              # redraw the rig diagrams into figs/ (no hardware)
 #
 # Append --mock to any hardware command to run it with nothing plugged in.
+# `./do e2e --explain` lists what every bring-up stage checks; `--selftest` gates it.
 # Override the interpreter with PYTHON=/path/to/python.
 set -euo pipefail
 
@@ -38,7 +46,7 @@ need() {  # need <import test> <what to install>
   echo "$PY"
 }
 
-usage() { sed -n '2,18p' "$ROOT/do" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
+usage() { sed -n '2,22p' "$ROOT/do" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
 
 cmd="${1:-}"; [ $# -gt 0 ] && shift
 case "$cmd" in
@@ -50,7 +58,15 @@ case "$cmd" in
     exec env PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PY" \
       -c 'import sys; from pic.devices.laser import main; sys.exit(main())' "$sub" "$@"
     ;;
-  selftest|status|measure|char|program|dataset)
+  e2e)
+    PY="$(need 'import numpy, scipy' 'numpy+scipy')"
+    exec env PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PY" "$ROOT/e2e.py" "$@"
+    ;;
+  figs)
+    PY="$(need 'import matplotlib' matplotlib)"
+    exec env PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PY" "$ROOT/figs.py" "$@"
+    ;;
+  selftest|status|measure|tec|recal|char|program|dataset|ising|matvec)
     PY="$(need 'import numpy, scipy' 'numpy+scipy')"
     exec env PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PY" -m pic "$cmd" "$@"
     ;;

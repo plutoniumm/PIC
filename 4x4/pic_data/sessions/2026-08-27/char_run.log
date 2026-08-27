@@ -1,0 +1,47 @@
+characterizing 16 heaters x 15 levels x 1 base biases x 4 input port(s); session 25 min
+hw 1: powering on
+  [OK] connected, key ON, interlocks closed
+  ceilings clamped to 250 mA
+  TEC OFF (open-loop; room temp-controlled)
+  LASER ON at floor setpoint 5 (~0.2 mW). Use `set <dBm>` to ramp.
+  ramp setpoint 5.0 -> 12.0  (0.1s @ 60/s)
+  +5.0 dBm -> setpoint 12.0  (~3.2 mW; measured I 13 mA)
+  read noise per detector (mV): PD0:25.8  PD1:1.8  PD2:4.9  PD3:0.0
+  H15:theta5     PD2 port1 base0  vis 0.934  amp  69.2mV  r2 +1.000  Vpi 4.15  ok
+  H12:theta4     PD3 port0 base0  vis 0.009  amp   1.2mV  r2 +0.755  Vpi 2.37  REJECTED (invisible in intensity)
+  H11:theta3     PD2 port1 base0  vis 1.117  amp 100.8mV  r2 +1.000  Vpi 5.00  ok
+  H8:theta2      PD3 port0 base0  vis 1.038  amp 154.9mV  r2 +1.000  Vpi 4.84  ok
+  H4:theta1      PD3 port2 base0  vis 1.463  amp   0.0mV  r2 +0.413  Vpi 1.21  REJECTED (invisible in intensity)
+  H3:theta0      PD2 port1 base0  vis 0.577  amp  42.6mV  r2 +1.000  Vpi 4.09  ok
+wrote pic_data/char_results.json
+
+photodiode full scale (blocked = 0, transparent = 1):
+  PD0  dark   37.82 mV   full  227.88 mV   contrast  27.9 dB
+  PD1  dark    1.35 mV   full  157.62 mV   contrast  17.3 dB
+  PD2  dark    0.12 mV   full  159.46 mV   contrast  25.2 dB
+  PD3  dark    0.00 mV   full  153.35 mV   contrast  27.0 dB
+  input coupling at full scale -- port 0: 430.4 mV  port 1: 245.3 mV  port 2: 293.6 mV  port 3: 172.3 mV
+  880 reads
+hw 0: powering off
+  ramp setpoint 12.0 -> 0.0  (0.2s @ 60/s)
+  LASER OFF -- current 0, output disabled, TEC off. Safe to turn the key off / unplug.
+
+heater            Vpi  phi0/pi    vis  amp/mV      r2  span/pi  ok
+H15:theta5       4.15     0.29  0.934    69.2  +1.000      0.5  y
+H12:theta4       2.37     0.10  0.009     1.2  +0.755      1.6  n
+H11:theta3       5.00     0.42  1.117   100.8  +1.000      0.4  y
+H8:theta2        4.84     0.51  1.038   154.9  +1.000      0.4  y
+H4:theta1        1.21     1.47  1.463     0.0  +0.413      6.1  n
+H3:theta0        4.09     0.13  0.577    42.6  +1.000      0.5  y
+
+4/6 heaters characterized
+
+2 mesh heater(s) still unidentified: ['H12:theta4', 'H4:theta1']
+An external phase on a first-column MZI is a global phase when a single input port is lit, whichever port that is, so no amount of switching finds it. Split the input across two adjacent ports and re-run those channels (see pic.characterize.probe_inputs).
+
+wrote pic_data/calib.json
+hw 0: powering off
+  LASER OFF -- current 0, output disabled, TEC off. Safe to turn the key off / unplug.
+EXIT=0
+
+[exited with code 0]

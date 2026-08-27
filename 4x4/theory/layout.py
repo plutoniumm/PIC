@@ -40,7 +40,15 @@ import numpy as np
 
 from .clements import COLUMN, MESH, NMODE, NMZI
 
-N_HEATERS = 18       # UH1..UH18 on the packaged part
+# 16, not 18: the packaged part exposes 18 heater pads but the DAC81416 has 16 channels,
+# so H16 and H17 have no driver at all. Index here is the DAC channel, which is what the
+# firmware addresses and what every measurement is keyed by.
+N_HEATERS = 16
+# DAC channel -> the heater it drives, decoded from the wiring notebook
+# (Arduino/pin_check/pin_check.ino). Three of these were never resistance-checked and are
+# held dark; see pic.config.VOLTAGE_MAX_CH.
+DAC_HEATER = ("H15", "H12", "H11", "H8", "H4", "H3", "H18", "H9",
+              "H14", "H13", "H10", "H6", "H7", "H5", "H2", "H1")
 N_AUX = N_HEATERS - (2 * NMZI + NMODE - 1)  # 3 heaters the model does not use
 REF_RAIL = 0         # the output rail with no trimmer: its phase is the global phase
 
@@ -53,9 +61,12 @@ class Heater:
 
     @property
     def pad(self) -> str:
-        """The packaged heater name, UH1..UH18. One-indexed, and assumed to run in this
-        order -- confirm against the GDS before trusting it on hardware."""
-        return f"UH{self.h + 1}"
+        """The heater this DAC channel actually drives, from the measured wiring map.
+
+        This used to assume UH(n+1) ran in DAC order. It does not -- DAC0 drives H15 and
+        DAC15 drives H1, very nearly reversed -- which is why the old role labels put
+        strong modulators on output trimmers."""
+        return DAC_HEATER[self.h]
 
     @property
     def label(self) -> str:
@@ -72,16 +83,57 @@ class Heater:
         return COLUMN[self.index] if self.role in ("theta", "phi") else len(set(COLUMN))
 
 
+# MEASURED, not assumed. `ananya/4X4MZI_Test2 (1).pdf` tables the six internal phase
+# shifters by MZI with their pins and resistances; `ananya/4X4MZI_REPORT.pdf` and the
+# wiring notebook table the same pins under the H1-H18 names. Matching them on (pins,
+# resistance) identifies all six, and the report's optical paths
+#     IN1->OUT1: MZI1->MZI3->MZI4        IN1->OUT2: MZI1->MZI3->MZI4->MZI6
+#     IN4->OUT4: MZI2->MZI3->MZI5        IN4->OUT3: MZI2->MZI3->MZI5->MZI6
+# place report MZI k at mesh index k-1, which is the only assignment consistent with all
+# four (MZI6 cannot sit in column 0). Net result: DAC k drives theta of mesh index 5-k.
+THETA_DAC = {5 - k: k for k in range(NMZI)}     # mesh index -> DAC channel
+
+# MEASURED, partially. Scoring candidate assignments against 1600 measured transfer samples
+# (2026-08-27, `pic_data/transfer_8dbm.csv`) says the placeholder below is not merely
+# unverified but WRONG: it predicts the data at r = -0.04 held out, i.e. no better than
+# chance, while the best assignment reaches r = +0.50. Two entries are solid -- they appear
+# in every one of the top five candidates:
+#
+#     MZI2's phi  <- DAC12  (labelled alpha1 here; it produces a clean fringe at r2 0.998,
+#                            which an output trimmer cannot, so it is not a trimmer)
+#     MZI3's phi  <- DAC13  (labelled alpha2 here; same argument, r2 0.999)
+#
+# DAC7 and DAC10 are interchangeable between MZI1 and MZI5 to three decimal places, so the
+# data does not determine them and neither does this file. MZI6's phi is unidentified.
+# Wiring in a half-known table would replace one unjustified permutation with another, so
+# the placeholder stands and the measurement is recorded here instead. Fix it properly by
+# re-running the scoring with the loss term in the twin -- at r = 0.50 the model is still
+# missing physics (16.8% configuration-dependent loss), and that limits how well any
+# assignment can score.
+#
+# The external phases are NOT yet identified. Nothing in the reports assigns H7/H9/H10/H13
+# and the rest to MZIs, and the bench has only ever driven the six internal shifters. These
+# keep a provisional order so the model stays whole; treat any phi result as unverified.
+_FREE = [c for c in range(N_HEATERS) if c not in THETA_DAC.values()]
+
 HEATERS = tuple(sorted(
-    [Heater(2 * k + o, r, k) for k in range(NMZI) for o, r in ((0, "theta"), (1, "phi"))]
-    + [Heater(2 * NMZI + i, "out_phase", r)
+    [Heater(THETA_DAC[k], "theta", k) for k in range(NMZI)]
+    + [Heater(_FREE[k], "phi", k) for k in range(NMZI)]
+    + [Heater(_FREE[NMZI + i], "out_phase", r)
        for i, r in enumerate(x for x in range(NMODE) if x != REF_RAIL)]
-    + [Heater(2 * NMZI + NMODE - 1 + i, "aux", -1) for i in range(N_AUX)],
+    + [Heater(_FREE[NMZI + NMODE - 1 + i], "aux", -1) for i in range(N_AUX)],
     key=lambda h: h.h,
 ))
 
 assert len(HEATERS) == N_HEATERS
 assert [h.h for h in HEATERS] == list(range(N_HEATERS))
+
+# Per-heater column and mesh index, in DAC order. `fit_staged` needs them to fit phases
+# column by column: light crosses the columns in order, so column 0's phases are determined
+# by data column 3 cannot touch, and fitting them together is a worse optimisation than
+# fitting them in sequence.
+COLUMN_OF_HEATER = np.array([h.column for h in HEATERS], int)
+MESH_IDX = np.array([h.index for h in HEATERS], int)
 
 THETA_IDX = np.array([h.h for h in HEATERS if h.role == "theta"], int)
 PHI_IDX = np.array([h.h for h in HEATERS if h.role == "phi"], int)

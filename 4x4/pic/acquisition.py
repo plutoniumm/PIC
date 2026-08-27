@@ -11,7 +11,7 @@ import time
 
 import numpy as np
 
-from .config import NUM_DAC, VOLTAGE_MAX
+from .config import NUM_DAC, VOLTAGE_MAX, VOLTAGE_MAX_CH
 from .layout import ACTIVE_DACS, N_HEATERS, sweep_columns
 
 
@@ -87,9 +87,19 @@ def estimate_seconds(n_vectors: int, settle_s: float, repeats: int, read_s: floa
 
 
 def random_vectors(n: int, rng=None, channels=None, vmax: float = VOLTAGE_MAX):
-    """Random operating points over the active heaters, for surrogate training data."""
+    """Random operating points over the active heaters, for surrogate training data.
+
+    `vmax` is the ceiling of whichever variable the caller works in: pass
+    `pic.config.DRIVE_MAX_V` to draw uniform *drive* commands instead of volts."""
     rng = np.random.default_rng() if rng is None else rng
     channels = ACTIVE_DACS if channels is None else np.asarray(channels, int)
     V = np.zeros((n, NUM_DAC))
-    V[:, channels] = rng.uniform(0.0, vmax, (n, channels.size))
+    # Per-channel when the caller works in volts and passes the default: a flat 3 V draw
+    # saturates the four 60R channels at 1.5 V, so a third of every random vector would be
+    # the same clipped value and the surrogate would see a constant where it expects a
+    # sample. A caller working in drive units passes DRIVE_MAX_V and gets a flat draw,
+    # which is correct there because the scale has already equalised the channels.
+    hi = (np.asarray(VOLTAGE_MAX_CH, float)[channels]
+          if vmax == VOLTAGE_MAX else np.full(channels.size, float(vmax)))
+    V[:, channels] = rng.uniform(0.0, hi, (n, channels.size))
     return V

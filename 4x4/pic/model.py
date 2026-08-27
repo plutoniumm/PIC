@@ -8,10 +8,11 @@ Two families, and the contrast between them is the point of a unitary device.
               parameter is a thing you can measure on its own.
 
   DpnnModel   the pruned MLP, the 6x6 approach carried over. Here it is the fallback for
-              whatever the physics does not capture, and it is small: 18 squared voltages
-              in, four photodiodes out, a couple of thousand parameters against the 25,063
-              that chip needed. A 6x6 contraction had no closed form to lean on, so the
-              black box had to carry everything.
+              whatever the physics does not capture, and it is small: the squared voltages
+              of the six channels a photodiode can see, plus the lit input port and the
+              laser telemetry, four photodiodes out, a couple of thousand parameters
+              against the 25,063 that chip needed. A 6x6 contraction had no closed form to
+              lean on, so the black box had to carry everything.
 
 Heavy imports are deferred, so `import pic` stays torch-free.
 """
@@ -22,7 +23,7 @@ from typing import Protocol, runtime_checkable
 
 import numpy as np
 
-from .config import NUM_ADC_RAW, NUM_DAC, OUT_PDS
+from .config import NUM_ADC_RAW, NUM_DAC, OUT_PDS, volts_to_drive
 
 
 @runtime_checkable
@@ -74,9 +75,13 @@ class MockModel(TwinModel):
 
 
 class DpnnModel:
-    """The reduced pruned MLP surrogate, loaded from a `learn.train_hw` checkpoint."""
+    """The reduced pruned MLP surrogate, loaded from a `learn.train_hw` checkpoint.
 
-    def __init__(self, ckpt: str = "runs/dpnn", op_telemetry=None):
+    The network works in the uniform drive command and needs to be told which input port
+    is lit; a `Predictor` takes neither, so this converts volts at the boundary and pins
+    the port to whatever the training buffer used most. Pass `op_port` to move it."""
+
+    def __init__(self, ckpt: str = "runs/dpnn", op_telemetry=None, op_port=None):
         import os
 
         if not os.path.exists(os.path.join(ckpt, "ckpt.pt")):
@@ -84,15 +89,17 @@ class DpnnModel:
                 f"no checkpoint at {ckpt}/ckpt.pt -- train one with `python -m learn.train_hw`")
         import torch
 
-        from learn.dpnn import load_ckpt, make_predict
+        from learn.dpnn import MODEL_DACS, load_ckpt, make_predict
 
         self._torch = torch
         self.model, self.norm, self.buf, self.meta = load_ckpt(ckpt)
-        self._predict = make_predict(self.model, self.norm, self.buf, op_telemetry)
+        self.channels = np.asarray(self.meta.get("channels", MODEL_DACS), int)
+        self._predict = make_predict(self.model, self.norm, self.buf, op_telemetry, op_port,
+                                     self.channels)
         self.pds = list(self.meta.get("pds", OUT_PDS))
 
-    def predict(self, V) -> np.ndarray:
-        y = self._predict(np.asarray(V, float).ravel())
+    def predict(self, V, port=None) -> np.ndarray:
+        y = self._predict(volts_to_drive(np.asarray(V, float).ravel()), port)
         raw = np.zeros(NUM_ADC_RAW)
         raw[self.pds] = y
         return raw
@@ -116,4 +123,4 @@ def make_model(spec, **kw):
     return cls(**kw)
 
 
-assert NUM_DAC == 18
+assert NUM_DAC == 16

@@ -142,6 +142,49 @@ class MockSwitch(OpticalSwitch):
         return self._sel
 
 
+class BoardSwitch(OpticalSwitch):
+    """The switch as this rig has it: no serial port of its own, driven from the board's
+    Serial1 by the firmware. Selection is therefore a board command, so the board must be
+    open before this can move -- `Rig.open` attaches it."""
+
+    def __init__(self, board=None, **kw):
+        kw.pop("settle_s", None)
+        super().__init__(port="board", settle_s=0.0, **kw)
+        self.board = board
+
+    def attach(self, board):
+        self.board = board
+        self.ser = "board"
+        return self
+
+    def open(self):
+        return self
+
+    def close(self):
+        self.ser = None
+
+    def select(self, port: int):
+        port = int(port)
+        if not 0 <= port < NMODE:
+            raise SwitchError(f"input port {port} outside 0..{NMODE - 1}")
+        if self.board is None:
+            raise SwitchError("the switch is driven by the board and no board is open yet")
+        self._sel = self.board.select_port(port)
+        return self._sel
+
+    def dark(self):
+        """Route the common port to nothing -- an optical zero that leaves the laser and
+        the photodiode baselines exactly where they are, unlike turning the laser off."""
+        if self.board is None:
+            raise SwitchError("the switch is driven by the board and no board is open yet")
+        self.board.select_port(-1)
+        self._sel = None
+        return None
+
+    def position(self):
+        return self._sel
+
+
 class NoSwitch(OpticalSwitch):
     """A bench with the fibre plugged straight into one port. `select` refuses anything but
     that port, loudly, rather than letting a per-port sweep silently repeat itself."""
@@ -171,11 +214,13 @@ class NoSwitch(OpticalSwitch):
 
 
 def make_switch(spec, **kw):
-    """``'mock'|'none'|<port>`` -> a switch; an instance passes through unchanged."""
+    """``'mock'|'none'|'hw'|<port>`` -> a switch; an instance passes through unchanged."""
     if not isinstance(spec, str):
         return spec
     if spec == "mock":
         return MockSwitch(**kw)
     if spec in ("none", "off"):
         return NoSwitch(**kw)
+    if spec in ("hw", "board"):
+        return BoardSwitch(**kw)
     return OpticalSwitch(spec, **kw)

@@ -46,7 +46,7 @@ class LaserError(RuntimeError):
 class Laser:
     # "setpoint" is the raw drive register, NOT mA/mW: measured I ≈ 2.5*setpoint (cal below)
     FLOOR_SP = 5.0  # device won't enable into a 0 setpoint
-    SP_MAX = 110.0  # optical knee; above it current clamps (no more light)
+    SP_MAX = 95.0  # current clamps at the 250 mA ceiling here (measured 245.6 mA)
     CEIL_MA = 250.0  # overcurrent ceilings, real mA (= diode avg rating)
     RATE_SP_S = 60.0
     DT_S = 0.1
@@ -59,11 +59,24 @@ class Laser:
     # open-loop with it OFF. Flip True only once the TEC is calibrated.
     USE_TEC = False
 
-    # optical cal 2026-07-08 (external meter): P[mW] = CAL_A*setpoint + CAL_B, clamped at ceiling
-    CAL_A = 0.3437
-    CAL_B = -1.44
-    PMAX_MW = 32.8  # optical ceiling (current-clamped)
-    PMAX_DBM = 15.2
+    # optical cal 2026-08-27 (external meter, 9 points sp 8..70): P[mW] = CAL_A*sp + CAL_B.
+    # rms residual 0.067 mW, max 0.107 mW. Supersedes the 2026-07-08 fit (0.3437/-1.44),
+    # which was 23% low in slope with an almost unchanged threshold -- the signature of a
+    # measurement-scale change (meter/connector), not a diode that has aged. The absolute
+    # scale is therefore only as good as the meter coupling was on the day; the shape is solid.
+    CAL_A = 0.4223
+    CAL_B = -1.890
+    # A reproducible kink sits at sp 82: 29.80 mW measured against 32.74 extrapolated, the
+    # same value approached from above and from below at identical drive current (213.4 mA),
+    # so it is the diode's LI curve and not thermal hysteresis. Point-to-point efficiency
+    # collapses to 69 uW/mA across 70->82 and recovers to 174 uW/mA across 82->95. One more
+    # reason to keep the usable ceiling below it rather than fit through it.
+    # Linear only to sp ~70. Beyond it the diode current clamps at the 250 mA ceiling and the
+    # LI curve rolls off (sp 95 measured 35.41 mW against 38.23 extrapolated). The ceiling is
+    # set at the end of the trustworthy line rather than at the most light the diode can make,
+    # so `set <dBm>` never lands somewhere the calibration does not describe.
+    PMAX_MW = 27.67
+    PMAX_DBM = 14.4
 
     def __init__(
         self,

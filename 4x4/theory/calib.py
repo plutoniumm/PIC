@@ -122,7 +122,101 @@ class Calibration:
                    {"source": f"Calibration.sample(seed={seed})"})
 
 
+def fit_shared(levels, traces, vpi_seeds, weights=None):
+    """One Vpi and one phi0 for a heater, fitted across ALL its sweeps at once.
+
+    Every (port, base) trace of a heater sees the same physical device: the same Vpi, the
+    same phi0. Only the amplitude and offset change, because the upstream mesh routes a
+    different amount of light onto its arm. Fitting each trace alone and keeping the best
+    throws that away -- and on this chip it matters, because no heater spans even half a
+    period, so within any single trace amplitude and period trade off against each other and
+    a whole family of (A, B, Vpi) fits the data equally well. The degenerate direction is
+    not the same in every trace, so several traces together pin down what one cannot.
+
+    Linear in (A_t, B_t cos phi0, -B_t sin phi0) once Vpi and phi0 are fixed, so the inner
+    solve is least squares and only Vpi and phi0 need searching.
+
+    `traces` is a list of 1-D arrays, all sampled at `levels`. Returns
+    (vpi, phi0, per_trace_amplitude, rmse)."""
+    v = np.asarray(levels, float).ravel()
+    ts = [np.asarray(t, float).ravel() for t in traces]
+    w = np.ones(len(ts)) if weights is None else np.asarray(weights, float)
+
+    def resid(vpi, phi0):
+        th = np.pi * (v / vpi) ** 2 + phi0
+        M = np.stack([np.ones_like(th), np.cos(th)], axis=1)
+        tot, amps = 0.0, []
+        for t, wi in zip(ts, w):
+            coef, *_ = np.linalg.lstsq(M, t, rcond=None)
+            amps.append(abs(float(coef[1])))
+            tot += wi * float(np.mean((M @ coef - t) ** 2))
+        return tot / max(w.sum(), 1e-9), amps
+
+    best = None
+    for vpi0 in np.asarray(vpi_seeds, float).ravel():
+        for f in np.linspace(0.6, 1.6, 21):           # Vpi is the poorly-known one
+            vpi = float(vpi0 * f)
+            if not 0.4 <= vpi <= 12.0:
+                continue
+            for phi0 in np.linspace(0, 2 * np.pi, 49, endpoint=False):
+                r, amps = resid(vpi, phi0)
+                if best is None or r < best[0]:
+                    best = (r, vpi, phi0, amps)
+    r, vpi, phi0, amps = best
+    return float(vpi), float(phi0 % (2 * np.pi)), amps, float(np.sqrt(r))
+
+
+def refit_phi0(volts, y, vpi, amp=None, offset=None, prior=None, span=np.pi):
+    """Re-find one heater's phase offset with everything that does not drift held fixed.
+
+    Vpi is set by heater geometry and does not drift; phi0 follows the waveguide's optical
+    path and does. So a re-anchor only has to recover phi0 -- but it cannot recover it from
+    scratch on this chip. Each heater covers under 0.5 pi, so the fringe is a monotonic
+    segment and amplitude, offset and phase are not separable from a handful of points: a
+    free three-parameter solve lands 0.3 rad out at realistic noise.
+
+    Given `amp` and `offset` from the full characterization it becomes a ONE-parameter
+    problem, scanned over `span` around `prior`. That is well conditioned on 4 points and
+    is the difference between a 25-minute characterization and a 30-second re-anchor.
+
+    With no prior it falls back to the free linear solve, which is honest but weak; callers
+    should pass what the last characterization measured.
+
+    Returns (phi0, amplitude, offset, rmse)."""
+    v = np.asarray(volts, float).ravel()
+    y = np.asarray(y, float).ravel()
+    th = np.pi * (v / float(vpi)) ** 2
+
+    if amp is None or offset is None:
+        M = np.stack([np.ones_like(th), np.cos(th), -np.sin(th)], axis=1)
+        coef, *_ = np.linalg.lstsq(M, y, rcond=None)
+        a, c, d = coef
+        return (float(np.arctan2(d, c)) % (2 * np.pi), float(np.hypot(c, d)), float(a),
+                float(np.sqrt(np.mean((M @ coef - y) ** 2))))
+
+    p0 = 0.0 if prior is None else float(prior)
+    grid = p0 + np.linspace(-span, span, 2001)
+    resid = y[None, :] - (offset + amp * np.cos(th[None, :] + grid[:, None]))
+    rms = np.sqrt((resid ** 2).mean(axis=1))
+    k = int(np.argmin(rms))
+    return float(grid[k] % (2 * np.pi)), float(amp), float(offset), float(rms[k])
+
+
 def _selftest(seed: int = 0):
+    rng0 = np.random.default_rng(seed)
+    for trial in range(20):        # refit_phi0 recovers a planted offset from few points
+        vpi = rng0.uniform(3.5, 5.5)
+        phi = rng0.uniform(0, 2 * np.pi)
+        amp, off = rng0.uniform(0.05, 0.3), rng0.uniform(0.1, 0.5)
+        v = np.linspace(0, 3.0, 5)
+        y = off + amp * np.cos(np.pi * (v / vpi) ** 2 + phi) + 0.002 * rng0.normal(size=v.size)
+        drift = rng0.uniform(-0.4, 0.4)      # what a re-anchor is actually chasing
+        y = off + amp * np.cos(np.pi * (v / vpi) ** 2 + phi + drift) \
+            + 0.002 * rng0.normal(size=v.size)
+        got, _, _, _ = refit_phi0(v, y, vpi, amp=amp, offset=off, prior=phi)
+        err = abs((got - phi - drift + np.pi) % (2 * np.pi) - np.pi)
+        assert err < 0.06, (trial, err, drift, vpi)
+
     c = Calibration.sample(seed=seed)
     rng = np.random.default_rng(seed)
     v = rng.uniform(0, VOLTAGE_MAX, N_HEATERS)

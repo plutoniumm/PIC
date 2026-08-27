@@ -55,10 +55,11 @@ resolve.
 | `mrunal/` | Vendor documents, bench reports, bring-up firmware. Read its README. |
 | `theory/drift.py` | Drift inference from a four-port unitarity probe. Rank 9, nullity 6. |
 | `pic/drift.py` | The closed loop: anchor, re-probe, gate, pre-distort. `--dynamic`. |
-| `learn/unitary_fit.py` | The 56-parameter physics surrogate. |
-| `learn/dpnn.py` | The reduced pruned network, carried over from the 6x6. |
+| `learn/unitary_fit.py` | The 52-parameter physics surrogate. |
+| `learn/dpnn.py` | The reduced pruned network, carried over from the 6x6. Six squared voltages plus the lit input port and the laser telemetry, four photodiodes out. |
 | `learn/train_hw.py` | Online trainer: fits both on the same buffer, every round. |
 | `Arduino/pic4x4/` | Firmware. 18 DAC channels, 4 ADC pins, switch passthrough. |
+| `figs.py` → `figs/` | The three rig diagrams, drawn from the layout modules and the current calibration. `./do figs`. |
 
 ## The chip
 
@@ -66,6 +67,12 @@ resolve.
 in x4 -> [ MZI (0,1) (2,3) ] -> [ MZI (1,2) ] -> [ MZI (0,1) (2,3) ] -> [ MZI (1,2) ] -> phase screen -> out x4
              column 0              column 1           column 2            column 3
 ```
+
+`figs/mesh.png` draws the same thing with the measured state on it -- which DAC drives
+which MZI, the fitted Vpi, and which channels are unusable. `figs/chain.png` is the control
+chain from the host to the die and `figs/channels.png` the per-channel voltage ceilings; all
+three come from `./do figs` and are redrawn from `pic_data/calib.json`, so re-run it after a
+characterization.
 
 Six interferometers, two heaters each (an internal arm phase `theta` and an external input
 phase `phi`) = 12, plus a three-rail output phase screen = 15. The fourth output phase is a

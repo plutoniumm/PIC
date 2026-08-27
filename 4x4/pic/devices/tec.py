@@ -121,10 +121,26 @@ class SerialTEC(TEC):
     def open(self):
         import serial
 
-        self.ser = serial.Serial(self.port, self.baud, timeout=self.timeout_s)
-        time.sleep(2.0)  # the board resets when the port is opened
+        # Hold DTR low across the open. The Arduino auto-resets on DTR, and a reset here
+        # dumps the integrator and restarts the ramp from room temperature -- a minute of
+        # settling lost every time any command touches the rig. The board is already
+        # regulating; connecting to watch it must not disturb it.
+        self.ser = serial.Serial(baudrate=self.baud, timeout=self.timeout_s)
+        self.ser.port = self.port
+        self.ser.dtr = False
+        self.ser.open()
+        # Holding DTR low does not reliably suppress the reset on every macOS/FTDI pairing,
+        # and the sketch prints "Enter target temperature:" and then WAITS for one. A
+        # setpoint written while the bootloader is still running is swallowed, and the
+        # controller never starts streaming -- which reads exactly like a dead TEC. So wait
+        # out a possible reset, then write, then confirm telemetry actually arrives.
+        time.sleep(2.5)
         self.ser.reset_input_buffer()
         self._write(self._setpoint)
+        for _ in range(3):
+            if self._read_line() is not None:
+                return self
+            self._write(self._setpoint)
         return self
 
     def close(self):
@@ -142,15 +158,19 @@ class SerialTEC(TEC):
         while time.time() < deadline:
             raw = self.ser.readline().decode("utf-8", "ignore").strip()
             if not raw:
-                break
+                continue          # a read timeout, not the end of the stream
             parts = raw.split(",")
             if len(parts) == 3:
                 try:
                     latest = tuple(float(x) for x in parts)
                 except ValueError:
                     continue
-            if self.ser.in_waiting == 0:
-                break
+                if self.ser.in_waiting == 0:
+                    break         # caught up, and we have a real sample
+            # Anything else is the sketch's boot banner ("Starting LT8722...", "Enter target
+            # temperature:"). Opening the port resets the Arduino, so those two lines arrive
+            # before any telemetry does -- giving up on them meant every freshly-opened
+            # connection reported the controller as silent.
         return latest
 
     def temperature(self) -> float:
@@ -215,6 +235,9 @@ class NoTEC(TEC):
     @property
     def is_open(self) -> bool:
         return True
+
+    def _write(self, c: float):
+        pass  # `is_open` is True, so the `target` setter writes through even with no device
 
     def temperature(self) -> float:
         return float("nan")
