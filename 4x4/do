@@ -3,7 +3,7 @@
 #
 #   ./do selftest          # no hardware: every model self-test plus a mock rig pass
 #   ./do laser state 1     # laser ON  (checks key + interlocks, enables at a floor)
-#   ./do laser set 13      # ramp to +13 dBm output
+#   ./do laser set 8       # ramp to +8 dBm (what this chip's best data used)
 #   ./do laser set 5 -t 30 # ramp to +5 dBm, hold 30 s, then auto power-off
 #   ./do laser state 0     # ramp to 0, verify, then disable
 #   ./do laser status      # full device readout
@@ -11,6 +11,7 @@
 #   ./do measure           # live photodiode readout, heaters at 0 V
 #   ./do char --write      # sweep all 18 heaters, fit fringes, write pic_data/calib.json
 #   ./do program --random  # decompose a random unitary onto the chip and read it back
+#   ./do dataset --combos 200  # N combos x 4 ports -> pic_data/transfer.csv
 #   ./do train --rounds 4  # train both surrogates from hardware
 #
 # Append --mock to any hardware command to run it with nothing plugged in.
@@ -49,7 +50,7 @@ case "$cmd" in
     exec env PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PY" \
       -c 'import sys; from pic.devices.laser import main; sys.exit(main())' "$sub" "$@"
     ;;
-  selftest|status|measure|char|program)
+  selftest|status|measure|char|program|dataset)
     PY="$(need 'import numpy, scipy' 'numpy+scipy')"
     exec env PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PY" -m pic "$cmd" "$@"
     ;;

@@ -61,6 +61,12 @@ def cmd_selftest(a):
     print(f"closed loop {r['before']:.4f} -> {r['after']:.4f}, "
           f"port-3 coupling {r['port3_db']:+.1f} dB, below-noise drift refused")
 
+    print("normalise ", end="", flush=True)
+    from .normalise import _selftest as norm_selftest
+    n = norm_selftest()
+    print(f"PD full scale {n['norm'].full.min()*1e3:.0f}-{n['norm'].full.max()*1e3:.0f} mV, "
+          f"rows {n['raw_row']:.2f}->{n['out_row']:.2f}, cols {n['raw_col']:.2f}->{n['both_col']:.2f}")
+
     print("mock rig  ", end="", flush=True)
     with Rig(laser="mock", board="mock", tec="mock", model="mock") as rig:
         v = np.zeros(N_HEATERS)
@@ -124,6 +130,15 @@ def cmd_char(a):
             res, calib = characterize(rig.board, s, pd=a.pd, levels=levels, bases=bases,
                                       switch=None if a.no_switch else rig.switch, ports=ports,
                                       settle_s=a.settle, repeats=a.repeats)
+            if not a.no_normalise:
+                # after the fringes, so the sweep is not disturbed by the search; the
+                # references belong to this session's coupling and have to be retaken
+                # whenever the fibre moves
+                from .normalise import apply_to, measure as measure_norm
+                print("\nphotodiode full scale (blocked = 0, transparent = 1):")
+                norm = measure_norm(rig, ports=ports, repeats=a.repeats)
+                apply_to(calib, norm)
+                print(norm.summary())
         print()
         print(digest(res))
         missed = [r["label"] for r in res.values()
@@ -159,6 +174,50 @@ def cmd_program(a):
     return 0
 
 
+def cmd_dataset(a):
+    """Capture combos x all four input ports -- the transfer matrix the archive lacks.
+
+    Every existing dataset draws a fresh random combination per port, so no DAC state was
+    ever measured at all four inputs. That is the one thing needed to assemble T = |U|^2 per
+    combination, which is what makes the unitarity constraint usable as a training term and
+    what the drift probe reads. Holding the combination and cycling the switch is the whole
+    difference, and it costs nothing extra to take."""
+    import csv
+
+    from .acquisition import estimate_seconds, random_vectors
+    from .layout import REACHABLE_DACS
+
+    rng = np.random.default_rng(a.seed)
+    combos = random_vectors(a.combos, rng=rng, channels=REACHABLE_DACS)
+    dur = estimate_seconds(a.combos * NMODE, a.settle, a.repeats) + a.combos * NMODE * 1.1
+    print(f"{a.combos} combinations x {NMODE} ports = {a.combos * NMODE} reads; "
+          f"about {dur / 60:.0f} min (the switch, not the readout, is the slow part)")
+
+    with _rig(a) as rig:
+        with rig.session(duration_s=dur * 1.3, power_dbm=a.dbm) as s:
+            if not s.emitted:
+                print("WARNING: no emission detected -- this dataset would be noise.")
+                return 2
+            rows = []
+            for i, v in enumerate(combos):
+                for k in range(NMODE):
+                    rig.select_input(k)
+                    y = np.mean([rig.outputs(v) for _ in range(a.repeats)], axis=0)
+                    rows.append([i, k] + list(np.round(v[REACHABLE_DACS], 4))
+                                + list(np.round(y, 6)))
+                if (i + 1) % 25 == 0:
+                    print(f"  {i + 1}/{a.combos}", flush=True)
+
+    hdr = (["combo", "port"] + [f"dac{c}" for c in REACHABLE_DACS]
+           + [f"pd{j}" for j in range(NMODE)])
+    with open(a.out, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(hdr)
+        w.writerows(rows)
+    print(f"wrote {a.out}: {len(rows)} rows, {a.combos} full transfer matrices")
+    return 0
+
+
 def main(argv=None):
     # common options live on a parent parser so they can be given after the subcommand,
     # which is how anyone actually types them
@@ -170,7 +229,11 @@ def main(argv=None):
     common.add_argument("--tec", default="mock", help="TEC: 'mock', 'none', or a serial port")
     common.add_argument("--laser-port", default=None)
     common.add_argument("--pic-port", default=None)
-    common.add_argument("--dbm", type=float, default=13.0, help="laser output power")
+    common.add_argument("--dbm", type=float, default=8.0,
+                        help="laser output power. 8 dBm is what the best archive set was "
+                             "taken at and leaves the TIA headroom (brightest of 77,280 "
+                             "logged reads is 0.587 V); the 6x6's 13 dBm has never been "
+                             "put on this chip")
     common.add_argument("--dynamic", action="store_true",
                         help="real-time drift correction: re-probe the four input ports "
                              "periodically and pre-distort the commanded phases by the "
@@ -205,6 +268,8 @@ def main(argv=None):
     p.add_argument("--settle", type=float, default=0.2)
     p.add_argument("--repeats", type=int, default=5)
     p.add_argument("--write", action="store_true", help="save to pic_data/calib.json")
+    p.add_argument("--no-normalise", action="store_true",
+                   help="skip the PD full-scale pass (blocked = 0, transparent = 1)")
     p.set_defaults(fn=cmd_char)
 
     p = sub.add_parser("program", help="put a target unitary on the chip", parents=[common])
@@ -214,6 +279,15 @@ def main(argv=None):
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--duration", type=float, default=60.0)
     p.set_defaults(fn=cmd_program)
+
+    p = sub.add_parser("dataset", help="combos x all 4 ports -> CSV of transfer matrices",
+                       parents=[common])
+    p.add_argument("--combos", type=int, default=200)
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--settle", type=float, default=0.2)
+    p.add_argument("--repeats", type=int, default=3)
+    p.add_argument("--out", default="pic_data/transfer.csv")
+    p.set_defaults(fn=cmd_dataset)
 
     a = ap.parse_args(argv)
     return a.fn(a)

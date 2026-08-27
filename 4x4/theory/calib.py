@@ -29,7 +29,8 @@ NUM_OUT = NMODE
 # so the same phase costs more power. With the board capped at 3 V a heater only reaches a
 # full 2 pi if Vpi <= 2.12 V, which is the first thing a sweep has to confirm.
 VPI_NOMINAL = 1.5
-VOLTAGE_MAX = 3.0   # per-channel ceiling on the bring-up board (mrunal/Setup.ino maxVolt)
+VOLTAGE_MAX = 3.0   # hard per-channel ceiling of this design, not a bench setting. Host,
+                    # firmware (pic4x4.ino VMAX) and mrunal/Setup.ino all agree at 3.0.
 
 
 @dataclass
