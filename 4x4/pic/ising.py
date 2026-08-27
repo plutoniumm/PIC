@@ -33,6 +33,7 @@ from theory.clements import NMODE
 
 from .config import VOLTAGE_MAX_CH
 from .layout import LABEL_OF_DAC, N_HEATERS, REACHABLE_DACS
+from .normalise import sweep
 
 DBM_CEIL = 15.0
 
@@ -53,14 +54,11 @@ def usable(calib) -> np.ndarray:
 def probe(rig, volts, repeats: int = 3) -> np.ndarray:
     """Cycle the four input ports at one held bias -> T[j, k], photodiode j with port k lit.
 
-    Averaging repeats the whole port cycle rather than the read, because the switch is the
-    less repeatable of the two."""
-    acc = np.zeros((NMODE, NMODE))
-    for _ in range(max(1, repeats)):
-        for k in range(NMODE):
-            rig.select_input(k)
-            acc[:, k] += rig.outputs(volts)
-    return acc / max(1, repeats)
+    RAW volts. `theory.ising.decode` Sinkhorns what it is given, so the two nuisance
+    diagonals are removed there rather than here -- see the caveat in that function, and
+    `pic.normalise.audit` for what a per-state Sinkhorn costs when the probe is not
+    bright."""
+    return sweep(rig, volts, repeats)
 
 
 def solve(rig, J, *, repeats: int = 3, settle: float = 0.0, steps: int = 400,

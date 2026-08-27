@@ -79,6 +79,42 @@ class Calibration:
         """Photodiode volts -> optical intensity, the inverse of `to_volts_response`."""
         return (np.asarray(pd_volts, float) - self.pd_offset) / self.pd_gain
 
+    def to_transfer(self, raw, dark=None) -> np.ndarray:
+        """A full four-port sweep of photodiode volts -> |U|^2, one column per input port.
+
+        `raw[j, k]` is photodiode j read with input port k lit, so this is the matrix-level
+        sibling of `to_intensity` and the only correct way to read the mesh: an absolute
+        intensity needs a scale, and the scale is per port and per heater state, so it
+        cannot be carried in a constant.
+
+        Two steps, both forced by physics rather than fitted. First remove the blocked-path
+        floor: `pd_offset` is measured with the switch dumped, so what it takes out is TIA
+        offset and ADC bias and nothing optical. On the 2026-08-27 bench the switch-off and
+        laser-off floors agree to 0.2 mV, which is what proves there is no thermal pedestal
+        hiding inside it. Then divide each column by its own sum. The mesh is unitary --
+        every photon entering port k leaves through one of the four measured outputs -- so
+        `sum_j |U[j,k]|^2 = 1` is the definition of the object, not an assumption about it.
+        That single division removes launch power, fibre coupling and the switch's
+        per-position insertion loss together, and removes them *as they were at this heater
+        state*: on that sweep the light leaving ports 0 and 1 moved by 5.1x and 6.0x across
+        sixteen heater states, so any scale stored once is wrong by that factor everywhere
+        else.
+
+        What it cannot do is tell real loss from routing. Light that genuinely leaves the
+        measured set is renormalised as though it had not, so the result is the
+        distribution *given detection*. That is the right object for anything scale-free --
+        a hosted block, a decoded Ising coupling -- and the wrong one for absolute
+        efficiency.
+
+        Columns only, and deliberately: forcing the rows as well has no unique solution
+        (`pic.normalise.audit` measures what it invents instead). A negative entry is
+        dark-subtraction noise on an extinguished cell and clips to zero, the only value an
+        intensity can take."""
+        off = self.pd_offset if dark is None else np.asarray(dark, float)
+        P = np.clip((np.asarray(raw, float) - off[:, None]) / self.pd_gain[:, None], 0.0, None)
+        s = P.sum(0, keepdims=True)
+        return np.divide(P, s, out=np.zeros_like(P), where=s > 0)
+
     @property
     def reach_span(self) -> np.ndarray:
         """Phase span each heater covers over 0..VOLTAGE_MAX, in units of pi. Below 2 the
@@ -120,6 +156,19 @@ class Calibration:
                    np.full(NUM_OUT, 0.8) * (1 + 0.05 * rng.normal(size=NUM_OUT)),
                    np.full(NUM_OUT, 0.01),
                    {"source": f"Calibration.sample(seed={seed})"})
+
+
+def ds_error(T) -> float:
+    """Worst departure of an intensity transfer matrix from doubly stochastic, no free scale.
+
+    `theory.drift.ds_imbalance` rescales the total to NMODE first, which is right when the
+    question is drift -- there the overall power is a nuisance shared by every entry. It is
+    wrong as a readout check, because a readout that is uniformly 2x out gives a perfect
+    imbalance score and a matvec that is uniformly 2x wrong. After `to_transfer` the total
+    is NMODE by construction, so on that side the two agree and only this one also catches
+    the scale."""
+    T = np.asarray(T, float)
+    return float(max(np.abs(T.sum(-1) - 1).max(), np.abs(T.sum(-2) - 1).max()))
 
 
 def fit_shared(levels, traces, vpi_seeds, weights=None):
@@ -226,6 +275,22 @@ def _selftest(seed: int = 0):
     vv, ok = c.volts(tgt)
     got = c.phases(vv) % (2 * np.pi)
     assert np.allclose(got[ok], tgt[ok] % (2 * np.pi)), "reachable targets must land exactly"
+
+    # to_transfer must invert an arbitrary per-port launch through the readout it knows.
+    # The per-port factors are the ones the old static `input_scale` guessed once; here they
+    # are drawn fresh, which is the whole point -- the answer must not depend on them.
+    U = np.linalg.qr(rng.normal(size=(NUM_OUT, NUM_OUT))
+                     + 1j * rng.normal(size=(NUM_OUT, NUM_OUT)))[0]
+    P = np.abs(U) ** 2
+    for _ in range(20):
+        launch = rng.uniform(0.05, 3.0, NUM_OUT)
+        raw = c.to_volts_response((P * launch[None, :]).T).T
+        assert ds_error(c.to_transfer(raw)) < 1e-9, launch
+    # a dead port must come back as a zero column, not NaN: dividing by its sum is the one
+    # place this transform can produce a number out of nothing
+    raw = c.to_volts_response((P * np.array([1.0, 1.0, 1.0, 0.0])[None, :]).T).T
+    T = c.to_transfer(raw)
+    assert np.all(np.isfinite(T)) and T[:, 3].sum() == 0.0, T
     return int(ok.sum()), N_HEATERS
 
 

@@ -57,15 +57,22 @@ NSPIN_MAX = NMODE
 # The uniform doubly stochastic matrix is the image of J = 0: every coupling equal is no
 # coupling at all, once the (1.s)^2 term it produces has been subtracted. Carrying it as one
 # extra pseudo-observation makes the (a, b) fit determined at n = 2, where a single measured
-# coupling cannot otherwise separate scale from offset, and is negligible at n = 4 where six
-# real observations outvote it.
+# coupling cannot otherwise separate scale from offset.
 ANCHOR = 1.0 / NMODE
 ANCHOR_WEIGHT = 1.0
 
 # Per-entry noise on a normalised T. The bench reads ~0.3 mV RMS into a ~0.33 V full scale
 # (pic.sim, MockPIC), and the four-port probe averages three port cycles, so ~1e-3 of full
-# scale per entry is the honest default.
+# scale per entry is the honest photodiode number.
 SIGMA_READ = 1e-3
+
+# ...and it is not the number a design has to survive. On the 2026-08-27 bench the residual
+# left after hosting was 0.075 per entry at n = 3 and 0.118 at n = 4, in doubly stochastic
+# units -- seventy to a hundred times SIGMA_READ -- against designs whose *predicted* error
+# was 0.001. That gap is the twin disagreeing with the chip, and it lands in the decode at
+# exactly the point read noise does: it divides into the hosted swing. So it is what `encode`
+# budgets against. Pass `sigma=SIGMA_READ` to recover a fidelity-only design.
+SIGMA_HOST = 0.08
 
 # Below this the hosted swing is comparable to the readout noise and the energies are a
 # noise ranking. It is a floor on the *design*, not a fitted threshold: 1e-2 in doubly
@@ -143,12 +150,61 @@ def offdiag(M, n: int | None = None) -> np.ndarray:
     return S[..., iu[0], iu[1]]
 
 
-def _affine(x, y, w: float = ANCHOR_WEIGHT, anchor: float = ANCHOR):
+def mode_maps(n: int, nmode: int = NMODE):
+    """Every distinct way of laying n spins onto the mesh's modes, as gather indices.
+
+    Which optical pair carries which coupling is free and it is not a symmetry. The heaters
+    reach different swings in different entries of |U|^2 -- `intensity_matvec.scan_rails`
+    measures the same thing for a matrix block and finds brightness varying 130x across
+    choices -- so the assignment changes both how well J can be hosted and how brightly. At
+    n < NMODE it also chooses which modes to leave out, and a left-out mode is a sink the
+    others can push power into rather than a wasted port.
+
+    Returns (rows, cols), each (P, m); row p is one assignment, and the pair
+    (rows[p, s], cols[p, s]) is the entry of |U|^2 that hosts coupling s. Deduplicated,
+    because S is symmetric: 6 assignments at n = 2 and 24 at n = 3 and n = 4."""
+    iu = np.triu_indices(n, 1)
+    seen, rows, cols = set(), [], []
+    for p in itertools.permutations(range(nmode), n):
+        r, c = np.asarray(p)[iu[0]], np.asarray(p)[iu[1]]
+        key = tuple(zip(np.minimum(r, c).tolist(), np.maximum(r, c).tolist()))
+        if key not in seen:
+            seen.add(key)
+            rows.append(r)
+            cols.append(c)
+    return np.array(rows, int), np.array(cols, int)
+
+
+def couplings(T, modes=None, n: int | None = None) -> np.ndarray:
+    """The entries of a transfer matrix that host J, under one mode assignment.
+
+    `modes` is a (rows, cols) pair naming the entry per coupling -- one row of `mode_maps`.
+    None is the natural leading block, which is what `offdiag` returns."""
+    if modes is None:
+        return offdiag(T, n)
+    T = np.asarray(T, float)
+    S = (T + np.swapaxes(T, -1, -2)) / 2
+    return S[..., np.asarray(modes[0]), np.asarray(modes[1])]
+
+
+def _anchor_weight(m: int) -> float:
+    """How hard to lean on the J = 0 pseudo-observation, given m measured couplings.
+
+    It buys a determined fit at m = 1 and costs accuracy everywhere else. `b` is not a
+    nuisance: it sets how much uniform ferromagnetic term `config_energies` subtracts, so a
+    prior on it is a prior on the answer -- and nothing makes the mesh put the hosted block's
+    mean at 1/NMODE. At m = 1 there is no choice; at m >= 3 there is, and the measurements
+    are better evidence than the guess."""
+    return ANCHOR_WEIGHT if m < 2 else 0.0
+
+
+def _affine(x, y, w: float | None = None, anchor: float = ANCHOR):
     """Least-squares y ~ a x + b with one anchored pseudo-observation at (0, `anchor`).
 
     Written with `.sum(-1)` only, so the same closed form serves the numpy decode and the
     batched torch encode without a second implementation drifting away from the first."""
     m = x.shape[-1]
+    w = _anchor_weight(m) if w is None else w
     sw = m + w
     sx, sxx = x.sum(-1), (x * x).sum(-1)
     sy = y.sum(-1) + w * anchor
@@ -157,7 +213,7 @@ def _affine(x, y, w: float = ANCHOR_WEIGHT, anchor: float = ANCHOR):
     return (sw * sxy - sx * sy) / det, (sxx * sy - sx * sxy) / det
 
 
-def host(T, J):
+def host(T, J, modes=None):
     """Fit the transfer matrix's couplings onto the target's.
 
     Returns (a, b, rel_err, contrast). `contrast` is the RMS hosted swing in doubly
@@ -165,7 +221,7 @@ def host(T, J):
     as a fraction of it, which is the part of J the chip failed to host."""
     J = np.asarray(J, float)
     x = offdiag(J)
-    y = offdiag(T, len(J))
+    y = couplings(T, modes, len(J))
     a, b = _affine(x, y)
     a, b = float(a), float(b)
     resid = y - (a * x + b)
@@ -174,15 +230,15 @@ def host(T, J):
     return a, b, rel, contrast
 
 
-def config_energies(T, J, fit=None, cfgs=None) -> np.ndarray:
+def config_energies(T, J, fit=None, cfgs=None, modes=None) -> np.ndarray:
     """Ising energy of every configuration, read out of one measured transfer matrix.
 
     No further optical measurement: the 2^n landscape is 2^n dot products against the same
     n(n-1)/2 couplings the four shots already returned."""
     J = np.asarray(J, float)
     n = len(J)
-    a, b = (host(T, J)[:2] if fit is None else fit)
-    S = offdiag(T, n)
+    a, b = (host(T, J, modes)[:2] if fit is None else fit)
+    S = couplings(T, modes, n)
     cfgs = configs(n) if cfgs is None else np.asarray(cfgs, float)
     iu = np.triu_indices(n, 1)
     q = 2.0 * (cfgs[:, iu[0]] * cfgs[:, iu[1]]) @ S
@@ -190,28 +246,35 @@ def config_energies(T, J, fit=None, cfgs=None) -> np.ndarray:
     return -0.5 * (q - b * ferro) / a
 
 
-def normalise(T, iters: int = 200) -> np.ndarray:
+def normalise(T, iters: int = 200, tol: float = 1e-9) -> np.ndarray:
     """Strip per-port coupling and per-detector gain by projecting onto doubly stochastic.
 
     Safe here and only here: the Ising probe is a *bright* one by construction, because
     `encode` refuses a design whose hosted swing does not beat the readout noise. On a dim
     probe this is the wrong tool and `theory.drift.fit_gains` against a reference is the
-    right one -- see SINKHORN_MIN_SNR there."""
+    right one -- see SINKHORN_MIN_SNR there.
+
+    Sinkhorn converges linearly, losing about a factor 7 per ten sweeps on a 4x4, so it
+    stops when the row and column sums are unity far below the read noise rather than
+    burning the full `iters` every call. `decode` is invoked once per configuration study
+    and the study is where the time goes."""
     S = np.clip(np.asarray(T, float), 1e-12, None)
     for _ in range(iters):
         S = S / S.sum(-1, keepdims=True)
         S = S / S.sum(-2, keepdims=True)
+        if np.abs(S.sum(-1) - 1).max() < tol:
+            break
     return S
 
 
-def decode(T, J, normalised: bool = True) -> dict:
+def decode(T, J, normalised: bool = True, modes=None) -> dict:
     """Measured transfer matrix -> the spin configuration the chip calls the ground state."""
     T = normalise(T) if normalised else np.asarray(T, float)
-    a, b, rel, contrast = host(T, J)
+    a, b, rel, contrast = host(T, J, modes)
     cfgs = configs(len(J))
-    E = config_energies(T, J, fit=(a, b), cfgs=cfgs)
+    E = config_energies(T, J, fit=(a, b), cfgs=cfgs, modes=modes)
     k = int(np.argmin(E))
-    return {"spins": cfgs[k], "index": k, "energies": E, "configs": cfgs,
+    return {"spins": cfgs[k], "index": k, "energies": E, "configs": cfgs, "modes": modes,
             "a": a, "b": b, "rel_err": rel, "contrast": contrast, "T": T}
 
 
@@ -251,14 +314,24 @@ class Encoding:
     rel_err: float
     contrast: float
     n: int
+    modes: tuple | None = None
+    sigma: float = SIGMA_HOST
+
+    @property
+    def eps(self) -> float:
+        """Relative error of the coupling matrix the decode will recover: what the reachable
+        set could not host and what the readout will destroy, added in quadrature because
+        they are the same error in the same units. This is what `encode` minimises and what
+        `noise_curve` converts into a success rate."""
+        return float(np.hypot(self.rel_err, self.sigma / max(self.contrast, 1e-15)))
 
     @property
     def ok(self) -> bool:
         return self.contrast >= MIN_CONTRAST
 
     def __str__(self) -> str:
-        return (f"n={self.n} host err {self.rel_err:.3f} contrast {self.contrast:.4f}"
-                f"{'' if self.ok else '  BELOW NOISE'}")
+        return (f"n={self.n} host err {self.rel_err:.3f} contrast {self.contrast:.4f} "
+                f"eps {self.eps:.3f}{'' if self.ok else '  BELOW NOISE'}")
 
 
 def twin_transfer(twin, phases) -> np.ndarray:
@@ -371,9 +444,49 @@ def reach_dim(twin, calib, trainable=None, vmax=VOLTAGE_MAX, samples: int = 4000
             "of": NMODE * (NMODE - 1) // 2 - 1}
 
 
-def _score(T, J, cfgs_true, E_true, normalised: bool = True) -> dict:
+def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """Confidence interval on a success rate of k out of n.
+
+    The score interval, not k/n +- z sqrt(pq/n). At the instance counts an optical run can
+    afford the normal interval runs off the end of [0, 1] and collapses to zero width at 0
+    and at n, which is exactly where an Ising run lands most often. This one does neither,
+    and at 4 instances it says what four instances are worth: 2 of 4 is [0.15, 0.85]."""
+    if n <= 0:
+        return 0.0, 1.0
+    p, d = k / n, 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d
+    h = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
+    return max(c - h, 0.0), min(c + h, 1.0)
+
+
+def instances_for(p0: float, p1: float, power: float = 0.8, alpha: float = 0.05,
+                  arms: int = 1) -> int:
+    """Instances needed to see a true rate of `p1` against `p0`, at `power`.
+
+    `arms=1` tests one run against a *known* constant -- blind guessing, 1/2^n up to ground
+    state degeneracy -- and is one-sided, because a chip below chance is not a result. Use
+    it before claiming a run computed anything. `arms=2` is the two-sided count per arm for
+    comparing two runs, and it is the expensive one: separating 50 percent from 75 percent
+    needs 55 instances an arm, so the four-instance A/B that motivated this function could
+    not have resolved the effect it was looking for whatever the chip did. Running the same
+    problems through both arms makes the test paired and cuts that, but only in proportion
+    to how correlated the arms are; nothing makes 4 enough."""
+    from statistics import NormalDist
+
+    z = NormalDist().inv_cdf
+    d = abs(p1 - p0)
+    if d < 1e-12:
+        raise ValueError("no difference to detect")
+    if arms == 1:
+        num = z(1 - alpha) * np.sqrt(p0 * (1 - p0)) + z(power) * np.sqrt(p1 * (1 - p1))
+        return int(np.ceil(num ** 2 / d ** 2))
+    return int(np.ceil((z(1 - alpha / 2) + z(power)) ** 2
+                       * (p0 * (1 - p0) + p1 * (1 - p1)) / d ** 2))
+
+
+def _score(T, J, cfgs_true, E_true, normalised: bool = True, modes=None) -> dict:
     """One instance: did the chip's own energy ranking find the true ground state?"""
-    res = decode(T, J, normalised=normalised)
+    res = decode(T, J, normalised=normalised, modes=modes)
     E_chip = res["energies"]
     order = {tuple(c): i for i, c in enumerate(res["configs"].tolist())}
     E_ord = np.array([E_chip[order[tuple(c)]] for c in cfgs_true.tolist()])

@@ -68,8 +68,12 @@ def cmd_selftest(a):
     print("normalise ", end="", flush=True)
     from .normalise import _selftest as norm_selftest
     n = norm_selftest()
+    b = n["bench"]
     print(f"PD full scale {n['norm'].full.min()*1e3:.0f}-{n['norm'].full.max()*1e3:.0f} mV, "
-          f"rows {n['raw_row']:.2f}->{n['out_row']:.2f}, cols {n['raw_col']:.2f}->{n['both_col']:.2f}")
+          f"rows {n['raw_row']:.2f}->{n['out_row']:.2f}, cols {n['raw_col']:.2f}->{n['both_col']:.2f}"
+          + (f"; {b['n']} bench states doubly stochastic to "
+             f"{np.median(b['stored']):.2f}->{np.median(b['column']):.2f} on the sweep"
+             if b else "; no bench session on disk"))
 
     print("mock rig  ", end="", flush=True)
     with Rig(laser="mock", board="mock", tec="mock", model="mock") as rig:
@@ -97,7 +101,19 @@ def cmd_selftest(a):
     print(f"{m['free']} steerable channels (widest {m['span_max']:.2f} pi), 2x2 on rails "
           f"out{m['rails'][0]} in{m['rails'][1]} hosted to {m['fit_err']:.4f}, "
           f"vec err {m['vec_err']:.4f} -> {m['noisy_err']:.3f} at 1.2% read noise, "
-          f"sign {m['sign_acc']:.0%}")
+          f"sign {m['sign_acc']:.0%}; probe vs sim truth "
+          f"{m['probe_err']['static']:.2f} static -> {m['probe_err']['column']:.2f} swept")
+
+    print("matmat    ", end="", flush=True)
+    from theory.matmat import compose as mm_compose, validate_block
+    from .matvec import bench_box
+    _bx = bench_box()
+    mm = validate_block(_bx, k=2, n=(4, 4), cols=3, restarts=8, steps=200)
+    gp = mm_compose(_bx, k=2, noise=0.012, trials=3, restarts=8, steps=200)
+    print(f"4x4 in {mm['tiles']} 2x2 tiles: {mm['writes']} programs, "
+          f"{mm['reads']:.0f} reads/column, Y err {mm['vec_err']:.4f}, "
+          f"sign {mm['sign_acc']:.0%}; composed product sits {gp['dist_c']:.3f} off O(2), "
+          f"err {gp['raw']:.3f} -> {gp['polar']:.3f} projected")
 
     print("bench sim ", end="", flush=True)
     from .sim import _selftest as sim_selftest
@@ -600,9 +616,21 @@ def main(argv=None):
                    help="nonnegative decomposition; 'split' is the 6x6's and is noisier")
     p.add_argument("--scan", action="store_true",
                    help="rank every rail pair by residual and brightness; no hardware")
+    p.add_argument("--block", type=int, default=None, metavar="K",
+                   help="tile the target into KxK blocks (theory.matmat); K=2 is what this "
+                        "die hosts")
+    p.add_argument("--cols", type=int, default=3,
+                   help="columns of X for --block, or pairs of matrices for --unitary")
+    p.add_argument("--unitary", action="store_true",
+                   help="compose two hosted rotations and check the product is still "
+                        "orthogonal; polar and QR projections side by side")
     p.add_argument("--optical-input", action="store_true",
                    help="set the input weight with the laser instead of in software, so "
                         "the multiply happens in light; costs a retune per port")
+    p.add_argument("--static-scale", action="store_true",
+                   help="read one port at a time and divide by the calibration's stored "
+                        "input_scale, as before the four-port sweep. Deprecated and wrong "
+                        "on this bench (see pic.normalise); here to reproduce old runs")
     p.add_argument("--restarts", type=int, default=16)
     p.add_argument("--steps", type=int, default=400)
     p.add_argument("--seed", type=int, default=0)

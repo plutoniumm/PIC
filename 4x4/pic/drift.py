@@ -30,6 +30,7 @@ from theory.drift import RCOND, infer_drift
 
 from .config import VOLTAGE_MAX
 from .layout import N_HEATERS
+from .normalise import sweep
 
 # A probe at all-zero bias is a poor place to measure from: several MZIs sit at an extremum
 # where the phase derivative vanishes, so drift there moves nothing. This is a fixed,
@@ -66,16 +67,12 @@ class DriftTracker:
     def probe(self, bias=None) -> np.ndarray:
         """Cycle the four input ports at a held bias -> T[j, k], PD j with port k lit.
 
-        Averaging happens here rather than in the firmware because the switch, not the
-        readout, is the slow part: repeating the whole port cycle also averages over the
-        switch's own repeatability, which is the larger of the two."""
+        RAW volts, deliberately: `fit_gains` fits the whole nuisance pair against a
+        reference probe, so normalising the columns here would remove half of what it is
+        there to measure. Everything else on the rig wants `Calibration.to_transfer` on top
+        of this."""
         b = self.default_bias() if bias is None else np.asarray(bias, float)
-        acc = np.zeros((NMODE, NMODE))
-        for _ in range(max(1, self.repeats)):
-            for k in range(NMODE):
-                self.rig.select_input(k)
-                acc[:, k] += self.rig.outputs(b)
-        return acc / max(1, self.repeats)
+        return sweep(self.rig, b, self.repeats)
 
     def anchor(self, bias=None):
         """Take the reference probe. Everything later is measured relative to this."""

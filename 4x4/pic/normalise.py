@@ -24,15 +24,27 @@ returns 0..1 and everything downstream -- the twin comparison, the drift probe, 
 surrogate's targets -- speaks the same units. It also removes the per-PD half of the gain
 pair that `theory.drift.fit_gains` would otherwise have to fit from every probe, which
 leaves that fit a smaller and better-conditioned job.
+
+**The "in" half is not a constant, and `input_scale` should no longer be used as one.**
+`port_full` is one heater state's worth of launch, and the 2026-08-27 sweep measured the
+light leaving ports 0 and 1 changing by 5.1x and 6.0x across sixteen states -- so the
+stored number is right at the state it was taken at and nowhere else. The scale a column
+needs is its own sum, which only exists once all four ports have been read at one heater
+state. `sweep` is that measurement, `Calibration.to_transfer` is the arithmetic, and
+`audit` is what showed the constant was wrong: on that file it takes the doubly-stochastic
+error from 2.31 to 0.385 median. `input_scale` stays for the archive and for
+`fit_gains`-style reference work; nothing in the measurement chain should divide by it.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, replace
+from pathlib import Path
 
 import numpy as np
 
-from theory.calib import VOLTAGE_MAX
+from theory.calib import VOLTAGE_MAX, ds_error
 from theory.clements import NMODE
 
 from .config import ADC_BITS, ADC_REF_V, ADC_AVG_N
@@ -71,9 +83,17 @@ class Normalisation:
 
     @property
     def input_scale(self) -> np.ndarray:
-        """Per-port coupling, relative to the best port -- the "in" half of the
-        normalisation. On this bench it should come back with one port several dB down;
-        that is the known bad launch, not a mesh property.
+        """Per-port coupling at the state this survey ran at, relative to the best port.
+
+        DEPRECATED as a correction. It is a snapshot: the light leaving a port depends on
+        where the mesh sends it, and on the 2026-08-27 sweep that moved by up to 6x between
+        heater states while this number stayed put. Use `sweep` plus
+        `Calibration.to_transfer`, which takes each column's scale from that column.
+
+        Still worth reporting -- it is the launch imbalance at a fixed state, which is what
+        `mrunal/Week_4_Report.pdf` measured port 3 to be 6 dB down on -- and still the right
+        starting frame for `theory.drift.fit_gains`, which fits against a reference probe
+        rather than dividing a live one.
 
         A port that was not surveyed gets 1.0, meaning "no correction known", never 0.
         Returning 0 would be read as infinite loss and divide that column to infinity --
@@ -103,6 +123,9 @@ class Normalisation:
     def normalise(self, T, inputs: bool = True) -> np.ndarray:
         """Raw probe volts -> fractions. Rows by PD full scale, columns by input coupling.
 
+        DEPRECATED with `inputs=True`, for the reason in `input_scale`. `inputs=False` is
+        just `Calibration.to_intensity` on a matrix and stays useful.
+
         Applying both does not make the matrix doubly stochastic -- rescaling columns
         disturbs the rows -- and it is not meant to. It removes the two *instrument*
         nuisances so that whatever imbalance survives is the chip's own loss, which is the
@@ -119,6 +142,135 @@ class Normalisation:
                           for k, v in enumerate(self.port_full))
         return ("\n".join(rows) + f"\n  input coupling at full scale -- {ports}"
                 + f"\n  {self.reads} reads")
+
+
+def sweep(rig, volts, repeats: int = 1) -> np.ndarray:
+    """Four switch positions at one held heater state -> raw T[j, k], PD j through port k.
+
+    **This is the primitive, not the single-port read.** `Calibration.to_transfer` divides
+    each column by that column's own sum, so a probe that hands back one port at a time
+    cannot be normalised at all -- only divided by a stored constant, which is what the
+    matvec and drift paths were doing and what put their columns 5x out. The extra cost of
+    the whole cycle is three switch moves and three reads; the thermal settle, which is the
+    expensive part, is already paid by the heater write and is not paid again.
+
+    Volts are not written here. The caller owns the settle, because only it knows whether
+    the heater state actually changed.
+
+    Averaging repeats the whole port cycle rather than the read, because the switch is the
+    less repeatable of the two."""
+    v = np.asarray(volts, float)
+    acc = np.zeros((NMODE, NMODE))
+    for _ in range(max(1, repeats)):
+        for k in range(NMODE):
+            rig.select_input(k)
+            acc[:, k] += rig.outputs(v)
+    return acc / max(1, repeats)
+
+
+def row_gain(raws, calib, dark=None, iters: int = 800) -> np.ndarray:
+    """One per-PD scale, shared by every state, that best flattens the row sums.
+
+    The steelman of "also enforce the rows". A per-detector gain is a property of the TIA
+    board, so if the surviving row imbalance were a detector effect it would be the SAME
+    four numbers at every heater state, and fitting them on some states would predict the
+    rest. That is a testable claim and `audit` tests it; per-state Sinkhorn cannot make it
+    because it refits the gains for every matrix it is handed.
+
+    Alternating because column normalisation and row scaling do not commute: rescaling the
+    rows changes the column sums, so each has to be reapplied until they stop moving.
+    Normalised to unit geometric mean, since the overall scale is already fixed by the
+    columns."""
+    Ps = [np.clip((np.asarray(r, float) - (calib.pd_offset if dark is None
+                                           else np.asarray(dark, float))[:, None])
+                  / calib.pd_gain[:, None], 0.0, None) for r in raws]
+
+    def cn(P):
+        s = P.sum(0, keepdims=True)
+        return np.divide(P, s, out=np.zeros_like(P), where=s > 0)
+
+    g = np.ones(NMODE)
+    for _ in range(iters):
+        g = g * np.mean([cn(P / g[:, None]).sum(1) for P in Ps], axis=0)
+        g /= np.exp(np.log(np.clip(g, 1e-30, None)).mean())
+    return g
+
+
+def audit(raws, calib, dark=None, sinkhorn_iters: int = 2000,
+          splits: int = 20) -> dict:
+    """Score a set of raw four-port sweeps against the one law a unitary cannot break.
+
+    Three readouts of the same volts, so the comparison is arithmetic rather than another
+    experiment:
+
+      `stored`  what the calibration does today -- per-PD gain and offset, then a divide by
+                the static `input_scale`.
+      `column`  `Calibration.to_transfer`: dark out, then each column by its own sum.
+      `sinkhorn`   column normalisation refined per state, which also forces the rows.
+      `held_out`   column normalisation plus ONE shared per-PD gain (`row_gain`), fitted on
+                   half the states and scored on the other half.
+
+    Sinkhorn scores zero on the metric by construction -- it projects onto the manifold the
+    metric measures -- so it is judged instead on the per-PD gains it had to invent,
+    reported as the max/min spread of each PD's row scaling across the states. Those gains
+    are a physical quantity: the detectors are four channels of one TIA board at a fixed
+    temperature, and `pd_gain` measures their spread at 3 percent. A Sinkhorn that needs
+    them to move by more than that is not removing a detector nuisance, it is absorbing
+    whatever else is wrong, and carrying it into every entry it touches.
+
+    The shared gain is the honest version of the same idea and is scored honestly, on states
+    it was not fitted on. Whether it earns a place belongs to the numbers it returns, not to
+    this docstring."""
+    from theory.intensity_matvec import sinkhorn
+
+    raws = [np.asarray(r, float) for r in raws]
+    scale = np.asarray(calib.meta.get("normalisation", {}).get("input_scale",
+                                                               np.ones(NMODE)), float)
+    stored, column, gains = [], [], []
+    for raw in raws:
+        stored.append(ds_error(calib.to_intensity(raw.T).T / np.maximum(scale, 1e-9)[None, :]))
+        T = calib.to_transfer(raw, dark=dark)
+        column.append(ds_error(T))
+        _A, r, _s = sinkhorn(T, iters=sinkhorn_iters)
+        gains.append(r / np.exp(np.log(np.clip(r, 1e-30, None)).mean()))
+    g = np.array(gains)
+
+    rng = np.random.default_rng(0)
+    base, held, fitted = [], [], []
+    for _ in range(splits):
+        p = rng.permutation(len(raws))
+        tr, te = p[:len(p) // 2], p[len(p) // 2:]
+        gg = row_gain([raws[i] for i in tr], calib, dark=dark)
+        fitted.append(gg)
+        # a row gain IS a photodiode gain, so it is applied by being one: folding it into
+        # pd_gain keeps the order of operations (dark, then gain, then columns) exact
+        c2 = replace(calib, pd_gain=calib.pd_gain * gg)
+        base.append(np.mean([column[i] for i in te]))
+        held.append(np.mean([ds_error(c2.to_transfer(raws[i], dark=dark)) for i in te]))
+    fitted = np.array(fitted)
+    return {"stored": np.array(stored), "column": np.array(column), "sinkhorn_gain": g,
+            "gain_spread": g.max(0) / np.clip(g.min(0), 1e-30, None),
+            "held_out": (float(np.mean(base)), float(np.mean(held))),
+            "row_gain": row_gain(raws, calib, dark=dark),
+            "row_gain_spread": fitted.max(0) / np.clip(fitted.min(0), 1e-30, None),
+            "n": len(raws)}
+
+
+def load_session(path) -> dict:
+    """A `raw_transfers.json` dump -> the arrays `audit` wants.
+
+    The file is one bench session's ground truth: sixteen heater states, each a full
+    four-port sweep of RAW photodiode volts, plus the two dark references. It is written by
+    the hardware run and is deliberately untracked, so every caller has to cope with it
+    being absent."""
+    d = json.loads(Path(path).read_text())
+    # stored port-major (raw[k][j]) because that is the order the switch visits; the rest of
+    # the stack indexes T[pd, port], so transpose once here rather than everywhere else.
+    return {"raws": [np.asarray(s["raw"], float).T for s in d["states"]],
+            "volts": [np.asarray(s["volts"], float) for s in d["states"]],
+            "dark": np.asarray(d["dark_switch_off"], float),
+            "dark_laser_off": np.asarray(d["dark_laser_off"], float),
+            "dbm": d.get("dbm"), "repeats": d.get("repeats")}
 
 
 class _Tracker:
@@ -294,9 +446,66 @@ def _selftest(seed: int = 0):
     assert np.all(part.input_scale > 0) and np.all(np.isfinite(part.input_scale)), \
         part.input_scale
     assert np.all(np.isfinite(part.normalise(raws[0]))), part.input_scale
+
+    # the real sweep primitive, at a state the mesh is actually holding. The exact-unitary
+    # case is asserted to machine precision in `theory.calib._selftest`; what this adds is
+    # that it survives `pic.sim`, which carries the measured per-path loss table and so puts
+    # a floor under the residual in the same way the bench does.
+    with Rig(laser="mock", board="sim", tec="mock", switch="mock") as rig3:
+        v = np.zeros(N_HEATERS)
+        v[REACHABLE_DACS] = 0.4 * VOLTAGE_MAX
+        rig3.measure(v)
+        sim_col = ds_error(calib.to_transfer(sweep(rig3, v, repeats=2)))
+    assert sim_col < 0.6, sim_col
+
     return dict(norm=norm, raw_row=raw_row, raw_col=raw_col, out_row=out_row,
-                both_col=both_col, peak=peak, reads=norm.reads,
-                lo=float(unit.min()), hi=float(unit.max()))
+                both_col=both_col, peak=peak, reads=norm.reads, sim_col=sim_col,
+                lo=float(unit.min()), hi=float(unit.max()), bench=_selftest_bench())
+
+
+BENCH_SESSION = Path("pic_data/sessions/2026-08-27/raw_transfers.json")
+
+
+def _selftest_bench(path=BENCH_SESSION, calib=None) -> dict | None:
+    """The same claim against the bench file rather than a simulator.
+
+    Sixteen heater states of raw four-port sweeps, taken on 2026-08-27 at 8 dBm with the
+    laser and switch dark references beside them. The thresholds below are what those
+    numbers measure, not targets: column normalisation takes the doubly-stochastic error
+    from 2.31 to 0.385 median, and the residual is a chip property -- see the module note
+    and the report. They are asserted so that a change to the readout chain that undoes it
+    fails here instead of three modules downstream.
+
+    Returns None when the file is absent, which is normal: session dumps are untracked."""
+    from theory.calib import Calibration
+
+    path = Path(path)
+    if not path.exists():
+        return None
+    s = load_session(path)
+    calib = calib or Calibration.load_or_nominal()
+    a = audit(s["raws"], calib, dark=s["dark"])
+
+    # the two dark references agreeing is what rules out a thermal pedestal; if they ever
+    # part, the switch-off floor is no longer measuring only electronics
+    assert np.abs(s["dark"] - s["dark_laser_off"]).max() < 3e-3, (s["dark"],
+                                                                 s["dark_laser_off"])
+    assert np.median(a["stored"]) > 2.0, np.median(a["stored"])
+    assert np.median(a["column"]) < 0.45, np.median(a["column"])
+    assert a["column"].max() < 0.80, a["column"].max()
+    assert np.all(a["column"] < a["stored"]), np.stack([a["column"], a["stored"]])
+    # Sinkhorn is refused on this data by its own recovered gains, not by taste: four
+    # channels of one TIA board cannot swing 5-17x between heater states seconds apart.
+    assert a["gain_spread"].min() > 4.0, a["gain_spread"]
+    # The shared gain is refused on a weaker and more interesting ground: it does help on
+    # held-out states, but only by ~0.04 while asking the detectors to differ by ~3x. It is
+    # fitting the chip, not the board, so it belongs to whoever owns the heater-role
+    # mapping and not to `pd_gain`.
+    assert a["held_out"][1] < a["held_out"][0], a["held_out"]
+    assert a["row_gain"].max() / a["row_gain"].min() > 2.0, a["row_gain"]
+    return {"stored": a["stored"], "column": a["column"], "gain_spread": a["gain_spread"],
+            "held_out": a["held_out"], "row_gain": a["row_gain"],
+            "row_gain_spread": a["row_gain_spread"], "n": a["n"], "path": str(path)}
 
 
 if __name__ == "__main__":
@@ -306,3 +515,21 @@ if __name__ == "__main__":
     print(f"each PD's own peak normalises to {np.round(r['peak'], 3)}")
     print(f"mean imbalance over 8 random probes: rows {r['raw_row']:.3f} -> {r['out_row']:.3f} "
           f"(PD full scale), cols {r['raw_col']:.3f} -> {r['both_col']:.3f} (input coupling)")
+    print(f"one held state through sweep + to_transfer: ds error {r['sim_col']:.3f}")
+
+    b = r["bench"]
+    if b is None:
+        print(f"\nno bench session at {BENCH_SESSION} -- session dumps are untracked")
+    else:
+        print(f"\n{b['n']} heater states from {b['path']}")
+        print(f"  {'state':>5}{'stored':>10}{'column':>10}")
+        for i, (s, c) in enumerate(zip(b["stored"], b["column"])):
+            print(f"  {i:>5}{s:>10.3f}{c:>10.3f}")
+        print(f"  {'median':>5}{np.median(b['stored']):>10.3f}{np.median(b['column']):>10.3f}")
+        print(f"  Sinkhorn would close the rest by moving each PD's gain "
+              f"{b['gain_spread'].min():.1f}-{b['gain_spread'].max():.0f}x between states; "
+              f"the board's own spread is 3 percent, so it is refused")
+        print(f"  one shared per-PD gain {np.round(b['row_gain'], 2)} scores "
+              f"{b['held_out'][0]:.3f} -> {b['held_out'][1]:.3f} on held-out states; a "
+              f"{b['row_gain'].max()/b['row_gain'].min():.1f}x detector spread for 0.04, "
+              f"so the residual is the chip, not the readout")
