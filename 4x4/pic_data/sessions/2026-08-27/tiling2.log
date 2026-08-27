@@ -1,0 +1,21 @@
+table: 100 states   target 4x4, 4 columns
+
+hw 1: powering on
+  [OK] connected, key ON, interlocks closed
+  ceilings clamped to 250 mA
+  TEC OFF (open-loop; room temp-controlled)
+  LASER ON at floor setpoint 5 (~0.2 mW). Use `set <dBm>` to ramp.
+  ramp setpoint 5.0 -> 19.4  (0.2s @ 60/s)
+  +8.0 dBm -> setpoint 19.4  (~6.3 mW; measured I 17 mA)
+re-anchor: same 2x2 target planned off each table
+
+  25 C table   measured matrix err 0.1032  (shape 0.0910, bright x1.041)
+  20 C table   measured matrix err 0.1361  (shape 0.1103, bright x1.068)
+
+2x2 tiles   tiles  4   matrix err 0.1373 (shape 0.1294, bright x1.032)   Y err 0.1358   signs 100%
+4x4 whole   tiles  1   matrix err 1.2890 (shape 1.2801, bright x1.007)   Y err 1.2660   signs 75%
+hw 0: powering off
+  ramp setpoint 19.4 -> 0.0  (0.3s @ 60/s)
+  LASER OFF -- current 0, output disabled, TEC off. Safe to turn the key off / unplug.
+hw 0: powering off
+  LASER OFF -- current 0, output disabled, TEC off. Safe to turn the key off / unplug.

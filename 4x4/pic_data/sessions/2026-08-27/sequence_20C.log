@@ -1,0 +1,68 @@
+########## table ready; 2 min settle
+########## matvec run 1
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/__main__.py", line 665, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/__main__.py", line 661, in main
+    return a.fn(a)
+           ~~~~^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/__main__.py", line 451, in cmd_matvec
+    with _rig(a) as rig:
+         ~~~~^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/rig.py", line 174, in __enter__
+    return self.open()
+           ~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/rig.py", line 97, in open
+    self._laser_was_on = bool(getattr(self.laser, "is_on", lambda: False)())
+                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/laser.py", line 154, in is_on
+    self.dev.read_setting("laser_status"),
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/pdmv5.py", line 206, in read_setting
+    body = self._txn(_CMD_READ, bytes([(rid >> 8) & 0xFF, rid & 0xFF]))
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/pdmv5.py", line 159, in _txn
+    self.ser.reset_input_buffer()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/local/Caskroom/miniconda/base/envs/pic/lib/python3.13/site-packages/serial/serialposix.py", line 683, in reset_input_buffer
+    self._reset_input_buffer()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/local/Caskroom/miniconda/base/envs/pic/lib/python3.13/site-packages/serial/serialposix.py", line 677, in _reset_input_buffer
+    termios.tcflush(self.fd, termios.TCIFLUSH)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+termios.error: (6, 'Device not configured')
+########## 2 min hold
+########## matvec run 2 (same target, same table -- pure repeatability)
+  +8.0 dBm -> setpoint 19.4  (~6.3 mW; measured I 17 mA)
+heater box: 8 steerable channels, widest span 1.51 pi (measured calibration)
+transfer table: 100 measured states from /Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic_data/sessions/2026-08-27/raw_transfers_big.json
+
+target B:
+[[ 0.126 -0.132]
+ [ 0.64   0.105]]
+
+rails out(1, 2) in(1, 2), shift decomposition
+hosted residual 0.0195 (picked off the measured table)   twin predicts 0.0274 vs target
+MEASURED matrix vs target 0.0862   (shape 0.0448, brightness x1.072, cond 5.0)
+x                            B x                          measured                         err
+[ 0.13 -0.13]                [0.03 0.07]                  [0.04 0.08]                    0.119
+[0.64 0.1 ]                  [0.07 0.42]                  [0.08 0.45]                    0.080
+[-0.54  0.36]                [-0.12 -0.31]                [-0.13 -0.34]                  0.107
+[1.3  0.95]                  [0.04 0.93]                  [0.07 0.98]                    0.064
+mean vector error 0.0925, sign accuracy 100%
+cost: 1 heater writes, 4 switch moves, 4 reads for the matrix and 4 vectors -- the vectors are arithmetic on the held sweep, so their error is a function of the measured matrix, not a second opinion on it
+
+the mesh does not host this target: the 0.0862 above is MEASURED, and it is in the MATRIX, not the readout. Try --scan for better rails, or a smaller block.
+  the twin predicted 0.0274 for the same plan, so that gap is the model and not the bench -- re-characterize before believing any fitted program.
+########## matmat: 4x4 in 2x2 tiles, 4 columns, with the unitary check
+  +8.0 dBm -> setpoint 19.4  (~6.3 mW; measured I 17 mA)
+heater box: 8 steerable channels, widest span 1.51 pi (measured calibration)
+transfer table: 100 measured states from /Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic_data/sessions/2026-08-27/raw_transfers_big.json
+
+group property over 4 pairs of orthogonal matrices, composed by feeding the measured A through program b
+  distance to O(k) before projection   0.9247   (needs no truth; a lower bound on the error below)
+  error vs the true product, raw       1.4531
+  after polar projection               1.1768   (the nearest orthogonal matrix)
+  after QR                             1.4687   (moves by 0.8652 if the columns are reordered)

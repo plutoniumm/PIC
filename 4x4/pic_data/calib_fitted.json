@@ -1,0 +1,295 @@
+{
+  "vpi": [
+    4.806562089317967,
+    5.400120806541453,
+    4.923108451432026,
+    6.526990210870628,
+    5.7117546734317335,
+    4.14689438440849,
+    1.5,
+    3.60489437086604,
+    1.5,
+    20.700702211343156,
+    3.653622429242486,
+    1.5,
+    3.939888954195396,
+    5.938883807087755,
+    1.5,
+    1.5
+  ],
+  "phi0": [
+    1.0779294685093594,
+    6.13499926461841,
+    0.3639808768108419,
+    2.1369680417244616,
+    6.128166784278084,
+    6.089917937992837,
+    0.0,
+    0.0,
+    0.0,
+    3.45783484767073,
+    6.164997483617131,
+    6.281953873134369,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "pd_gain": [
+    0.30626216797483585,
+    0.45036297997087665,
+    0.3784047644014719,
+    0.19866831526865866
+  ],
+  "pd_offset": [
+    0.031465,
+    0.00107,
+    0.0,
+    0.0
+  ],
+  "meta": {
+    "source": "learn.transfer_fit.fit",
+    "data": "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic_data/sessions/2026-08-27/raw_transfers_big.json",
+    "n_states": 100,
+    "roles": {
+      "theta": [
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ],
+      "phi": [
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ]
+    },
+    "free_vpi": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      9,
+      10
+    ],
+    "free_phi0": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      9,
+      10,
+      11
+    ],
+    "gauge_phi0": [
+      6,
+      7,
+      8
+    ],
+    "observable_rank": 9,
+    "priors": true,
+    "r2_val": 0.8786378902839435,
+    "r2_train": 0.8390880651889215,
+    "pearson_val": 0.9374165111430347,
+    "mae_val": 0.06857084227746923,
+    "r2_val_by_port": [
+      0.8138702397401913,
+      0.8051651962491042,
+      0.965377891061234,
+      0.8716923457775138
+    ],
+    "r2_val_by_port_modulation": [
+      0.6301740372372315,
+      0.6279403364009983,
+      0.8912569993988998,
+      -1.2323708205427937
+    ],
+    "r2_val_ports012": 0.8799377963470606,
+    "r2_val_modulation": 0.6698997203266248,
+    "val_states": [
+      3,
+      6,
+      8,
+      10,
+      13,
+      14,
+      18,
+      23,
+      28,
+      37,
+      42,
+      43,
+      48,
+      51,
+      54,
+      61,
+      63,
+      64,
+      68,
+      71,
+      87,
+      90,
+      93,
+      96,
+      99
+    ],
+    "note": "phi0 is DAC-indexed and only valid with `roles`; gauge entries are 0 because intensity cannot see them, not because they were measured. pd_gain carries measured ratios on an arbitrary absolute scale.",
+    "repeatability": {
+      "splits": 6,
+      "r2_val_mean": 0.8565527909312438,
+      "r2_val_sd": 0.011394411441103251,
+      "vpi_median": [
+        4.783335404419612,
+        5.473182793363085,
+        4.901287605038185,
+        7.140789179053646,
+        5.9505389305575,
+        4.123506431782239,
+        1.5,
+        3.60489437086604,
+        1.5,
+        22.146570007736514,
+        6.712656226225741,
+        1.5,
+        3.939888954195396,
+        5.938883807087755,
+        1.5,
+        1.5
+      ],
+      "vpi_spread": [
+        0.10561477102980721,
+        1.949618328388656,
+        1.294219095933232,
+        7.270335970962308,
+        1.0329803993298965,
+        0.3061241774477472,
+        0.0,
+        0.0,
+        0.0,
+        14.497505690581402,
+        8.644123392241584,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "phi0_circmean": [
+        1.0784473301413793,
+        6.053434419004622,
+        0.26814376629600145,
+        2.165331498493237,
+        0.006245942209911281,
+        5.975228107610836,
+        0.0,
+        0.0,
+        6.188287989716343,
+        3.4131512879126227,
+        6.008716984992644,
+        0.41142669043136176,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "phi0_circsd": [
+        0.024629597643092076,
+        0.10135478344394133,
+        0.10867348087989555,
+        0.14240367055948036,
+        0.13256338230395837,
+        0.13803689999380508,
+        -0.0,
+        -0.0,
+        0.8735437677539408,
+        0.9828203847802085,
+        0.4911277535591535,
+        1.488059100440962,
+        -0.0,
+        -0.0,
+        -0.0,
+        -0.0
+      ],
+      "gain_mean": [
+        0.9651908188671703,
+        1.4186588936686453,
+        1.1828628766546605,
+        0.6180677601535493
+      ],
+      "gain_sd": [
+        0.02004070089676842,
+        0.026178282312765568,
+        0.03083144388924488,
+        0.016012189297218444
+      ],
+      "kappa_spread": [
+        0.0783214639706768,
+        0.897253097442926,
+        0.04022727907542517,
+        0.04952310735201049,
+        0.6121486938077698,
+        0.69944765960708,
+        0.8261608059597485,
+        0.893021676568533,
+        0.0704608281709741,
+        0.09283468040102344,
+        0.2022466867659331,
+        0.04651821515188642
+      ],
+      "delivered_split": 3,
+      "note": "this file carries the fit closest to the cross-split consensus, one self-consistent parameter set with a genuine held-out R2; the medians above are the consensus and the spreads say which numbers the experiment actually contains"
+    },
+    "kappa": [
+      [
+        0.5270914273583251,
+        0.9308599224229135
+      ],
+      [
+        0.5061667026255268,
+        0.49559609273155303
+      ],
+      [
+        0.771563209670753,
+        0.18888960337001948
+      ],
+      [
+        0.10303483414566184,
+        0.9347465401578026
+      ],
+      [
+        0.5122646019997774,
+        0.49439387344439367
+      ],
+      [
+        0.5619500759019911,
+        0.45435459707844034
+      ]
+    ],
+    "identified": {
+      "phi0_theta_channels": "DAC0-5 repeat to 0.02-0.14 rad across splits: measured",
+      "phi0_dac9_dac10_dac11": "circular sd 0.5-1.5 rad: NOT measured, values are placeholders",
+      "vpi_dac0_dac5": "spread 0.11/0.31 V, and within 2-9 percent of the fringe bootstrap",
+      "vpi_dac1_dac2_dac3_dac4": "spread 1-7 V: this data does not pin them, the fringe fits do",
+      "vpi_dac9_dac10": "runs past the drive range; no detectable modulation from either channel",
+      "kappa": "5 of 12 couplers move by more than 0.6 between splits: NOT measured",
+      "alpha_dac12_13_14": "output trimmers, invisible in |U|^2 by construction, never fitted",
+      "theta_role_map": "DAC0 -> MZI5 pinned in all top permutations of 720; the other five slots tie within the split-to-split spread and are NOT determined"
+    },
+    "role_map_scores_3split": {
+      "roles_layout_5_4_3_2_1_0": 0.848,
+      "best_of_720_2_1_3_5_4_0": 0.8606,
+      "roles_twin_0_1_2_3_4_5": 0.5542,
+      "typical_sd": 0.009
+    },
+    "warning": "theory.twin consumes ph[THETA_IDX] positionally, i.e. DAC k -> MZI k, which is the reverse of the map this calibration is fitted under. Feed it through learn.transfer_fit.phases_for_twin(calib.phases(V), ROLES_LAYOUT)."
+  }
+}

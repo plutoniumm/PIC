@@ -33,13 +33,16 @@ this whole file exists to avoid.
 
 **Which DAC drives which MZI is testable here and nowhere else.** A fringe sweep says a
 channel modulates; it does not say which mesh slot it sits in. `search_roles` scores
-assignments by held-out fit quality. On the 2026-08-27 sixteen-state set that search says
-`theory.twin` is currently consuming the theta channels in the wrong order -- see
-`ROLES_LAYOUT` below.
+assignments by held-out fit quality, and all 720 orderings of the six theta channels were
+scored against the 2026-08-27 hundred-state set. Two results, one sharp and one not: the
+order `theory.twin` implements today is decisively wrong (R^2 0.55 against 0.86), and
+DAC0 -> MZI5 is pinned in every top candidate, but the remaining five slots tie within the
+split-to-split spread and this data does not choose between them. `ROLES_LAYOUT` -- the map
+two vendor tables give on pins and resistance -- sits inside that tie.
 
-    tr = load("pic_data/sessions/2026-08-27/raw_transfers.json")
+    tr = load("pic_data/sessions/2026-08-27/raw_transfers_big.json")
     res = fit(tr, roles=ROLES_LAYOUT, calib0=Calibration.load("pic_data/calib.json"))
-    print(res.r2_val, res.calib.vpi)
+    rep = repeatability(tr, ROLES_LAYOUT, calib0=...)   # what actually got measured
 """
 
 from __future__ import annotations
@@ -65,8 +68,14 @@ MIN_SWING_V = 0.2        # a channel this static carries no Vpi information at a
 # holds across a die, the same number `MeshError.sample` draws from.
 VPI_LOG_SD = 0.12
 KAPPA_SD = 0.02
-# RMS scatter of a normalised transfer entry across repeats at +8 dBm. Only the ratio of
-# this to the prior widths matters, and it is what turns two Gaussians into one loss.
+# Readout scatter of a normalised transfer entry at +8 dBm. Only its ratio to the prior
+# widths matters: it is what turns two Gaussians into one loss. Deliberately the *noise*
+# scale and not the residual the fit achieves, which is 7x larger -- because that residual
+# is the chip's configuration-dependent loss, which the twin cannot represent and which a
+# coupler ratio must not be pushed around to excuse. At this setting the priors are a guard
+# against runaway rather than a real constraint; reweighting them against the achieved
+# residual instead costs 0.05 of held-out R^2, which is the data saying the coupler freedom
+# is doing work the prior would forbid.
 SIGMA_T = 0.01
 
 
@@ -299,7 +308,8 @@ def phases_for_twin(phases_by_dac, roles: RoleMap) -> np.ndarray:
 
     The twin reads `ph[THETA_IDX]` positionally, so element k of that slice has to be
     MZI k's internal phase. Under `ROLES_TWIN` that is the identity; under `ROLES_LAYOUT`
-    it is a reversal, and getting it wrong costs held-out R^2 0.84 -> 0.29."""
+    it is a reversal, and getting it wrong costs held-out R^2 0.85 -> 0.55 on the
+    hundred-state set, with everything else refitted around it."""
     ph = np.asarray(phases_by_dac, float)
     out = np.zeros(ph.shape[:-1] + (N_HEATERS,))
     out[..., THETA_IDX] = ph[..., np.asarray(roles.theta, int)]
@@ -462,21 +472,23 @@ def fit(tr: Transfers, roles: RoleMap = ROLES_LAYOUT, *, calib0: Calibration | N
     opt = torch.optim.Adam(m.parameters(), lr=lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, steps)
     n_obs = float(Y[itr].numel())
+
+    def objective():
+        L = m.mse(V[itr], Y[itr]) * (n_obs / SIGMA_T ** 2)
+        return L + m.prior() if priors else L
+
     for _ in range(steps):
         opt.zero_grad()
-        loss = m.mse(V[itr], Y[itr]) * (n_obs / SIGMA_T ** 2)
-        if priors:
-            loss = loss + m.prior()
-        loss.sum().backward()
+        objective().sum().backward()
         opt.step()
         sched.step()
-    with torch.no_grad():  # chosen on the training states, so `r2_val` stays held out
-        sel = m.mse(V[itr], Y[itr]).numpy()
+    with torch.no_grad():  # the winner is the best *objective*, priors included, on the
+        sel = objective().numpy()  # training states -- so `r2_val` stays held out
     best = int(np.argmin(sel))
     if verbose:
         val = m.mse(V[iva], Y[iva]).detach().numpy()
-        print(f"  restart {best}: train mse {sel[best]:.5f}, val {val[best]:.5f}; "
-              f"across restarts train median {np.median(sel):.5f}, worst {sel.max():.5f}")
+        print(f"  restart {best}: train objective {sel[best]:.1f}, val mse {val[best]:.5f}; "
+              f"objective across restarts median {np.median(sel):.1f}, worst {sel.max():.1f}")
     m = m.pick(best)
 
     with torch.no_grad():
@@ -502,6 +514,54 @@ def fit(tr: Transfers, roles: RoleMap = ROLES_LAYOUT, *, calib0: Calibration | N
     calib, err = m.extract(calib0, meta)
     return FitResult(m, calib, err, roles, r2v, r2t, rv, mae, by_port, by_port_mod,
                      free_vpi, free_phi0, frozen, rank)
+
+
+def repeatability(tr: Transfers, roles: RoleMap = ROLES_LAYOUT, *, calib0=None,
+                  splits: int = 6, seed0: int = 0, **kw):
+    """Refit over independent train/validation splits and report how much each number moves.
+
+    This, and not the fit residual, is what says which parameters were measured. A model
+    can reproduce held-out data at R^2 0.85 with a coupler ratio that lands anywhere in
+    0.05..0.95 depending on the split, and quoting that ratio would be reporting a number
+    the experiment did not contain. Vpi and the gains are compared by spread, phi0 by
+    circular spread, because a phase 0.02 from 2 pi has not moved.
+
+    Returns a dict of arrays indexed by DAC channel (or detector), plus the R^2 spread."""
+    calib0 = Calibration() if calib0 is None else calib0
+    fits = [fit(tr, roles, calib0=calib0, split=tr.split(0.25, s), seed=s, **kw)
+            for s in range(seed0, seed0 + splits)]
+    vpi = np.array([f.calib.vpi for f in fits])
+    phi = np.array([f.calib.phi0 for f in fits])
+    gain = np.array([f.model.gains[0].detach().numpy() for f in fits])
+    kappa = np.array([f.error.kappa.reshape(-1) for f in fits])
+    z = np.exp(1j * phi).mean(0)
+    return {"r2_val": np.array([f.r2_val for f in fits]),
+            "vpi_median": np.median(vpi, 0), "vpi_spread": vpi.max(0) - vpi.min(0),
+            "phi0_circmean": np.mod(np.angle(z), 2 * np.pi),
+            "phi0_circsd": np.sqrt(-2 * np.log(np.clip(np.abs(z), 1e-12, 1))),
+            "gain_mean": gain.mean(0), "gain_sd": gain.std(0),
+            "kappa_spread": kappa.max(0) - kappa.min(0),
+            "free_vpi": fits[0].free_vpi, "free_phi0": fits[0].free_phi0,
+            "fits": fits}
+
+
+def most_typical(rep) -> int:
+    """Index of the `repeatability` fit closest to the cross-split consensus.
+
+    A calibration has to be one self-consistent parameter set: phi0, the couplers and the
+    gains co-adapt during the fit, so an entry-wise average across splits can land at a
+    combination no split ever reached and predict worse than any of them. The deliverable is
+    therefore a member of the set, and it is chosen by agreement with the consensus rather
+    than by score -- picking the best held-out R^2 would spend the one clean number the
+    experiment has on making the choice."""
+    fits = rep["fits"]
+    fv, fp = rep["free_vpi"], rep["free_phi0"]
+    cost = []
+    for f in fits:
+        dv = np.abs(np.log(f.calib.vpi[fv] / rep["vpi_median"][fv])).sum()
+        d = f.calib.phi0[fp] - rep["phi0_circmean"][fp]
+        cost.append(dv + np.abs(np.mod(d + np.pi, 2 * np.pi) - np.pi).sum())
+    return int(np.argmin(cost))
 
 
 def search_roles(tr: Transfers, candidates=None, *, calib0=None, steps: int = 800,

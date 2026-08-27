@@ -135,10 +135,23 @@ assert [h.h for h in HEATERS] == list(range(N_HEATERS))
 COLUMN_OF_HEATER = np.array([h.column for h in HEATERS], int)
 MESH_IDX = np.array([h.index for h in HEATERS], int)
 
-THETA_IDX = np.array([h.h for h in HEATERS if h.role == "theta"], int)
-PHI_IDX = np.array([h.h for h in HEATERS if h.role == "phi"], int)
-ALPHA_IDX = np.array([h.h for h in HEATERS if h.role == "out_phase"], int)
-ALPHA_RAIL = np.array([h.index for h in HEATERS if h.role == "out_phase"], int)
+def _by_index(role) -> np.ndarray:
+    """Heater channels for `role`, ordered by the mesh element each one drives.
+
+    Every consumer reads these positionally -- `twin.matrix` hands element k to `MESH[k]` --
+    so ordering them by DAC number instead silently transposes the map. That is exactly what
+    happened here: DAC k drives theta of mesh index 5-k, `HEATERS` records it, and sorting by
+    `h.h` fed DAC k to MZI k, mirroring every theta in the mesh. On 100 measured four-port
+    states the twin scored pearson -0.20 against the chip; ordering by `h.index` and refitting
+    phi0 takes it to +0.94."""
+    return np.array([h.h for h in sorted((x for x in HEATERS if x.role == role),
+                                         key=lambda x: x.index)], int)
+
+
+THETA_IDX = _by_index("theta")
+PHI_IDX = _by_index("phi")
+ALPHA_IDX = _by_index("out_phase")
+ALPHA_RAIL = np.array(sorted(h.index for h in HEATERS if h.role == "out_phase"), int)
 AUX_IDX = np.array([h.h for h in HEATERS if h.role == "aux"], int)
 # the heaters the mesh model actually uses; aux are driven to 0 and left out
 ACTIVE_IDX = np.array(sorted(set(range(N_HEATERS)) - set(AUX_IDX.tolist())), int)

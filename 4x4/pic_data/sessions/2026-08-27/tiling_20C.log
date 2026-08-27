@@ -1,0 +1,6 @@
+########## tiling comparison: 2x2 tiles vs 4x4 whole
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-gojira-Documents-GitHub-nosync-PIC/dc76370f-cff6-4d83-9819-456d61215fd2/scratchpad/tiling.py", line 31, in <module>
+    print(f"table: {len(tf.states)} states   target 4x4, {NCOL} columns\n")
+                        ^^^^^^^^^
+AttributeError: 'Transfers' object has no attribute 'states'
