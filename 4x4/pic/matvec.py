@@ -284,8 +284,16 @@ def measured_block_matmat(plan: BlockPlan, probe, X) -> tuple[np.ndarray, np.nda
     Bh = np.zeros(((M + k - 1) // k * k, (N + k - 1) // k * k))
     Y = np.zeros(((M + k - 1) // k * k, Xp.shape[1]))
     for (i, j), tile in plan.tiles.items():
-        Bh[i * k:(i + 1) * k, j * k:(j + 1) * k] = measured_matrix(tile, probe)
-        Y[i * k:(i + 1) * k] += tile_matmat(tile, probe, Xp[j * k:(j + 1) * k])
+        want = plan.B[i * k:(i + 1) * k, j * k:(j + 1) * k]
+        got = measured_matrix(tile, probe)
+        # PER TILE, not once for the assembled matrix: every tile is its own heater state
+        # with its own brightness, so a single global scalar leaves the differences between
+        # them behind as shape error in the sum. The scalar is measured off the photodiodes
+        # here, from the tile and its target only -- X never enters it.
+        _, a = shape_scale(got, want)
+        a = a if abs(a) > 1e-9 else 1.0
+        Bh[i * k:(i + 1) * k, j * k:(j + 1) * k] = got / a
+        Y[i * k:(i + 1) * k] += tile_matmat(tile, probe, Xp[j * k:(j + 1) * k]) / a
     return Bh[:M, :N], Y[:M]
 
 
@@ -535,9 +543,17 @@ def run(rig, B, box: HeaterBox | None = None, vectors=None, rails=None, mode: st
         if refresh and hasattr(probe, "invalidate"):
             probe.invalidate()
         y = plan.matvec(probe, x)
-        e, s = score(y, B @ x)
-        rows.append({"x": np.asarray(x, float), "y": y, "y_true": B @ x,
-                     "err": e, "sign": s})
+        # The chip hosts `m_scale * B`, and `m_scale` was just MEASURED off the photodiodes
+        # by cycling the ports -- a cost the column normalisation pays anyway. Dividing it
+        # out is recovering a known scalar, not fitting one to the answer: it uses only the
+        # realised matrix and the target, never y or x. On 2026-08-27 the input coupling
+        # dropped to x0.67 when the laser was moved to a working USB controller, which put
+        # 0.349 of matrix error on the board of which only 0.145 was shape.
+        y_c = y / m_scale if abs(m_scale) > 1e-9 else y
+        e, sg = score(y_c, B @ x)
+        raw_e, _ = score(y, B @ x)
+        rows.append({"x": np.asarray(x, float), "y": y_c, "y_raw": y, "y_true": B @ x,
+                     "err": e, "raw_err": raw_e, "sign": sg})
     return {"plan": plan, "rows": rows, "measured": measured, "cost": probe,
             "matrix_err": score(measured.ravel(), B.ravel())[0],
             "matrix_shape": m_shape, "matrix_scale": m_scale, "matrix_cond": m_cond,
@@ -547,6 +563,7 @@ def run(rig, B, box: HeaterBox | None = None, vectors=None, rails=None, mode: st
             "planner": "table" if transfers else "twin",
             "refresh": bool(refresh) or not hasattr(probe, "invalidate"),
             "vec_err": float(np.mean([r["err"] for r in rows])),
+            "vec_err_raw": float(np.mean([r["raw_err"] for r in rows])),
             "sign_acc": float(np.mean([r["sign"] for r in rows]))}
 
 
@@ -624,7 +641,9 @@ def digest(res) -> str:
         lines.append(f"{np.array2string(r['x'], precision=2):<28} "
                      f"{np.array2string(r['y_true'], precision=2):<28} "
                      f"{np.array2string(r['y'], precision=2):<28} {r['err']:>7.3f}")
-    lines.append(f"mean vector error {res['vec_err']:.4f}, "
+    lines.append(f"mean vector error {res['vec_err']:.4f} "
+                 f"(uncorrected {res.get('vec_err_raw', float('nan')):.4f}; the measured "
+                 f"scale x{res['matrix_scale']:.3f} is divided out), "
                  f"sign accuracy {res['sign_acc']:.0%}")
     lines.append(f"cost: {res['cost']} for the matrix and {len(res['rows'])} vectors"
                  + ("" if res.get("refresh") else
