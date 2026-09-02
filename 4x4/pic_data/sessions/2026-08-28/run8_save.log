@@ -1,0 +1,16 @@
+hw 1: powering on
+  [OK] connected, key ON, interlocks closed
+  ceilings clamped to 250 mA
+  TEC on
+  LASER ON at floor setpoint 5 (~0.2 mW). Use `set <dBm>` to ramp.
+  ramp setpoint 5.0 -> 28.2  (0.4s @ 60/s)
+  +10.0 dBm -> setpoint 28.2  (~10.0 mW; measured I 25 mA)
+refined 16 of 16 tiles on-chip, 128 trials (144 sweeps): mean hosted residual 0.1270 -> 0.1078
+hw 0: powering off
+  ramp setpoint 28.2 -> 0.0  (0.5s @ 60/s)
+  LASER OFF -- current 0, output disabled, TEC off. Safe to turn the key off / unplug.
+
+Y error 0.1488   signs 94%
+saved pic_data/sessions/2026-08-28/eight_matrices.json
+hw 0: powering off
+  LASER OFF -- current 0, output disabled, TEC off. Safe to turn the key off / unplug.

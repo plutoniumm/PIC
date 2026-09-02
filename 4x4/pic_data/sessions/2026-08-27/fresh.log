@@ -1,0 +1,9 @@
+########## fresh table
+  state 99: raw row sums [0.483 0.462 0.387 0.288]  col sums [0.49  0.381 0.394 0.355]
+wrote pic_data/sessions/2026-08-27/raw_transfers_fresh.json (100 states x 4 ports x 3 reads)
+########## matvec 2x2 (immediately)
+########## 8x8 (immediately)
+hosted residual 0.1596 (picked off the measured table)   twin predicts 0.1394 vs target
+MEASURED matrix vs target 0.2494
+Y error 0.1687, sign accuracy 97% (the sum over tiles is done in software; the chip did every multiply)
+the mesh does not host this target: the 0.2494 above is MEASURED, and it is in the MATRIX, not the readout. Try --scan for better rails, or a smaller block.

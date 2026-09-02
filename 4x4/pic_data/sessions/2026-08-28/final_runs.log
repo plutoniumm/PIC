@@ -1,0 +1,17 @@
+########## 2x2 08:33:40
+session budget 1.2 min (one 2x2 block x 4 vectors, 1 term(s) -> 20 heater programs at 2.2 s per four-port sweep)
+  reanchor: table moved 0.0044, inside the 0.0179 repeat floor for m=10 -- left alone
+hosted residual 0.0926 (picked off the measured table)   twin predicts 0.1298 vs target
+MEASURED matrix vs target 0.1323   (shape 0.0961, brightness x0.900, cond 5.7)
+mean vector error 0.0715 (uncorrected 0.0900; the measured scale x0.900 is divided out), sign accuracy 100%
+cost: 1 heater writes, 4 switch moves, 128 reads for the matrix and 4 vectors -- the vectors are arithmetic on the held sweep, so their error is a function of the measured matrix, not a second opinion on it
+the mesh does not host this target: the 0.1323 above is MEASURED, and it is in the MATRIX, not the readout. Try --scan for better rails, or a smaller block.
+########## 8x8 08:34:08
+session budget 8.5 min (8x8 in 16 2x2 tiles x 4 columns, 1 term(s) -> 170 heater programs at 2.2 s per four-port sweep)
+  reanchor: table moved 0.0045, inside the 0.0179 repeat floor for m=10 -- left alone
+refined 16 of 16 tiles on-chip, 128 trials (144 sweeps): mean hosted residual 0.1270 -> 0.1071
+hosted residual 0.1682 (picked off the measured table)   twin predicts 0.1706 vs target
+MEASURED matrix vs target 0.1498
+Y error 0.1082, sign accuracy 100% (the sum over tiles is done in software; the chip did every multiply)
+the mesh does not host this target: the 0.1498 above is MEASURED, and it is in the MATRIX, not the readout. Try --scan for better rails, or a smaller block.
+########## done 08:40:20

@@ -1,0 +1,27 @@
+########## capture done, ranking rails  06:56:01
+heater box: 8 steerable channels, widest span 1.51 pi (measured calibration)
+transfer table: 115 measured states from /Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic_data/sessions/2026-08-27/raw_transfers_fresh.json
+
+measured rail ranking for a 2x2 block over 115 states, best hosting first:
+  out      in        host err   cond   ill   |det|   steer  bright
+  (1, 3)   (0, 3)       0.176    5.2    0%   0.771   0.635   1.233
+  (1, 2)   (0, 2)       0.183    3.8    0%   0.683   0.739   1.275
+  (0, 1)   (0, 1)       0.215    3.9    2%   0.798   0.847   1.675
+  (0, 3)   (0, 3)       0.234    1.5    2%   0.881   0.641   1.469
+  rails: 1,3:0,3
+########## 2x2  06:56:24
+  reanchor: table moved 0.0013, inside the 0.0179 repeat floor for m=10 -- left alone
+transfer table: 115 measured states from /Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic_data/sessions/2026-08-27/raw_transfers_fresh.json
+hosted residual 0.0259 (picked off the measured table)   twin predicts 0.0364 vs target
+MEASURED matrix vs target 0.0381   (shape 0.0275, brightness x1.026, cond 4.6)
+mean vector error 0.0290 (uncorrected 0.0363; the measured scale x1.026 is divided out), sign accuracy 100%
+cost: 1 heater writes, 24 switch moves, 24 reads for the matrix and 4 vectors -- the vectors are arithmetic on the held sweep, so their error is a function of the measured matrix, not a second opinion on it
+########## 8x8  06:57:04
+  reanchor: table moved 0.0013, inside the 0.0179 repeat floor for m=10 -- left alone
+transfer table: 115 measured states from /Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic_data/sessions/2026-08-27/raw_transfers_fresh.json
+refined 16 tiles on-chip, 8 trials each: mean hosted residual 0.1806 -> 0.1470
+hosted residual 0.6439 (picked off the measured table)   twin predicts 0.3898 vs target
+MEASURED matrix vs target 0.6667
+Y error 0.5581, sign accuracy 91% (the sum over tiles is done in software; the chip did every multiply)
+the mesh does not host this target: the 0.6667 above is MEASURED, and it is in the MATRIX, not the readout. Try --scan for better rails, or a smaller block.
+########## done 07:11:13

@@ -47,7 +47,7 @@ import numpy as np
 from theory.calib import VOLTAGE_MAX, ds_error
 from theory.clements import NMODE
 
-from .config import ADC_BITS, ADC_REF_V, ADC_AVG_N
+from .config import VOLTAGE_MAX_CH, ADC_BITS, ADC_REF_V, ADC_AVG_N
 from .layout import N_HEATERS, REACHABLE_DACS
 
 # The readout cannot resolve below one averaged ADC step, so a "perfect" null reads as this
@@ -144,7 +144,10 @@ class Normalisation:
                 + f"\n  {self.reads} reads")
 
 
-def sweep(rig, volts, repeats: int = 1) -> np.ndarray:
+SWEEP_CYCLES = 1
+
+
+def sweep(rig, volts, repeats: int = 1, cycles: int | None = None) -> np.ndarray:
     """Four switch positions at one held heater state -> raw T[j, k], PD j through port k.
 
     **This is the primitive, not the single-port read.** `Calibration.to_transfer` divides
@@ -157,15 +160,35 @@ def sweep(rig, volts, repeats: int = 1) -> np.ndarray:
     Volts are not written here. The caller owns the settle, because only it knows whether
     the heater state actually changed.
 
-    Averaging repeats the whole port cycle rather than the read, because the switch is the
-    less repeatable of the two."""
+    **One round trip when the firmware can do it.** The loop below charges the host 4 x
+    `repeats` serial round trips and as many mirror settles; at repeats=6 that is 24 of each
+    and 8.9 s, of which 0.24 s is ADC conversion. `PIC.sweep_raw` runs the same nested loop
+    inside the firmware and answers once, which is where the 5-6x comes from. It is the same
+    measurement -- same ports, same AVG_N, same DAC state, same order -- so this stays one
+    function and the batch is an implementation of it, not an alternative to it.
+
+    `cycles` is how the averaging is spent. `cycles=1` takes all `repeats` frames at each
+    mirror position before moving on; `cycles=repeats` reproduces the old loop exactly,
+    re-visiting every port every time, and costs a mirror settle for each visit. The default
+    is 1 on measured grounds: `to_transfer` divides each column by its own sum and switch
+    repeatability is a scalar on one column, so it cancels identically -- and the bench
+    agrees, `talk/progress.md` finding no measurable noise contribution from the switch or
+    the heater rewrite. Raise it when the readout is NOT column normalised, or to put the
+    frames seconds apart rather than milliseconds apart deliberately."""
     v = np.asarray(volts, float)
+    n = max(1, int(repeats))
+    batch = getattr(rig, "sweep_ports", None)
+    if batch is not None:
+        c = min(n, max(1, int(SWEEP_CYCLES if cycles is None else cycles)))
+        got = batch(c, -(-n // c))     # ceil: never fewer frames than the caller asked for
+        if got is not None:
+            return got
     acc = np.zeros((NMODE, NMODE))
-    for _ in range(max(1, repeats)):
+    for _ in range(n):
         for k in range(NMODE):
             rig.select_input(k)
             acc[:, k] += rig.outputs(v)
-    return acc / max(1, repeats)
+    return acc / n
 
 
 def row_gain(raws, calib, dark=None, iters: int = 800) -> np.ndarray:
@@ -299,7 +322,7 @@ class _Tracker:
         return y
 
 
-def _ascend(rig, port, pd, levels, passes, track, v0=None):
+def _ascend(rig, port, pd, levels, passes, track, v0=None, vmax=None):
     """Coordinate ascent on the wired heaters, maximising one PD.
 
     Greedy and restart-free on purpose: the phase of each heater is a single sinusoid in
@@ -307,11 +330,13 @@ def _ascend(rig, port, pd, levels, passes, track, v0=None):
     picks up the interactions. Anything cleverer needs the calibration this routine runs
     before."""
     v = np.zeros(N_HEATERS) if v0 is None else np.asarray(v0, float).copy()
+    vmax = np.asarray(VOLTAGE_MAX_CH if vmax is None else vmax, float)
     best = track.see(rig.outputs(v), v, port)[pd]
     for _ in range(passes):
         for ch in REACHABLE_DACS:
             keep, hold = best, v[ch]
-            for lvl in levels:
+            for frac in levels:                   # fraction of THIS channel's own ceiling
+                lvl = float(frac) * vmax[ch]
                 v[ch] = lvl
                 got = track.see(rig.outputs(v), v, port)[pd]
                 if got > keep:
@@ -328,14 +353,20 @@ def measure(rig, *, ports=None, levels: int = 9, passes: int = 2,
     rather than every (port, PD) pair: the tracker harvests the rest. Cost is
     `NMODE * passes * len(REACHABLE_DACS) * levels` reads plus a short survey."""
     ports = list(range(NMODE)) if ports is None else list(ports)
-    grid = np.linspace(0.0, VOLTAGE_MAX, levels)
+    # Per channel, not the global 3.0 V. A single ceiling under-drives the 118 ohm group,
+    # whose real limit is 4.75 V, and over-commands the 60 ohm group, whose limit is 2.25 --
+    # the firmware clamps the latter so nothing is at risk, but the survey then believes it
+    # explored a range it never reached and picks `full` off a configuration that is not the
+    # brightest available. Same defect as the one `fit_fringe` carried.
+    vmax = np.asarray(VOLTAGE_MAX_CH, float)
+    grid = np.linspace(0.0, 1.0, levels)          # fraction of each channel's own ceiling
 
     rig.switch.dark()
     dark = np.mean([rig.outputs(np.zeros(N_HEATERS)) for _ in range(repeats)], axis=0)
 
     track = _Tracker(NMODE)
     mid = np.zeros(N_HEATERS)
-    mid[REACHABLE_DACS] = 0.5 * VOLTAGE_MAX
+    mid[REACHABLE_DACS] = 0.5 * vmax[REACHABLE_DACS]
     survey, port_full = {}, np.zeros(NMODE)
     for k in ports:                              # which port drives which PD hardest
         rig.select_input(k)
@@ -418,6 +449,20 @@ def _selftest(seed: int = 0):
     both_col = float(np.mean([rowcol(norm.normalise(T))[1] for T in raws]))
     unit = norm.normalise(raws[0], inputs=False)
 
+    # `SWEEP_CYCLES = 1` rests on this and nothing else. Re-pointing the mirror changes the
+    # coupling into one input facet, which is a scalar on that COLUMN of the sweep, and
+    # `to_transfer` divides every column by its own sum -- so the scatter the host's
+    # `repeats` loop existed to average out is removed identically rather than
+    # statistically, and the batched sweep can spend its frames inside one port visit.
+    # Injected at 5 percent per port, ten times what `pic.sim` draws for a re-selection.
+    srng = np.random.default_rng(0)
+    swing = max(float(np.abs(calib.to_transfer(T)
+                             - calib.to_transfer((T - calib.pd_offset[:, None])
+                                                 * np.exp(srng.normal(0, 0.05, NMODE))[None, :]
+                                                 + calib.pd_offset[:, None])).max())
+                for T in raws)
+
+    assert swing < 1e-12, swing
     assert np.all(norm.full > norm.dark), (norm.full, norm.dark)
     assert np.all(norm.dark >= 0)
     assert unit.min() > -0.05 and unit.max() <= 1.0 + 1e-9, (unit.min(), unit.max())
@@ -456,9 +501,23 @@ def _selftest(seed: int = 0):
         v[REACHABLE_DACS] = 0.4 * VOLTAGE_MAX
         rig3.measure(v)
         sim_col = ds_error(calib.to_transfer(sweep(rig3, v, repeats=2)))
+
+        # The batched firmware sweep must BE the host loop, not an approximation of it:
+        # same ports, same AVG_N, same DAC state, same order, one round trip instead of
+        # 4*repeats. Compared at 12 repeats so read noise is small enough that a wiring
+        # error -- a transposed reply, a port off by one -- cannot hide inside it.
+        assert rig3.batched
+        batched = sweep(rig3, v, repeats=12)
+        rig3.board._caps = {}                     # force the fallback path on the same rig
+        looped = sweep(rig3, v, repeats=12)
+        rig3.board._caps = None
+        batch_gap = float(np.abs(calib.to_transfer(batched)
+                                 - calib.to_transfer(looped)).max())
     assert sim_col < 0.6, sim_col
+    assert batch_gap < 0.02, batch_gap
 
     return dict(norm=norm, raw_row=raw_row, raw_col=raw_col, out_row=out_row,
+                switch_swing=swing, batch_gap=batch_gap,
                 both_col=both_col, peak=peak, reads=norm.reads, sim_col=sim_col,
                 lo=float(unit.min()), hi=float(unit.max()), bench=_selftest_bench())
 
@@ -516,6 +575,13 @@ if __name__ == "__main__":
     print(f"mean imbalance over 8 random probes: rows {r['raw_row']:.3f} -> {r['out_row']:.3f} "
           f"(PD full scale), cols {r['raw_col']:.3f} -> {r['both_col']:.3f} (input coupling)")
     print(f"one held state through sweep + to_transfer: ds error {r['sim_col']:.3f}")
+    print(f"the batched firmware sweep and the host loop agree to {r['batch_gap']:.4f} per "
+          f"entry at 12 repeats, which is read noise: it is one round trip instead of 48, "
+          f"not a different measurement")
+    print(f"a 5 percent per-port switch-repeat scatter moves a column-normalised entry by "
+          f"{r['switch_swing']:.1e} -- it is a column scalar and the column sum divides it "
+          f"out exactly, which is why the batched sweep spends its frames inside one port "
+          f"visit instead of re-cycling the mirror")
 
     b = r["bench"]
     if b is None:

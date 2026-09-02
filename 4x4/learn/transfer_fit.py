@@ -34,11 +34,13 @@ this whole file exists to avoid.
 **Which DAC drives which MZI is testable here and nowhere else.** A fringe sweep says a
 channel modulates; it does not say which mesh slot it sits in. `search_roles` scores
 assignments by held-out fit quality, and all 720 orderings of the six theta channels were
-scored against the 2026-08-27 hundred-state set. Two results, one sharp and one not: the
-order `theory.twin` implements today is decisively wrong (R^2 0.55 against 0.86), and
-DAC0 -> MZI5 is pinned in every top candidate, but the remaining five slots tie within the
-split-to-split spread and this data does not choose between them. `ROLES_LAYOUT` -- the map
-two vendor tables give on pins and resistance -- sits inside that tie.
+scored against the 2026-08-27 hundred-state set. Two results, one sharp and one not: plain
+DAC order -- what `theory.twin` implemented before `theory.layout._by_index` was fixed, kept
+here as `ROLES_DACORDER` -- is decisively wrong (R^2 0.55 against 0.86), and DAC0 -> MZI5 is
+pinned in every top candidate, but the remaining five slots tie within the split-to-split
+spread and this data does not choose between them. `ROLES_LAYOUT` -- the map two vendor
+tables give on pins and resistance, and what the twin implements today -- sits inside that
+tie.
 
     tr = load("pic_data/sessions/2026-08-27/raw_transfers_big.json")
     res = fit(tr, roles=ROLES_LAYOUT, calib0=Calibration.load("pic_data/calib.json"))
@@ -108,16 +110,26 @@ class RoleMap:
         return "unused"
 
 
-# What `theory.twin` implements today: it reads `ph[THETA_IDX]` and uses element k for
-# MESH[k], so position in the sorted heater list is the MZI number and the `index` field
-# of `theory.layout.HEATERS` is ignored.
+# What `theory.twin` implements: it reads `ph[THETA_IDX]` and uses element k for MESH[k],
+# so position in that slice is the MZI number. `THETA_IDX` is now ordered by the mesh element
+# each channel drives (`theory.layout._by_index`), so this AGREES with ROLES_LAYOUT and
+# `_selftest` asserts that it does -- it is derived from a different expression on purpose,
+# so a regression in either one shows up rather than cancelling.
 ROLES_TWIN = RoleMap(tuple(int(i) for i in THETA_IDX), tuple(int(i) for i in PHI_IDX))
 
 # What `theory.layout` says was MEASURED: report-MZI k at mesh index k-1, matched to the
-# H-names on (pins, resistance), giving DAC k -> theta of mesh index 5-k. `THETA_DAC` maps
-# mesh index -> DAC, which is the reverse of the order `ROLES_TWIN` assumes.
+# H-names on (pins, resistance), giving DAC k -> theta of mesh index 5-k.
 ROLES_LAYOUT = RoleMap(tuple(int(THETA_DAC[k]) for k in range(NMZI)),
                        tuple(int(i) for i in PHI_IDX))
+
+# The map you get by ordering theta heaters by DAC NUMBER instead of by the mesh element
+# each one drives -- DAC k to MZI k. It is what `theory.twin` implemented until
+# `theory.layout._by_index` was fixed, and the hundred-state set rejects it: held-out R^2
+# 0.55 against 0.86, and pearson -0.20 against the chip on the raw four-port states. Kept
+# as the control for `search_roles`, because a search that cannot separate this from the
+# right answer is not measuring anything, and comparing ROLES_TWIN against ROLES_LAYOUT --
+# now the same map -- would be comparing a map with itself.
+ROLES_DACORDER = RoleMap(tuple(range(NMZI)), tuple(int(i) for i in PHI_IDX))
 
 
 @dataclass
@@ -307,9 +319,10 @@ def phases_for_twin(phases_by_dac, roles: RoleMap) -> np.ndarray:
     """DAC-indexed optical phases -> the vector `theory.twin.Twin.matrix` expects.
 
     The twin reads `ph[THETA_IDX]` positionally, so element k of that slice has to be
-    MZI k's internal phase. Under `ROLES_TWIN` that is the identity; under `ROLES_LAYOUT`
-    it is a reversal, and getting it wrong costs held-out R^2 0.85 -> 0.55 on the
-    hundred-state set, with everything else refitted around it."""
+    MZI k's internal phase. Under `ROLES_TWIN` and `ROLES_LAYOUT` -- the same map since
+    `theory.layout._by_index` was fixed -- that is the identity on the theta channels; under
+    `ROLES_DACORDER` it is a reversal, and getting it wrong costs held-out R^2 0.86 -> 0.55
+    on the hundred-state set, with everything else refitted around it."""
     ph = np.asarray(phases_by_dac, float)
     out = np.zeros(ph.shape[:-1] + (N_HEATERS,))
     out[..., THETA_IDX] = ph[..., np.asarray(roles.theta, int)]
@@ -629,7 +642,9 @@ def _selftest(n: int = 40, seed: int = 0, verbose: bool = True):
     # freezing is only a legitimate gauge fixing if what is left still spans everything the
     # probe can see; the frozen coordinates are allowed to be non-flat individually, and
     # two of the three here are (only their sum is flat).
-    assert identifiable(RoleMap(roles.theta, roles.phi))[2] == rank
+    # the gauge count is a property of the mesh, not of which DAC drives which MZI: a
+    # different theta assignment must leave the same rank and the same nullity
+    assert identifiable(ROLES_DACORDER)[2] == rank
     Jfree = _jacobian(roles, free, seed=seed)
     assert np.linalg.matrix_rank(Jfree, tol=1e-8 * np.linalg.norm(Jfree, 2)) == rank
 
@@ -666,9 +681,12 @@ def _selftest(n: int = 40, seed: int = 0, verbose: bool = True):
     assert vpi_err < 0.10, vpi_err
     assert gain_err < 0.15, gain_err
 
-    # the role search must prefer the truth over the ordering the twin currently assumes
-    got = search_roles(tr, [roles, ROLES_TWIN], calib0=boot, steps=800, restarts=12, seed=seed,
-                       top=2)
+    # ROLES_TWIN is what the twin will actually consume; it must still be the measured map
+    assert ROLES_TWIN == ROLES_LAYOUT, (ROLES_TWIN, ROLES_LAYOUT)
+    # and the role search must prefer the truth over plain DAC order, which is a DIFFERENT
+    # map -- searching [roles, ROLES_TWIN] would be scoring one map against itself
+    got = search_roles(tr, [roles, ROLES_DACORDER], calib0=boot, steps=800, restarts=12,
+                       seed=seed, top=2)
     if verbose:
         print(f"  role search: {[(round(s, 4), rm.theta) for s, rm in got]}")
     assert got[0][1].theta == roles.theta, got
@@ -678,5 +696,7 @@ def _selftest(n: int = 40, seed: int = 0, verbose: bool = True):
 if __name__ == "__main__":
     print(f"mesh {MESH}")
     print(f"roles as theory.twin consumes them : theta {ROLES_TWIN.theta}")
-    print(f"roles as theory.layout measured    : theta {ROLES_LAYOUT.theta}")
+    print(f"roles as theory.layout measured    : theta {ROLES_LAYOUT.theta}"
+          + ("  (the same map)" if ROLES_TWIN == ROLES_LAYOUT else "  (DISAGREE)"))
+    print(f"plain DAC order, the falsified one : theta {ROLES_DACORDER.theta}")
     _selftest()

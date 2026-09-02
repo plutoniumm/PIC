@@ -72,8 +72,10 @@ CKPT = "runs/dpnn"
 # be capacity the net can only overfit with -- an input that moves while the target does
 # not is indistinguishable from an input that explains noise.
 #
-#   dark       VOLTAGE_MAX_CH == 0 (DAC 6, 8, 11): resistance never confirmed, so the
-#              channel is held at 0 V and no commanded drive reaches the chip.
+#   dark       VOLTAGE_MAX_CH == 0: no commanded drive reaches the chip. None today --
+#              the three channels whose resistance was never confirmed are STAGED at
+#              V_UNMEASURED = 1.5 V rather than held at 0 -- but the filter stays, because
+#              holding a channel dark is still how an unsafe one is taken out.
 #   out_phase  a diagonal phase screen after the mesh cannot change |U x|^2. Structural,
 #              not a measurement -- the same fact that makes this mesh 15 phases and not
 #              16 -- so no amount of data will ever make that column mean anything.
@@ -90,6 +92,12 @@ CKPT = "runs/dpnn"
 # general. The day a sweep finds an external channel that modulates, put "phi" in
 # VISIBLE_ROLES and refit the same data; nothing else has to change.
 VISIBLE_ROLES = ("theta",)
+# Ordered by DAC channel, because `HEATERS` is, and every consumer here reads it that way:
+# it selects feature COLUMNS (`V[:, MODEL_DACS]`) and is scaled channel by channel in
+# `compute_norm`, all in the same order. It holds the same six channels as
+# `theory.layout.THETA_IDX` in the REVERSE order, since THETA_IDX is ordered by the mesh
+# element each channel drives. Never hand this to anything mesh-ordered -- that swap is what
+# `theory.layout._by_index` documents mirroring the twin.
 MODEL_DACS = np.array([h.h for h in HEATERS
                        if h.role in VISIBLE_ROLES and DRIVE_SCALE[h.h] > 0], int)
 
@@ -313,11 +321,19 @@ def _selftest(n: int = 800, epochs: int = 150, seed: int = 0, verbose: bool = Tr
 
     model, norm, r2, meta = fit(D, ports, tel, Y, epochs=epochs, seed=seed)
 
-    # a dark channel handed in explicitly must arrive as a dead column, not a live input
+    # A channel at zero drive must arrive as a dead column, not a live input the net can
+    # chase. This used to be checked on the channels with DRIVE_SCALE == 0; there are none
+    # left -- `pic.config.V_UNMEASURED` stages the three unmeasured channels at 1.5 V rather
+    # than holding them at 0 V -- so `dark` went empty and the max over it RAISED instead of
+    # checking anything. `held` is everything outside MODEL_DACS and is never empty, and the
+    # invariant is the same one: the feature is (DRIVE_SCALE[c] * d)^2, zero when either is.
     allch = np.arange(N_HEATERS)
-    Fall = make_features(D + 0.5 * DRIVE_MAX_V, ports, tel, allch)
-    dark = [c for c in allch if DRIVE_SCALE[c] == 0.0]
-    dark_max = float(np.abs(Fall[:, dark]).max())
+    held = np.setdiff1d(allch, MODEL_DACS)
+    Dz = D + 0.5 * DRIVE_MAX_V
+    Dz[:, held] = 0.0
+    Fall = make_features(Dz, ports, tel, allch)
+    n_dark = int(sum(DRIVE_SCALE[c] == 0.0 for c in allch))
+    dark_max = float(np.abs(Fall[:, held]).max())
 
     # the port must actually be doing work: one drive vector, four switch positions
     predict = make_predict(model, norm, {"tel": tel, "ports": ports}, channels=MODEL_DACS)
@@ -353,11 +369,12 @@ def _selftest(n: int = 800, epochs: int = 150, seed: int = 0, verbose: bool = Tr
         print("  held-out R^2   " + "  ".join(f"PD{j} {r2[j]:+.4f}/{ceiling[j]:.4f}"
                                               for j in range(NUM_OUT))
               + "   (fit / noise ceiling)")
-        print(f"  dark channels handed in explicitly: max |feature| {dark_max:.1e}")
+        print(f"  {held.size} channels at 0 V arrive dead: max |feature| {dark_max:.1e}"
+              f"   ({n_dark} channels structurally dark on this board)")
         print(f"  same drive across the four input ports: {spread * 1e3:.0f} mV spread")
         print("  features       " + "  ".join(f"{k} {v:+.4f}" for k, v in abl.items()))
 
-    assert dark_max == 0.0, "a structurally dark channel produced a non-zero feature"
+    assert dark_max == 0.0, "a channel held at 0 V produced a non-zero feature"
     assert spread > 10e-3, "the input port is not moving the prediction"
     assert float((r2 / ceiling).min()) > 0.85, f"under-fitted against the noise: {r2}"
     # A loose bar on purpose: over monotonic segments V^2's margin over V is a few

@@ -75,10 +75,11 @@ ERR_FULL, ERR_MIN, ERR_CAP = 0.34, 0.012, 0.055
 
 ROLE_NAME = {"theta": "θ", "phi": "φ", "out_phase": "α", "aux": "—"}
 
-# Dark-run scatter, 2026-08-27. PD0 is a different detector from the other three in every
-# way that matters, which is why the firmware averages ADC_AVG_N sweeps and why no fit is
-# ever accepted on PD0 alone.
-PD0_NOISE_MV = 26.0
+# Dark-run scatter, 2026-08-27, per PD. Only PD0's was recorded -- it is a different detector
+# from the other three in every way that matters, which is why the firmware averages
+# ADC_AVG_N sweeps and why no fit is ever accepted on PD0 alone. Which PD gets flagged is
+# read off the measured dark offsets, not remembered here.
+PD_DARK_SIGMA_MV = {0: 26.0}
 
 
 def _load():
@@ -114,18 +115,30 @@ def fit_error(dac: int, chars: dict):
     return math.sqrt(max(0.0, 1.0 - float(r2)))
 
 
-def role_note(h, chars) -> str:
+def ceiling_span(calib, dac: int) -> float:
+    """Phase span this channel reaches at its own ceiling, in units of π, from calib.json.
+
+    Not `char_results`' `span_pi`: `pic.characterize.fit_fringe` is called without `vmax`, so
+    that field is `(VOLTAGE_MAX / Vπ)²` against the flat 3 V ceiling for every channel — it
+    is neither the swept top nor what the driver now allows, and quoting it put MZI4 on this
+    drawing at 0.55π on a chip that reaches 1.37π. Both operands here are keyed by DAC
+    channel, which is the only ordering `VOLTAGE_MAX_CH` and `calib["vpi"]` are in."""
+    return (VOLTAGE_MAX_CH[dac] / calib["vpi"][dac]) ** 2
+
+
+def role_note(h, chars, calib) -> str:
     """One line saying what this channel is worth, in its own terms."""
     st = state_of(h.h, chars)
     if st == "char":
         r = chars[h.h]
-        return f"Vπ {r['vpi']:.2f} V · span {r['span_pi']:.2f}π · r² {r['r2']:.4f}"
+        return (f"Vπ {calib['vpi'][h.h]:.2f} V · span {ceiling_span(calib, h.h):.2f}π · "
+                f"r² {r['r2']:.4f}")
     if st == "weak":
         r = chars[h.h]
         return (f"swept, fit rejected: {1000 * r['amplitude']:.1f} mV, r² {r['r2']:.3f} — "
                 f"real modulation, under the accept gate")
     if st == "capped":
-        return f"{HEATER_OHMS[h.h]:.0f} Ω → {VOLTAGE_MAX_CH[h.h]:.1f} V cap: no usable fringe"
+        return f"{HEATER_OHMS[h.h]:.0f} Ω → {VOLTAGE_MAX_CH[h.h]:.2f} V cap: no usable fringe"
     if st == "dark":
         return "resistance never confirmed — the driver holds it at 0 V"
     if h.role == "out_phase":
@@ -248,9 +261,12 @@ def fig_mesh(calib, chars, date):
     ax.set_ylim(-0.62, y_top)
 
     nrm = calib["meta"]["normalisation"]
-    port_v = nrm["port_full_v"]
+    port_v = nrm["port_full_v"]                     # per INPUT port, drawn on the input rails
     port_db = [10 * math.log10(p / max(port_v)) for p in port_v]
     worst = port_db.index(min(port_db))
+    dark_v, full_v = nrm["dark_v"], nrm["full_v"]   # per PD, drawn at the detectors
+    # which detector gets flagged is the measured dark floor, not a remembered channel number
+    noisy_pd = max(range(NMODE), key=lambda r: dark_v[r])
 
     box(ax, 0.45, y_mid - 0.98, 1.35, 1.96, fc="#f4f6fa", ec=VIOLET, lw=1.5)
     ax.text(1.125, y_mid + 0.76, "Sercalo\n1×4", ha="center", va="top", fontsize=10,
@@ -294,13 +310,15 @@ def fig_mesh(calib, chars, date):
 
             st = state_of(th.h, chars)
             if st == "char":
-                note = f"Vπ {chars[th.h]['vpi']:.2f} V   span {chars[th.h]['span_pi']:.2f}π"
+                note = (f"Vπ {calib['vpi'][th.h]:.2f} V   "
+                        f"span {ceiling_span(calib, th.h):.2f}π")
             elif st == "weak":
                 note = f"fit rejected   r² {chars[th.h]['r2']:.3f}"
             elif st == "capped":
                 # even at the most favourable Vπ this rig has measured, span goes as (V/Vπ)².
                 reach = (VOLTAGE_MAX_CH[th.h] / best_vpi) ** 2
-                note = f"{HEATER_OHMS[th.h]:.0f} Ω → 1.5 V cap   span ≤ {reach:.2f}π"
+                note = (f"{HEATER_OHMS[th.h]:.0f} Ω → {VOLTAGE_MAX_CH[th.h]:.2f} V cap   "
+                        f"span ≤ {reach:.2f}π")
             else:
                 note = "not swept"
             # every MZI labels above its own upper rail, so the placement rule is one rule.
@@ -316,11 +334,11 @@ def fig_mesh(calib, chars, date):
             continue
         counts[heater(ax, x_alpha, Y[r], by_role["out_phase"][r].h, chars, up=True)] += 1
 
-    dark_v, full_v = nrm["dark_v"], nrm["full_v"]
     for r in range(NMODE):
-        ok = r != 0
+        ok = r != noisy_pd
         col = pd_glyph(ax, x_pd, Y[r], r, ok)
-        tail = f"   σ ≈ {PD0_NOISE_MV:.0f} mV" if not ok else ""
+        sig = PD_DARK_SIGMA_MV.get(r)
+        tail = f"   σ ≈ {sig:.0f} mV" if not ok and sig is not None else ""
         ax.text(x_pd + 0.36, Y[r] - 0.09,
                 f"full {1000 * full_v[r]:.0f} mV · dark {1000 * dark_v[r]:.1f} mV{tail}",
                 ha="left", va="top", fontsize=7.2, color=col if not ok else MUT, zorder=9)
@@ -353,7 +371,7 @@ def fig_mesh(calib, chars, date):
         Line2D([], [], marker="v", color="w", markerfacecolor=PD_OK, markersize=11,
                label="PD: strong"),
         Line2D([], [], marker="v", color="w", markerfacecolor=PD_BAD, markersize=11,
-               label="PD: weak (PD0)"),
+               label=f"PD: weak (PD{noisy_pd})"),
     ]
     ax.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, -0.065), ncol=4,
               frameon=False, fontsize=8.4, handlelength=1.6, columnspacing=2.2,
@@ -430,9 +448,13 @@ def fig_chain(calib, chars, date):
          "10 k NTC → Steinhart\nPID Kp 5, one update / s\nSPI to the LT8722\n"
          "streams temp,set,drive", BLUE)
 
+    live_v = [v for v in VOLTAGE_MAX_CH if v > 0]
+    n_dark = len(VOLTAGE_MAX_CH) - len(live_v)
     node(0.565, 0.775, 0.170, "DAC81416",
-         f"16 ch · {DAC_BITS} bit / {DAC_REF_V:.0f} V ref\nper-channel V ceiling\n"
-         f"3 V · 1.5 V · 0 V", GREEN)
+         f"{len(VOLTAGE_MAX_CH)} ch · {DAC_BITS} bit / {DAC_REF_V:.0f} V ref\n"
+         f"ceiling V = {HEATER_MAX_MA:.0f} mA × R\n"
+         f"{min(live_v):.2f}–{max(live_v):.2f} V"
+         + (f" · {n_dark} × 0 V" if n_dark else ""), GREEN)
     node(0.565, 0.530, 0.170, "Sercalo 1×4 switch",
          f'{SWITCH_BAUD} bd · "SET 1..4"\n3.1 dB insertion loss\nSET 0 = optical dark', VIOLET)
     node(0.565, 0.320, 0.170, "PD-TIA × 4",
@@ -488,9 +510,12 @@ def fig_channels(calib, chars, date):
     ax.axis("off")
 
     ax.plot([0, 0], [-0.55, N_HEATERS - 0.55], color=INK2, lw=1.0)
-    for v in (1.5, 3.0):
+    # One reference line per resistance group, at that group's own ceiling. The old fixed
+    # 1.5/3.0 V pair was the flat design clamp; under V = I_max·R no channel sits at either.
+    ohm = [(VOLTAGE_MAX_CH[d], r) for d, r in enumerate(HEATER_OHMS) if r is not None]
+    for v in (max(v for v, r in ohm if r < 90), max(v for v, r in ohm if r >= 90)):
         ax.plot([v, v], [-0.55, N_HEATERS - 0.55], color=GRID, lw=1.0, ls=(0, (3, 3)))
-        ax.text(v, -0.72, f"{v:.1f} V", ha="center", va="top", fontsize=8.5, color=MUT)
+        ax.text(v, -0.72, f"{v:.2f} V", ha="center", va="top", fontsize=8.5, color=MUT)
     ax.text(0, -0.72, "0", ha="center", va="top", fontsize=8.5, color=MUT)
 
     counts = {k: 0 for k in STATES}
@@ -513,7 +538,7 @@ def fig_channels(calib, chars, date):
         r = HEATER_OHMS[d]
         ax.text(-0.06, y, f"{r:.0f} Ω" if r is not None else "R ?", ha="right", va="center",
                 fontsize=8.4, color=MUT)
-        ax.text(max(vmax, 0.012) + 0.08, y, role_note(h, chars), ha="left", va="center",
+        ax.text(max(vmax, 0.012) + 0.08, y, role_note(h, chars, calib), ha="left", va="center",
                 fontsize=8.2, color=ec if st in ("char", "dark") else INK2)
 
     handles = [mp.Patch(facecolor=f, edgecolor=e, label=f"{lbl}  ({counts[k]})")

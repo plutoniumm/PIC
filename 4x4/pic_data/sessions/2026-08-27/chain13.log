@@ -1,0 +1,23 @@
+########## 1. rank rails on the 13 dBm table  06:23:11
+heater box: 8 steerable channels, widest span 1.51 pi (measured calibration)
+transfer table: 82 measured states from /Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic_data/sessions/2026-08-27/raw_transfers_fresh.json
+
+measured rail ranking for a 2x2 block over 82 states, best hosting first:
+  out      in        host err   cond   ill   |det|   steer  bright
+  (0, 1)   (0, 1)       0.177    3.7    1%   0.797   0.855   1.670
+  (1, 2)   (0, 2)       0.195    3.9    0%   0.676   0.734   1.264
+  (1, 2)   (1, 2)       0.211    2.9    1%   0.706   0.770   1.347
+  (1, 3)   (0, 3)       0.265    4.8    0%   0.762   0.592   1.211
+  (1, 3)   (0, 1)       0.268   58.2   38%   0.178   0.607   0.732
+  rails: 0,1:0,1
+########## 2. 2x2, everything on  06:23:33
+session budget 4.1 min (one 2x2 block x 4 vectors, 1 term(s) -> 20 heater programs at 8.9 s per four-port sweep)
+  reanchor: table moved 0.0021, inside the 0.0179 repeat floor for m=10 -- left alone
+transfer table: 82 measured states from /Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic_data/sessions/2026-08-27/raw_transfers_fresh.json
+hosted residual 0.1087 (picked off the measured table)   twin predicts 0.1525 vs target
+MEASURED matrix vs target 0.3041   (shape 0.2217, brightness x0.745, cond 4.9)
+mean vector error 0.2120 (uncorrected 0.2412; the measured scale x0.745 is divided out), sign accuracy 100%
+cost: 1 heater writes, 24 switch moves, 24 reads for the matrix and 4 vectors -- the vectors are arithmetic on the held sweep, so their error is a function of the measured matrix, not a second opinion on it
+the mesh does not host this target: the 0.3041 above is MEASURED, and it is in the MATRIX, not the readout. Try --scan for better rails, or a smaller block.
+########## 3. 8x8, everything on  06:24:23
+session budget 33.0 min (8x8 in 16 2x2 tiles x 4 columns, 1 term(s) -> 170 heater programs at 8.9 s per four-port sweep)

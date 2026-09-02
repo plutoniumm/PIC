@@ -3,11 +3,13 @@
 The maths is next door and hardware-free; this is the four things it needs from a bench.
 
 **The box.** `theory` owns the heater law but not the board, so the per-channel voltage
-ceiling has to come from here: `pic.config.VOLTAGE_MAX_CH` clamps the 60 ohm heaters to
-1.5 V for their current rating and holds three unconfirmed channels dark. That clamp is not
-cosmetic -- it takes four of the eight steerable channels from a 0.3 pi span down to 0.08 pi
--- so a validation run against the uniform 3 V ceiling is optimistic and `bench_box` is the
-one to believe.
+ceiling has to come from here: `pic.config.VOLTAGE_MAX_CH` gives every channel its own
+ceiling from its own measured resistance at 40 mA -- 2.25-2.45 V on the ~60 ohm group,
+4.50-4.75 V on the ~118 ohm group. That is not cosmetic and it cuts both ways, so a
+validation run against the uniform 3 V ceiling is wrong in both directions: of the eight
+steerable channels the three clamped ones reach 0.18-0.58 pi where a flat 3 V would claim
+0.31-0.99, and the five wide ones reach 0.95-1.51 pi where it would concede only 0.41-0.66.
+`bench_box` is the one to believe.
 
 **The probe.** One primitive, and it is the whole four-port sweep: set the volts, cycle the
 switch through all four input ports, read the photodiodes, and turn the resulting matrix
@@ -18,9 +20,15 @@ exist until the column is complete. The single-port path that divided by a store
 `input_scale` is kept as `normalise="static"` and is wrong on this bench: the light leaving
 ports 0 and 1 moves by 5-6x across heater states, so a constant fitted at one state is out
 by that factor at the next, which is where a vector error of 1.1 against a hosted residual
-of 0.0005 came from. The sweep costs three extra switch moves per heater state and no extra
+of 0.0001 came from. The sweep costs three extra switch moves per heater state and no extra
 thermal settle, and it pays for itself the moment a second vector is measured under the
 same program.
+
+The sweep is also ONE round trip, not 4*repeats of them: the firmware runs the port cycle
+itself and answers once (`pic.interface.PIC.sweep_raw`). That is where the clock went -- at
+repeats=6 a sweep was 24 serial round trips and 24 mirror settles, 8.9 s, of which 0.24 s
+was analog-to-digital conversion. Batched it is 1.54 s, and the whole span from 6 repeats to
+32 costs 1.54 s to 2.23 s, so averaging has stopped competing with the wall clock.
 
 **The number that was missing.** `run` used to report `matrix_err` out of `plan.predict()`,
 which is the twin's arithmetic on the twin's own fitted block and never touches an
@@ -74,16 +82,27 @@ from theory.matmat import (
     BlockPlan, TILE_K, CountedProbe, compose, matmat as tile_matmat, plan_block,
 )
 
+from .acquisition import estimate_sweep_job, sweep_seconds
 from .config import DEFAULT_SETTLE_S, VOLTAGE_MAX, VOLTAGE_MAX_CH
 from .layout import N_HEATERS, REACHABLE_DACS
-from .normalise import load_session, sweep
+from .normalise import SWEEP_CYCLES, load_session, sweep
 
 ROOT = Path(__file__).resolve().parent.parent
 TRANSFER_GLOB = "pic_data/sessions/*/raw_transfers*.json"
 
 # `theory.intensity_matvec.plan_matvec`'s own constants, named here because the table
 # planner has to reproduce its decomposition exactly or the two are not comparable.
+# 0.25 is a measured optimum, not a round number. Swept against matrix error on 120 random
+# targets with the table stale by its measured 0.0157, as margin: host / matrix / relative
+# amplification -- 0.05: .073/.110/1.89, 0.10: .059/.090/1.45, 0.25: .051/.085/1.11,
+# 0.60: .069/.127/1.00, 2.00: .080/.241/0.99. A larger shift makes the hosted matrix more
+# uniform, so Sinkhorn's diagonals stop being extreme and a stale table is amplified less; but
+# the target then sits under a constant the recovery subtracts back off, and past 0.25 that
+# costs more signal than the conditioning buys. Clean interior minimum -- do not tune by eye.
 SHIFT_MARGIN, SINK_FLOOR = 0.25, 1e-3
+# what two captures of the same states agree to, measured 2026-08-27: the bar a
+# correction has to clear before it is worth its own fitting noise.
+REPEAT_FLOOR = 0.0179
 
 
 def bench_box(calib: Calibration | None = None, vmax=None, known=None) -> HeaterBox:
@@ -135,7 +154,7 @@ class SweepProbe:
 
     def __init__(self, rig, calib: Calibration | None = None, power: str = "digital",
                  settle_s: float = DEFAULT_SETTLE_S, dbm: float = 8.0, repeats: int = 1,
-                 cache: bool = True):
+                 cache: bool = True, cycles: int | None = None):
         if power not in ("digital", "laser"):
             raise ValueError(f"power={power!r}; use 'digital' or 'laser'")
         self.rig = rig
@@ -144,6 +163,7 @@ class SweepProbe:
         self.settle_s = float(settle_s)
         self.dbm = float(dbm)
         self.repeats = int(repeats)
+        self.cycles = cycles
         self.cache = bool(cache)
         self.reads = self.switch_moves = self.writes = 0
         self._port = None
@@ -161,9 +181,12 @@ class SweepProbe:
         if self.power == "laser":
             self.rig.laser.set(self.dbm)
         n = max(1, self.repeats)
-        raw = sweep(self.rig, v, n)
+        raw = sweep(self.rig, v, n, cycles=self.cycles)
         self.reads += NMODE * n
-        self.switch_moves += NMODE * n
+        # A batched sweep moves the mirror once per port per CYCLE, not once per repeat;
+        # counting otherwise would report a cost the bench no longer pays.
+        c = min(n, max(1, self.cycles if self.cycles is not None else SWEEP_CYCLES))
+        self.switch_moves += NMODE * (c if getattr(self.rig, "batched", False) else n)
         self._port = NMODE - 1                 # sweep leaves the switch on the last port
         P = np.clip(self.calib.to_intensity(raw.T).T, 0.0, None)
         return self.calib.to_transfer(raw), P.sum(0)
@@ -196,7 +219,7 @@ class SweepProbe:
 
 def rig_probe(rig, calib: Calibration | None = None, power: str = "digital",
               settle_s: float = DEFAULT_SETTLE_S, dbm: float = 8.0,
-              normalise: str = "column", repeats: int = 1):
+              normalise: str = "column", repeats: int = 1, cycles: int | None = None):
     """The bench primitive behind every pass: (volts, port, power) -> four intensities.
 
     `normalise="column"` is `SweepProbe` and is the one to use. `"static"` is the original
@@ -209,7 +232,7 @@ def rig_probe(rig, calib: Calibration | None = None, power: str = "digital",
     once and every later pass only moves the switch. `split` pays it on every pass."""
     if normalise == "column":
         return SweepProbe(rig, calib, power=power, settle_s=settle_s, dbm=dbm,
-                          repeats=repeats)
+                          repeats=repeats, cycles=cycles)
     if normalise != "static":
         raise ValueError(f"normalise={normalise!r}; use 'column' or 'static'")
 
@@ -283,7 +306,7 @@ def measured_block_matmat(plan: BlockPlan, probe, X) -> tuple[np.ndarray, np.nda
     Xp[:N] = np.atleast_2d(X)
     Bh = np.zeros(((M + k - 1) // k * k, (N + k - 1) // k * k))
     Y = np.zeros(((M + k - 1) // k * k, Xp.shape[1]))
-    for (i, j), tile in plan.tiles.items():
+    for (i, j), tile in _by_state(plan.tiles):
         want = plan.B[i * k:(i + 1) * k, j * k:(j + 1) * k]
         got = measured_matrix(tile, probe)
         # PER TILE, not once for the assembled matrix: every tile is its own heater state
@@ -295,6 +318,33 @@ def measured_block_matmat(plan: BlockPlan, probe, X) -> tuple[np.ndarray, np.nda
         Bh[i * k:(i + 1) * k, j * k:(j + 1) * k] = got / a
         Y[i * k:(i + 1) * k] += tile_matmat(tile, probe, Xp[j * k:(j + 1) * k]) / a
     return Bh[:M, :N], Y[:M]
+
+
+def _by_state(tiles: dict):
+    """Tiles ordered so that any two picking the SAME heater program are adjacent.
+
+    The table is a codebook and the codebook concentrates: measured on the 115-state bench
+    table, the 64 tiles of a 16x16 pick **18 distinct states** and the 16 of an 8x8 pick 10.
+    `SweepProbe` caches one state, so two tiles on the same program separated by a third pay
+    two thermal settles and two sweeps for one measurement -- 72 percent of the 16x16's
+    measurement sweeps were re-reading a state the run had already read. Sorting brings them
+    together and the existing cache does the rest; nothing caches across a gap, so no tile
+    is ever served a sweep taken minutes earlier.
+
+    What it costs is independence: tiles served from one sweep share that sweep's read
+    noise. Measured rather than argued, paired over 12 random 16x16 targets at the bench's
+    1.2 percent read noise, the measured block error is 0.3531 grouped against 0.3682 as
+    planned -- no worse, and the sweeps fall 54 to 12. At 3 percent the paired difference is
+    +0.10 +- 0.21, still nothing. It is only worth re-measuring if read noise ever
+    approaches 3 percent, and by 6 percent both orderings are already past a relative error
+    of 1 and neither works.
+
+    Refinement breaks the sharing on purpose, one tile at a time, which is another reason to
+    spend it on a few tiles rather than on all of them.
+
+    `Y` accumulates with `+=` and `Bh` writes disjoint blocks, so the order is free."""
+    return sorted(tiles.items(),
+                  key=lambda kv: (tuple(np.round(kv[1].terms[0].prog.volts, 6)), kv[0]))
 
 
 def shape_scale(M, B) -> tuple[float, float]:
@@ -352,7 +402,21 @@ def load_transfers(path=None, calib: Calibration | None = None,
         # same session as these sweeps, and a stale floor is the one nuisance a column sum
         # cannot divide out because it is additive rather than multiplicative.
         T = np.stack([calib.to_transfer(r, d["dark"]) for r in d["raws"]])
-        if best is None or len(T) > len(best):
+        # A sync writes the fitted mixing here rather than rewriting the file's raw reads,
+        # which are real measurements and should stay as taken. Applying it on load keeps one
+        # copy of the data and one of the correction, so a sync can be inspected or dropped.
+        M = (d.get("meta") or {}).get("sync_mixing")
+        if M is not None:
+            Y = np.asarray(M, float) @ T                       # (n,4,4), mixing on the output
+            ssum = Y.sum(axis=1, keepdims=True)
+            T = np.divide(Y, ssum, out=np.zeros_like(Y), where=ssum > 0)
+        # Strictly greater would keep the FIRST table of the largest size, and `cands` is
+        # mtime-sorted ascending, so ties went to the oldest capture -- on 2026-08-27 that
+        # silently planned every run off a table taken during a thermal transient while a
+        # fresher one of the same size sat beside it. Tables of equal size are separated by
+        # nothing but age, and the youngest is the one that still describes the chip: a
+        # 75-minute-old table differs from it by 0.100 per entry against a 0.0145 repeat.
+        if best is None or len(T) >= len(best):
             best = Transfers(np.asarray(d["volts"], float), T, q)
     return best
 
@@ -371,13 +435,24 @@ def _pick_state(H, transfers: Transfers, rails, floor: float = SINK_FLOOR, sink=
     Scored on the recovered matrix, not on the block. `Term.matrix()` undoes the Sinkhorn
     diagonals and the hosted scale before anything reaches the answer, and those diagonals
     weight the entries very unevenly, so the block residual an optimiser would minimise is
-    not the error the caller gets."""
+    not the error the caller gets.
+
+    Brightness is deliberately NOT in this ranking, and it was tested rather than assumed.
+    The recovery does amplify a stale table -- absolutely, by a median 3.45 -- and a dim state
+    looks like it should amplify more, since the recovery divides by `scale`. It does not:
+    `scale` is FITTED to the block, so it grows with the block, and the amplification is
+    scale-invariant in relative terms. Adding a brightness penalty picked the same state on
+    200 of 200 random targets and moved the matrix error by 0%. The amplification comes from
+    `r` and `s`, which come from the TARGET and are common to every candidate, so no choice of
+    state can touch it. (`SHIFT_MARGIN` can, and 0.25 is already its optimum -- see there.)"""
     A, r, s = sinkhorn(H, floor=floor) if sink is None else sink
     blocks = transfers.block(rails)
     scale = (blocks * A).sum((-2, -1)) / max(float((A * A).sum()), 1e-18)
-    rec = np.einsum("i,nij,j->nij", 1 / r, blocks, 1 / s) / np.where(
-        scale > 0, scale, 1.0)[:, None, None]
-    err = np.linalg.norm(rec - H, axis=(-2, -1)) / max(np.linalg.norm(H), 1e-18)
+    safe = np.where(scale > 0, scale, 1.0)[:, None, None]
+    rec = np.einsum("i,nij,j->nij", 1 / r, blocks, 1 / s) / safe
+    nH = max(np.linalg.norm(H), 1e-18)
+    err = np.linalg.norm(rec - H, axis=(-2, -1)) / nH
+    # how far a relative error in the stored block travels into the recovered matrix
     k = int(np.argmin(np.where(scale > 0, err, np.inf)))
     # copies, not views: the Program is handed to a driver and to `plan_from_table`, which
     # writes phases into it, and the table has to survive being planned against repeatedly.
@@ -385,9 +460,329 @@ def _pick_state(H, transfers: Transfers, rails, floor: float = SINK_FLOOR, sink=
                              float(scale[k]), blocks[k].copy(), float(err[k])), r, s)
 
 
+def refine_term(term: Term, H, probe, rails, box: HeaterBox, trials: int = 6,
+                step: float = 0.06, seed: int = 0, rng=None) -> Term:
+    """Hill-climb a picked state on the CHIP, because the table is quantised, not noisy.
+
+    `_pick_state` returns the best of the hundred states someone happened to measure, and on
+    the 8x8 that residual is 0.16 of a 0.20 measured error -- four fifths of it. Sixteen
+    tiles share the hundred states one 2x2 block gets to itself, so the shortfall is
+    resolution and no amount of averaging touches it. Measuring a handful of fresh states
+    NEAR the pick is far cheaper than capturing thousands blind: each trial is one heater
+    write and one port cycle, and the gradient is not needed because the neighbourhood is
+    small and the objective is measured directly.
+
+    Scored exactly as `_pick_state` scores, on the recovered matrix rather than the raw
+    block, so a refinement cannot win by improving a number the caller never sees. Steps are
+    taken in phase, which is V^2, so a fixed fractional step moves every heater equally far
+    around its own fringe rather than equally far in volts."""
+    rng = rng or np.random.default_rng(seed)
+    tr = np.flatnonzero(box.trainable)
+    vmax = np.asarray(box.vmax, float)
+
+    A = sinkhorn(H, floor=SINK_FLOOR)[0]
+
+    def err_of(volts) -> tuple[float, np.ndarray, float]:
+        blk = measure_transfer(probe, volts)[np.ix_(list(rails[0]), list(rails[1]))]
+        sc = float((blk * A).sum() / max(float((A * A).sum()), 1e-18))
+        rec = np.diag(1 / term.r) @ blk @ np.diag(1 / term.s) / (sc if sc > 0 else 1.0)
+        return (float(np.linalg.norm(rec - H) / max(np.linalg.norm(H), 1e-18)), blk, sc)
+
+    best_v = term.prog.volts.copy()
+    best_e, best_blk, best_sc = err_of(best_v)
+    for _ in range(max(0, trials)):
+        v = best_v.copy()
+        ph = (v[tr] / np.maximum(vmax[tr], 1e-9)) ** 2          # fraction of full phase
+        ph = np.clip(ph + rng.normal(0, step, tr.size), 0.0, 1.0)
+        v[tr] = vmax[tr] * np.sqrt(ph)
+        e, blk, sc = err_of(v)
+        if e < best_e:
+            best_e, best_v, best_blk, best_sc = e, v, blk, sc
+    return Term(term.coeff, Program(best_v, np.zeros(len(best_v)), best_sc, best_blk,
+                                    best_e), term.r, term.s)
+
+
+REFINE_MIN_TRIALS = 4
+
+
+def refine_budget(errs, budget: int, min_trials: int = REFINE_MIN_TRIALS,
+                  max_trials: int | None = None) -> np.ndarray:
+    """Split a fixed total of refinement trials across tiles by hosted residual.
+
+    `run_block` used to give every tile the same `--refine N`, which on a 16x16 is 64 x 9
+    sweeps whether a tile is hosted at 0.02 or at 0.25. It should not be uniform, and the
+    right weighting is derivable rather than a taste:
+
+      the block error adds incoherently over tiles -- measured, `theory.matmat.accumulation`
+      puts the observed sum on the independent bound at every tile count -- so what a budget
+      is spending against is `sum e_i^2`, not `sum e_i`;
+      refinement's return is concave in trials -- `refine_ablation` measures 24 / 41 / 100
+      percent of the full-refine benefit for a quarter / half / all of the trials -- which is
+      close enough to logarithmic that `g'(t) ~ 1/t`;
+      equalising the marginal gain `e_i^2 g'(t_i)` across tiles then gives `t_i ~ e_i^2`.
+
+    So trials go as the SQUARE of the residual, not the residual, and the worst tiles take
+    most of the budget by construction. `min_trials` is a floor with teeth: a tile gets that
+    many or none at all, because a refinement visit costs one baseline sweep before its first
+    trial and two or three trials of a random hill climb do not reliably beat that overhead.
+    Tiles that get nothing keep their picked state, which is also what lets them share a
+    sweep with another tile that picked the same one.
+
+    Measured against uniform `--refine N`, paired on the same targets and the same table
+    (`refine_ablation`, 115-state table, 1.2 percent read noise). "keep" is the fraction of
+    the benefit that uniform 8-per-tile delivers, and the sweep counts are what the bench
+    actually pays -- a funded tile costs one baseline sweep on top of its trials, an unfunded
+    one costs nothing:
+
+        8x8, 16 tiles          uniform                    budgeted
+        trials  sweeps    hosted   keep      sweeps    hosted   keep
+            32      48    0.1692    24%          34    0.1611    36%
+            64      80    0.1555    41%          71    0.1431    76%
+           128     144    0.1327   100%         140    0.1186   133%
+
+        16x16, 64 tiles
+           128     192    0.1643    16%         135    0.1628    20%
+           256     320    0.1502    57%         282    0.1422    64%
+           512     576    0.1262   100%         556    0.1253    95%
+
+    So: HALF the trials keeps two thirds to three quarters of the benefit, and a quarter
+    keeps a fifth to a third. Per sweep the budgeted policy is 1.3-1.6x the return of the
+    uniform one everywhere below the full budget, and at the full budget it is simply better
+    for the same money. Uniform at one trial per tile is *negative* -- 128 sweeps to make the
+    residual slightly worse -- which is the clearest statement of the problem: a visit costs
+    a sweep before it can win anything, so trials must not be spread thin.
+
+    Returns an integer trial count per tile, in the order `errs` came in."""
+    e = np.asarray(errs, float)
+    budget = max(0, int(budget))
+    if e.size == 0 or budget <= 0:
+        return np.zeros(e.size, int)
+    cap = budget if max_trials is None else int(max_trials)
+    w = np.square(np.clip(e, 0.0, None))
+    if not w.sum() > 0:
+        return np.zeros(e.size, int)
+    t = np.floor(budget * w / w.sum()).astype(int)
+    t = np.minimum(t, cap)
+    t[t < min_trials] = 0                 # a visit is worth paying for or it is not
+    # hand the floored remainder to the worst tiles that are already funded, then to the
+    # worst unfunded one that the remainder can lift over the floor
+    left = budget - int(t.sum())
+    for i in np.argsort(-e):
+        if left <= 0:
+            break
+        if t[i] > 0:
+            add = min(left, cap - t[i])
+        elif left >= min_trials:
+            add = min(left, cap)
+        else:
+            continue
+        t[i] += add
+        left -= add
+    return t
+
+
+def twin_table(box: HeaterBox, probe, n_states: int, rng) -> Transfers:
+    """A measured transfer table, measured through `probe`. One chip, table and all.
+
+    The point of the argument is negative: a table captured on the BENCH and then refined
+    against the twin scores candidate states on a different chip from the one the starting
+    point came from. It walks away from the optimum and reports a 772 percent regression
+    that is an artefact of mixing the two. Any refinement experiment has to sample its table
+    from the same instrument it then refines against, which is what this is for."""
+    tr = np.flatnonzero(box.trainable)
+    volts = np.zeros((n_states, len(box.vmax)))
+    volts[:, tr] = np.asarray(box.vmax, float)[tr] * np.sqrt(rng.uniform(0, 1,
+                                                                        (n_states, tr.size)))
+    T = np.stack([measure_transfer(probe, v) for v in volts])
+    return Transfers(volts, T, None)
+
+
+def refine_ablation(budgets=(0, 8, 16, 32), n_states: int = 100, tiles: int = 16,
+                    k: int = TILE_K, noise: float = 0.012, targets: int = 6,
+                    seed: int = 0, min_trials: int = REFINE_MIN_TRIALS) -> list[dict]:
+    """What refinement buys per trial, uniform against budgeted, on one consistent chip.
+
+    Each budget is run twice over the same targets and the same table: once as `--refine N`
+    on every tile, once as the same TOTAL number of trials handed out by `refine_budget`.
+    The two spend identical hardware time by construction -- `sweeps` counts the baseline
+    visit each funded tile costs -- so the comparison is where the trials go and nothing
+    else.
+
+    Reported on the hosted residual, which is what refinement optimises and what the
+    2026-08-27 ablation reported, and on the measured block error beside it, which is what
+    the caller gets."""
+    from theory.intensity_matvec import twin_probe
+    from theory.twin import MeshError, Twin
+
+    box = bench_box()
+    rows = []
+    for b in budgets:
+        acc = {"uniform": [], "budget": []}
+        cost = {"uniform": 0, "budget": 0}
+        for t in range(targets):
+            rng = np.random.default_rng(seed + 1000 * t)
+            twin = Twin(MeshError.sample(seed=seed + t))
+            probe = twin_probe(twin, box, noise=noise, rng=rng)
+            table = twin_table(box, probe, n_states, rng)
+            B = rng.normal(size=(k * int(np.sqrt(tiles)), k * int(np.sqrt(tiles))))
+            for how in ("uniform", "budget"):
+                plan = plan_block_from_table(B, table, box, k=k)
+                keys = list(plan.tiles)
+                errs = np.array([plan.tiles[q].terms[0].prog.err for q in keys])
+                per = (np.full(len(keys), b) if how == "uniform"
+                       else refine_budget(errs, b * len(keys), min_trials=min_trials))
+                r2 = np.random.default_rng(seed + 7 * t)
+                for q, n in zip(keys, per):
+                    if n <= 0:
+                        continue
+                    i, j = q
+                    H = np.asarray(plan.B)[i * k:(i + 1) * k, j * k:(j + 1) * k] \
+                        + plan.tiles[q].offset
+                    plan.tiles[q].terms = (refine_term(plan.tiles[q].terms[0], H, probe,
+                                                       plan.rails, box, trials=int(n),
+                                                       rng=r2),)
+                cost[how] += int(per.sum()) + int((per > 0).sum())
+                got = measured_block_matmat(plan, probe, np.eye(B.shape[1]))[0]
+                acc[how].append((float(np.mean([p.terms[0].prog.err
+                                                for p in plan.tiles.values()])),
+                                 score(got.ravel(), B.ravel())[0]))
+        row = {"per_tile": b, "targets": targets}
+        for how in ("uniform", "budget"):
+            a = np.array(acc[how])
+            # per target as well as the mean: nominally identical targets host anywhere from
+            # 1e-4 to 2e-2, so a mean over a handful of them is not a measurement and the
+            # comparison has to be PAIRED on the same target and the same table
+            row[how] = {"hosted": float(a[:, 0].mean()), "measured": float(a[:, 1].mean()),
+                        "per_target": a, "sweeps": cost[how] / targets}
+        rows.append(row)
+    return rows
+
+
+def reanchor(rig, transfers: Transfers, m: int = 5, calib: Calibration | None = None,
+          rails=BEST_RAILS, dbm: float = 8.0, return_mixing: bool = False):
+    """Transport a stored table onto today's chip by re-measuring m of its states.
+
+    A table is perishable: 75 minutes old it differs from the chip by 0.100 per entry
+    against a 0.0145 seconds-apart repeat, and that staleness swamps everything downstream --
+    driving the planning residual to exactly zero moved the measured error by 0.0001.
+    Recapturing costs 400 s, which is itself longer than the drift time constant, so the
+    table is stale before it is finished.
+
+    It does not have to be recaptured. The drift is a 15-parameter mixing on the OUTPUT
+    side, `T_now = colnorm(M T_then)`, and nothing on the input side: `Calibration.
+    to_transfer` divides each column by its own sum, so launch power, fibre coupling and
+    switch loss are already gone when the model sees the data and what remains is per
+    detector response and detector-to-detector leakage -- a left multiplication. Fitting it
+    needs five states, not a hundred: 20 s buys hosting 0.073 against 0.079 for the full
+    recapture.
+
+    Five and not fewer because 15 parameters need 15 constraints and a column-normalised
+    column carries 3, so m=1 makes the table WORSE (0.238 hosting). And measured now, not
+    earlier: ties taken 74 minutes before the run left the table worse than no correction at
+    all, because the fit lands the table where the ties were."""
+    from theory.design import Table, correct, fit_mixing, select, should_correct
+    from .normalise import sweep
+
+    calib = calib or rig.calib
+    blocks = transfers.block(rails).reshape(len(transfers), -1)
+    idx = select("maxmin", blocks, int(m))
+    # `sweep` deliberately does not write volts -- the caller owns the settle, because only
+    # the caller knows whether the heater state changed. Here it changes on every iteration,
+    # and without this the first port of each tie is read during the thermal transient. That
+    # is the one measurement where it cannot be tolerated: the reanchor exists to decide whether
+    # the table has moved, and a transient reads as motion, so an unsettled tie makes the
+    # correction fire on its own settling and then fits the table to it.
+    fresh = []
+    for i in idx:
+        rig.measure(transfers.volts[i])
+        time.sleep(DEFAULT_SETTLE_S)
+        fresh.append(calib.to_transfer(sweep(rig, transfers.volts[i], repeats=2)))
+    fresh = np.stack(fresh)
+    stale = Table(transfers.volts, transfers.T, None, None, "stored")
+    moved = float(np.abs(stale.T[idx] - fresh).mean())
+    if not should_correct(moved, REPEAT_FLOOR, int(m)):
+        print(f"  reanchor: table moved {moved:.4f}, inside the {REPEAT_FLOOR:.4f} repeat "
+              f"floor for m={m} -- left alone")
+        return (transfers, None) if return_mixing else transfers
+    out = correct(stale, idx, fresh)
+    print(f"  reanchor: {m} states re-measured, table moved {moved:.4f} per entry, "
+          f"15-parameter output mixing applied to all {len(transfers)}")
+    fixed = Transfers(transfers.volts, out.T, transfers.path)
+    # `./do sync` stores the mixing beside the raw reads rather than rewriting them, so it
+    # needs the fit itself and not just the corrected table.
+    return (fixed, fit_mixing(stale.T[idx], fresh)) if return_mixing else fixed
+
+
+def _pick_states(H, transfers: Transfers, rails, k: int, floor: float = SINK_FLOOR,
+                 sink=None) -> tuple[Term, ...]:
+    """Host H as a WEIGHTED SUM of k measured states instead of the single nearest one.
+
+    The table is a codebook and picking one entry is nearest-neighbour quantisation, which
+    on the 8x8 leaves four fifths of the error: sixteen tiles share the hundred states one
+    block gets to itself. But the sum over terms already happens in software -- `matvec`
+    computes sum_i coeff_i * term_i(x) -- so the reachable set was never the hundred points,
+    it is their linear SPAN, and nobody was using it.
+
+    A real 2x2 lives in four dimensions and the measured blocks span all four (singular
+    values 4.12, 1.63, 0.70, 0.39 on the 2026-08-27 table), so four terms host any target
+    exactly and the residual is not reduced but eliminated.
+
+    **On the bench that buys nothing and costs the answer.** A paired A/B -- same table,
+    same target, only `--terms` changed -- on the 8x8:
+
+        K   hosted residual   measured matrix   vector error
+        1          0.0195            0.1875           0.0419
+        4          0.0000            0.1876           0.0701
+
+    The planning residual goes to zero, the matrix the chip actually hosts does not move at
+    all, and the vector answer gets 1.7x worse. Both halves of that follow from what is
+    already written above: the residual K removes is quantisation of the table, and the
+    table is stale and mis-scaled by far more than it is quantised, so eliminating the small
+    error leaves the large one untouched. What K does change is the noise, exactly as the
+    simulation says -- sum|c| runs to about 6 at k=4, and 1.2 percent read noise amplified
+    by 6 is the 0.028 the vector error grew by.
+
+    The simulation's case for k=4 was never the amplification, which it got right; it was
+    its single-term baseline of 0.657. That is a twin-planned single term, and this die does
+    not host one that badly -- picking off the measured table gets to 0.0195, thirty times
+    better -- so the trade it was weighing does not exist here. Default 1. Kept available
+    because on a table dense enough to make quantisation the dominant error the arithmetic
+    comes back, and because the effect is worth re-measuring after a recapture.
+
+    Greedy matching pursuit rather than a full subset search: the dictionary is tiny in the
+    only dimension that matters and the gain is in leaving the codebook at all, not in
+    picking the ideal four."""
+    A, r, s = sinkhorn(H, floor=floor) if sink is None else sink
+    blocks = transfers.block(rails)
+    scale = (blocks * A).sum((-2, -1)) / max(float((A * A).sum()), 1e-18)
+    ok = scale > 0
+    rec = np.einsum("i,nij,j->nij", 1 / r, blocks, 1 / s) / np.where(ok, scale, 1.0)[:, None, None]
+    D = rec.reshape(len(rec), -1)[ok]
+    idx_map = np.flatnonzero(ok)
+    target, chosen, coef = np.asarray(H, float).ravel(), [], np.ones(1)
+    resid = target.copy()
+    for _ in range(max(1, k)):
+        corr = np.abs(D @ resid) / np.maximum(np.linalg.norm(D, axis=1), 1e-12)
+        corr[chosen] = -np.inf
+        chosen.append(int(np.argmax(corr)))
+        M = D[chosen].T
+        coef, *_ = np.linalg.lstsq(M, target, rcond=None)
+        resid = target - M @ coef
+    err = float(np.linalg.norm(resid) / max(np.linalg.norm(target), 1e-18))
+    out = []
+    for c, j in zip(coef, chosen):
+        n = int(idx_map[j])
+        out.append(Term(float(c),
+                        Program(transfers.volts[n].copy(),
+                                np.zeros(len(transfers.volts[n])), float(scale[n]),
+                                blocks[n].copy(), err), r, s))
+    return tuple(out)
+
+
 def plan_from_table(B, transfers: Transfers, box: HeaterBox | None = None, rails=None,
                     mode: str = "shift", floor: float = SINK_FLOOR,
-                    margin: float = SHIFT_MARGIN, sink=None) -> MatvecPlan:
+                    margin: float = SHIFT_MARGIN, sink=None,
+                    terms_k: int = 1) -> MatvecPlan:
     """Plan B onto a heater state PICKED from measured transfers, with no twin in the loop.
 
     `plan_matvec` fits volts through `theory.twin`, and on this chip that model is not
@@ -395,7 +790,7 @@ def plan_from_table(B, transfers: Transfers, box: HeaterBox | None = None, rails
     relative 1.14 -- worse than predicting nothing at all -- and the best of all 576
     row/column permutations still misses by 0.73, against 0.48 for simply predicting the
     mean measured transfer. So a plan fitted through it hosts a matrix nobody has seen,
-    which is how a bench run reported a 0.0005 hosted residual and 25% sign accuracy in the
+    which is how a bench run reported a 0.0001 hosted residual and 25% sign accuracy in the
     same breath. Until `learn.unitary_fit` closes on this die, fitting is the weaker move.
 
     Picking is the stronger one: for every state in the table, recover the signed matrix its
@@ -416,7 +811,9 @@ def plan_from_table(B, transfers: Transfers, box: HeaterBox | None = None, rails
         terms, offset = (pos, Term(-1.0, neg.prog, neg.r, neg.s)), 0.0
     elif mode == "shift":
         offset, sink = _shift(B, margin, floor) if sink is None else (sink[0], sink[1])
-        terms = (_pick_state(B + offset, transfers, rails, floor, sink),)
+        terms = (_pick_states(B + offset, transfers, rails, terms_k, floor, sink)
+                 if terms_k > 1
+                 else (_pick_state(B + offset, transfers, rails, floor, sink),))
     else:
         raise ValueError(f"mode={mode!r}; use 'shift' or 'split'")
     if box is not None:
@@ -426,7 +823,8 @@ def plan_from_table(B, transfers: Transfers, box: HeaterBox | None = None, rails
 
 
 def plan_block_from_table(B, transfers: Transfers, box: HeaterBox | None = None,
-                          k: int = TILE_K, rails=None, mode: str = "shift") -> BlockPlan:
+                          k: int = TILE_K, rails=None, mode: str = "shift",
+                          terms_k: int = 1) -> BlockPlan:
     """`theory.matmat.plan_block`, tile by tile, off the measured table."""
     B = np.atleast_2d(np.asarray(B, float))
     M, N = B.shape
@@ -434,7 +832,7 @@ def plan_block_from_table(B, transfers: Transfers, box: HeaterBox | None = None,
     Bp = np.zeros(((M + k - 1) // k * k, (N + k - 1) // k * k))
     Bp[:M, :N] = B
     tiles = {(i, j): plan_from_table(Bp[i * k:(i + 1) * k, j * k:(j + 1) * k], transfers,
-                                     box, rails, mode)
+                                     box, rails, mode, terms_k=terms_k)
              for i in range(Bp.shape[0] // k) for j in range(Bp.shape[1] // k)
              if Bp[i * k:(i + 1) * k, j * k:(j + 1) * k].any()}
     return BlockPlan(B, k, rails, tiles)
@@ -500,10 +898,35 @@ def rank_rails(transfers: Transfers, k: int = 2, trials: int = 24,
     return sorted(rows, key=lambda r: r["host"])
 
 
+
+def _require_table(transfers, what):
+    """No table, no run. The twin planner is not a fallback -- it is a trap.
+
+    It was reachable here whenever `load_transfers` returned None, and on this die it plans
+    against a model whose median relative error over 135 measured states is 1.04, against 0.38
+    for simply predicting the mean transfer -- 2.7x worse than a constant guess. On the very
+    state the table planner picks for a bench target it puts 0.002 where the chip measures
+    0.900. A plan fitted through it hosts a matrix nobody has seen, reports a residual near
+    zero because it is scored against the same model that produced it, and delivered vectors
+    1.1 out at 25 percent sign accuracy. Failing loudly is the only safe behaviour.
+
+    The twin stays everywhere else -- it IS the mock chip, the simulator and the selftests,
+    and `4x4/CLAUDE.md` requires the hardware-free path to be a physical model rather than a
+    stub. What is removed is only its use as a PLANNER against real hardware."""
+    if transfers is None:
+        raise RuntimeError(
+            f"{what} needs a measured transfer table and none was found. Capture one "
+            f"(scratchpad/raw_capture.py, or `./do char` then a sweep) -- planning through "
+            f"`theory.twin` instead is not offered: it scores 1.04 relative against this die "
+            f"where guessing the mean transfer scores 0.38.")
+
+
 def run(rig, B, box: HeaterBox | None = None, vectors=None, rails=None, mode: str = "shift",
+        terms_k: int = 1,
         power: str = "digital", dbm: float = 8.0, seed: int = 0, calib=None, twin=None,
         normalise: str = "column", transfers: Transfers | None = None, repeats: int = 1,
-        refresh: bool = False, **fit_kw) -> dict:
+        cycles: int | None = None,
+        refresh: bool = False, refine: int = 0, **fit_kw) -> dict:
     """Plan B onto the mesh, MEASURE what it hosts, then measure y = B x for each vector.
 
     The order is the point. `matrix_err` is the hosted block read off the photodiodes and
@@ -527,9 +950,10 @@ def run(rig, B, box: HeaterBox | None = None, vectors=None, rails=None, mode: st
     B = np.asarray(B, float)
     calib = calib or rig.calib
     box = box or bench_box(calib)
-    plan = (plan_from_table(B, transfers, box, rails=rails, mode=mode) if transfers
-            else plan_matvec(B, box, twin, rails=rails, mode=mode, seed=seed, **fit_kw))
-    probe = rig_probe(rig, calib, power=power, dbm=dbm, normalise=normalise, repeats=repeats)
+    _require_table(transfers, "matvec")
+    plan = plan_from_table(B, transfers, box, rails=rails, mode=mode, terms_k=terms_k)
+    probe = rig_probe(rig, calib, power=power, dbm=dbm, normalise=normalise,
+                      repeats=repeats, cycles=cycles)
     if not hasattr(probe, "per_column"):     # the deprecated static closure counts nothing
         probe = CountedProbe(probe)
     rng = np.random.default_rng(seed)
@@ -570,7 +994,8 @@ def run(rig, B, box: HeaterBox | None = None, vectors=None, rails=None, mode: st
 def run_block(rig, B, box: HeaterBox | None = None, k: int = TILE_K, cols: int = 3, X=None,
               rails=None, power: str = "digital", dbm: float = 8.0, seed: int = 0, calib=None,
               twin=None, normalise: str = "column", transfers: Transfers | None = None,
-              repeats: int = 1, **fit_kw) -> dict:
+              repeats: int = 1, refine: int = 0, budget: int = 0, cycles: int | None = None,
+              settle_s: float = DEFAULT_SETTLE_S, terms_k: int = 1, **fit_kw) -> dict:
     """Tile B into k x k blocks, host each in turn, and measure Y = B X.
 
     `BlockPlan.matmat` owns the loop order and it is the only thing here that decides the
@@ -583,13 +1008,50 @@ def run_block(rig, B, box: HeaterBox | None = None, k: int = TILE_K, cols: int =
     that is free.
 
     As in `run`, every tile's realised matrix is MEASURED before a column of X goes through
-    it, so `matrix_err` is a reading and `twin_matrix_err` is the prediction beside it."""
+    it, so `matrix_err` is a reading and `twin_matrix_err` is the prediction beside it.
+
+    `refine` hill-climbs every tile for N trials; `budget` spends a fixed TOTAL across the
+    tiles that need it (`refine_budget`), with `refine` as the per-tile cap. On a 16x16 that
+    is 576 sweeps against 282 for two thirds of the benefit.
+
+    The winner's re-measurement is deliberate and is not waste. `refine_term` leaves the
+    measured block of its best trial in `prog.blk`, and reusing it would save one sweep per
+    refined tile -- but that read is the one the refinement SELECTED on, and the minimum of
+    nine noisy measurements is biased low by about the read noise. Reporting it as the
+    measured matrix would be a winner's curse worth a fifth of the residual. The extra sweep
+    buys an independent read, which is what this function is for."""
     B = np.atleast_2d(np.asarray(B, float))
     calib = calib or rig.calib
     box = box or bench_box(calib)
-    plan = (plan_block_from_table(B, transfers, box, k=k, rails=rails) if transfers
-            else plan_block(B, box, twin, k=k, rails=rails, seed=seed, **fit_kw))
-    probe = rig_probe(rig, calib, power=power, dbm=dbm, normalise=normalise, repeats=repeats)
+    _require_table(transfers, "block matvec")
+    plan = plan_block_from_table(B, transfers, box, k=k, rails=rails, terms_k=terms_k)
+    probe = rig_probe(rig, calib, power=power, dbm=dbm, normalise=normalise,
+                      repeats=repeats, cycles=cycles, settle_s=settle_s)
+    if (refine or budget) and transfers is not None:
+        rng = np.random.default_rng(seed)
+        keys = list(plan.tiles)
+        errs = np.array([plan.tiles[q].terms[0].prog.err for q in keys])
+        # A budget is the whole point of a budget: `--refine N` per tile is 64 x (N+1)
+        # sweeps on a 16x16 whatever the tiles cost, and most of them cost little.
+        trials = (refine_budget(errs, budget, max_trials=refine or None)
+                  if budget else np.full(len(keys), int(refine)))
+        before = float(np.mean(errs))
+        for q, n in zip(keys, trials):
+            if n <= 0:
+                continue
+            i, j = q
+            tile = plan.tiles[q]
+            # the nonnegative piece each tile's Term was picked against: the shift the
+            # planner applied, not the raw target block
+            Bt = np.asarray(plan.B)[i * k:(i + 1) * k, j * k:(j + 1) * k]
+            H = Bt + tile.offset
+            tile.terms = (refine_term(tile.terms[0], H, probe, plan.rails, box,
+                                      trials=int(n), rng=rng),)
+        after = float(np.mean([t.terms[0].prog.err for t in plan.tiles.values()]))
+        n_hit = int((trials > 0).sum())
+        print(f"refined {n_hit} of {len(keys)} tiles on-chip, {int(trials.sum())} trials "
+              f"({int(trials.sum()) + n_hit} sweeps): mean hosted residual "
+              f"{before:.4f} -> {after:.4f}")
     if not hasattr(probe, "per_column"):
         probe = CountedProbe(probe)
     rng = np.random.default_rng(seed)
@@ -705,9 +1167,32 @@ def _selftest(seed: int = 0):
     assert err["column"] < 0.5 * err["static"], err
     # the static path does not merely mis-scale: an `input_scale` fitted at another state
     # over-divides, and an over-divided dark subtraction goes negative, which is the same
-    # pathology the bench saw
-    assert got["static"].min() < -0.01 <= got["column"].min(), (got["static"].min(),
-                                                               got["column"].min())
+    # pathology the bench saw.
+    #
+    # The bar is the sign and the ordering, not a fixed depth. The excursion is the dark
+    # subtraction over-divided, so it scales with `pd_offset` -- re-measuring that on
+    # 2026-08-28 (PD0 31.5 mV -> 0.14 mV, after the ADC reference moved off AVCC) took the
+    # excursion to -0.008 and would have failed a hardcoded -0.01, having changed nothing
+    # about the pathology. `err["column"] < 0.5 * err["static"]` above carries the magnitude.
+    assert got["static"].min() < -1e-3 <= got["column"].min(), (got["static"].min(),
+                                                                got["column"].min())
+
+    # the budget policy, as arithmetic: it must spend what it is given, never fund a tile
+    # below the floor, and put more on the worse tile
+    e = np.array([0.30, 0.05, 0.20, 0.02, 0.10])
+    t8 = refine_budget(e, 8 * e.size)
+    assert t8.sum() == 8 * e.size, t8
+    assert t8[0] > t8[2] > t8[4], t8
+    assert not ((0 < t8) & (t8 < REFINE_MIN_TRIALS)).any(), t8
+    small = refine_budget(e, 6)
+    assert small.sum() == 6 and small[0] == 6, small        # all of it on the worst tile
+    assert refine_budget(e, 0).sum() == 0
+    assert refine_budget(np.zeros(4), 40).sum() == 0        # nothing to win, nothing spent
+
+    # and end to end on one consistent chip: budgeted must beat uniform at the same trials
+    abl = refine_ablation(budgets=(0, 4), n_states=60, tiles=4, targets=3, noise=0.012)
+    assert abl[1]["budget"]["hosted"] <= abl[0]["budget"]["hosted"], abl
+    assert abl[1]["budget"]["sweeps"] <= abl[1]["uniform"]["sweeps"], abl
 
     tprobe = twin_probe(Twin(), box)
     Mm = measured_matrix(clean["plan"], tprobe)
@@ -724,9 +1209,20 @@ def _selftest(seed: int = 0):
     if ranked:
         top = [(r["out"], r["in"]) for r in ranked[:3]]
         stuck = min(ranked, key=lambda r: r["steer"])
-        assert BEST_RAILS in top, top
+        # NOT `BEST_RAILS in top`. That asserted a stored constant against whatever table
+        # happens to match the glob, so it failed the moment a new capture landed -- and it
+        # ranked on `rank_rails`' median hosting over random targets, which is the wrong
+        # statistic for a block run anyway: sixteen tiles are SUMMED, so the worst tile
+        # dominates and the median hides it. Feeding the median ranking to an 8x8 chose a pair
+        # whose worst tile was 0.6631 and returned Y error 0.5581; re-ranking on the worst tile
+        # picked another and returned 0.1041 on the same table and the same target.
+        #
+        # What is worth asserting is the property, not the constant: the ranking must put a
+        # steerable pair on top and must not rank an unsteerable one there.
+        assert ranked[0]["steer"] > stuck["steer"], (ranked[0]["steer"], stuck["steer"])
         assert ranked.index(stuck) >= 2 * len(ranked) // 3, (stuck, ranked.index(stuck))
     return {"free": free, "span_max": float(box.span_pi[box.trainable].max(initial=0.0)),
+            "budget": t8, "ablation": abl,
             "measured_vs_predicted": same, "differential": signed,
             "table": tab, "ranked": ranked,
             "fit_err": clean["fit_err"], "vec_err": clean["vec_err"],
@@ -737,6 +1233,83 @@ def _selftest(seed: int = 0):
             "eta_out_spread": float(np.ptp(rig.board.sim.eta_out))}
 
 
+def target_matrix(a):
+    """The B a `python -m pic matvec` invocation will work on. Shared with `job_seconds`,
+    which has to know the shape before the laser is lit."""
+    rng = np.random.default_rng(a.seed)
+    return np.atleast_2d(np.loadtxt(a.target) if a.target else rng.normal(size=(a.k, a.k)))
+
+
+def job_seconds(a, batched: bool = False) -> tuple[float, str]:
+    """(watchdog duration, one-line explanation) for the run `a` describes.
+
+    `batched` is whether the board can run a four-port sweep in one round trip, and it moves
+    this number by 5-6x, so it is asked of the open board rather than assumed -- an estimate
+    made for the wrong firmware is either a watchdog that fires mid-run or one that never
+    fires at all.
+
+    Sized in whole port cycles, because that is the unit the bench is charged in: one
+    heater program costs a thermal settle plus four switch moves, near five seconds, and
+    the reads inside it are the cheap part. The flat 120 s this replaced was under a
+    twentieth of what an 8x8 at K=4 needs, and the watchdog fired mid-run -- the beam went
+    off, the loop kept reading, and the dark current was reported as an answer.
+
+    The multi-term cost is the surprise and it is the cache, not the arithmetic:
+    `SweepProbe` holds ONE heater state, so a K-term plan re-sweeps every term for the
+    measurement and again for the application. K=1 measures a tile once and serves every
+    vector from that sweep; K=4 pays eight port cycles per tile for the same tile.
+
+    Rounded up rather than tuned: a watchdog that fires early destroys the run, and one
+    that fires late costs nothing but a few seconds of lit diode at the end. `--terms` is
+    counted whether or not the table planner ends up being the one used, so a `--mock` run
+    -- which plans through the twin, where terms do not multiply the programs -- gets an
+    upper bound. That is the correct direction to be wrong in."""
+    if getattr(a, "scan", False):
+        return 0.0, "--scan is a fit; no light needed"
+    B = target_matrix(a)
+    terms = 2 if a.mode == "split" else max(1, int(getattr(a, "terms", 1)))
+    repeats = max(1, int(getattr(a, "repeats", 1)))
+    refine = max(0, int(getattr(a, "refine", 0)))
+    budget = max(0, int(getattr(a, "budget", 0)))
+    cycles = int(getattr(a, "sweep_cycles", None) or SWEEP_CYCLES)
+    per_state = sweep_seconds(repeats, batched=batched, cycles=cycles)
+    if getattr(a, "unitary", False):
+        tiles, n_vec, terms, what = 2 * max(1, a.cols), 0, 1, f"{a.cols} composed pairs"
+    elif a.block:
+        k = int(a.block)
+        rows, cols = -(-B.shape[0] // k), -(-B.shape[1] // k)
+        tiles, n_vec = rows * cols, max(1, a.cols)
+        what = (f"{B.shape[0]}x{B.shape[1]} in {tiles} {k}x{k} tiles x {a.cols} columns")
+    else:
+        tiles, n_vec = 1, 4          # `run` draws four vectors when none are passed
+        what = f"one {B.shape[0]}x{B.shape[1]} block x {n_vec} vectors"
+    # Each tile is measured once per term. Applying it costs nothing more while one term
+    # fits in the cache; K > 1 re-sweeps every term, and --refresh drops the cache on
+    # purpose. Block mode is port-major, so its columns are served by that one revisit.
+    if a.block or getattr(a, "unitary", False):
+        per_tile = terms * (2 if terms > 1 else 1)
+    else:
+        per_tile = terms + n_vec * (terms if terms > 1
+                                    else (1 if getattr(a, "refresh", False) else 0))
+    states = tiles * per_tile
+    if budget:
+        # a budget caps the trials outright, and every funded tile costs one baseline sweep
+        # on top. The worst case is the most tiles the floor allows, which is what to size a
+        # watchdog against.
+        states += budget + min(tiles, budget // REFINE_MIN_TRIALS)
+    elif refine:
+        states += tiles * (1 + refine)        # the pick is re-measured, then N fresh states
+    states += max(0, int(getattr(a, "reanchor", 0)))        # m stored states re-measured
+    # Tiles that pick the same table state share one sweep (`_by_state`), which on a
+    # hundred-state table and 64 tiles is a real saving -- and it is deliberately NOT
+    # subtracted here. The sharing depends on the plan, the plan does not exist yet, and a
+    # watchdog is the one estimate that must only ever be too long.
+    dur = estimate_sweep_job(states, repeats=repeats, batched=batched, cycles=cycles)
+    return dur, (f"{what}, {terms} term(s) -> {states} heater programs at "
+                 f"{per_state:.1f} s per four-port sweep"
+                 + ("" if batched else " (host-loop sweep: reflash for the batched one)"))
+
+
 def main(rig, a) -> int:
     """`python -m pic matvec`. `rig` is open and inside a laser session, or None for
     `--scan`, which is a fit and needs no light."""
@@ -745,8 +1318,7 @@ def main(rig, a) -> int:
     if getattr(a, "mock", False) and not sim:
         calib, twin = mock_truth()
     box = bench_box(calib)
-    rng = np.random.default_rng(a.seed)
-    B = np.atleast_2d(np.loadtxt(a.target) if a.target else rng.normal(size=(a.k, a.k)))
+    B = target_matrix(a)
     # the table is THIS die MEASURED, so against either simulated instrument it is data
     # about a different chip -- which is the whole point of them, and would turn the
     # measured/predicted gap into a statement about the simulator.
@@ -756,6 +1328,8 @@ def main(rig, a) -> int:
                                      and not (getattr(a, "mock", False) or sim)) else None)
     if planner == "table" and tab is None:
         print("no measured transfer table on file -- falling back to the twin")
+    if tab is not None and getattr(a, "reanchor", 0) and rig is not None:
+        tab = reanchor(rig, tab, m=a.reanchor, calib=calib, dbm=a.dbm)
 
     print(f"heater box: {int(box.trainable.sum())} steerable channels, widest span "
           f"{box.span_pi[box.trainable].max(initial=0.0):.2f} pi "
@@ -806,13 +1380,20 @@ def main(rig, a) -> int:
     common = dict(rails=None if a.rails is None else _rails(a.rails),
                   power="laser" if a.optical_input else "digital", dbm=a.dbm, seed=a.seed,
                   calib=calib, twin=twin, normalise=norm, transfers=tab,
-                  repeats=getattr(a, "repeats", 1), restarts=a.restarts, steps=a.steps)
+                  repeats=getattr(a, "repeats", 1),
+                  cycles=getattr(a, "sweep_cycles", None), restarts=a.restarts,
+                  steps=a.steps)
     if a.block:
-        res = run_block(rig, B, box, k=a.block, cols=a.cols, **common)
+        res = run_block(rig, B, box, k=a.block, cols=a.cols,
+                        refine=getattr(a, "refine", 0),
+                        budget=getattr(a, "budget", 0),
+                        terms_k=getattr(a, "terms", 1), **common)
         print()
         print(digest_block(res))
     else:
-        res = run(rig, B, box, mode=a.mode, refresh=getattr(a, "refresh", False), **common)
+        res = run(rig, B, box, mode=a.mode, terms_k=getattr(a, "terms", 1),
+                  refine=getattr(a, "refine", 0),
+                  refresh=getattr(a, "refresh", False), **common)
         print()
         print(digest(res))
 
@@ -854,6 +1435,14 @@ if __name__ == "__main__":
           f"when the bench is the twin, so any gap on the die is the die")
     print(f"  the differential pair reproduces that matrix on a signed x to "
           f"{r['differential']:.1e}: both shots share one column-normalised sweep")
+
+    a0, a1 = r["ablation"]
+    print(f"refinement budget on residuals [0.30 0.05 0.20 0.02 0.10] -> {r['budget']} "
+          f"trials: it goes as the square of the residual, and a tile under the floor gets "
+          f"nothing rather than a visit it cannot pay for")
+    print(f"  4 tiles, 4 trials each: uniform {a1['uniform']['hosted']:.4f} in "
+          f"{a1['uniform']['sweeps']:.0f} sweeps, budgeted {a1['budget']['hosted']:.4f} in "
+          f"{a1['budget']['sweeps']:.0f}, from {a0['uniform']['hosted']:.4f} unrefined")
 
     tab, ranked = r["table"], r["ranked"]
     if tab is None:

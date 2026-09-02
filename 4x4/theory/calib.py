@@ -4,10 +4,11 @@ A thermo-optic shifter's phase follows dissipated power, so phase goes as V^2:
 
     phi_i(V) = pi (V / Vpi_i)^2 + phi0_i
 
-Two numbers per heater. With 18 heaters that is 36 parameters for the whole mesh, and
-with the four readout gains and offsets a complete instrument model in 44. The point of
-writing it down as a law rather than learning a black box is that the law extrapolates:
-`volts` inverts it in closed form, so a target phase becomes a voltage without a search.
+Two numbers per heater. With the DAC81416's 16 channels that is 32 parameters for the whole
+mesh, and with the four readout gains and offsets a complete instrument model in 40. The
+point of writing it down as a law rather than learning a black box is that the law
+extrapolates: `volts` inverts it in closed form, so a target phase becomes a voltage without
+a search.
 """
 
 from __future__ import annotations
@@ -110,16 +111,30 @@ class Calibration:
         (`pic.normalise.audit` measures what it invents instead). A negative entry is
         dark-subtraction noise on an extinguished cell and clips to zero, the only value an
         intensity can take."""
+        raw = np.asarray(raw, float)
+        # `pd_offset` and `pd_gain` are per DETECTOR and go on axis 0 here, where `to_intensity`
+        # puts them on the last axis. A stack of sweeps has the same trailing shape as one, so
+        # handing this an (n, 4, 4) would broadcast detector gains onto the wrong axis and
+        # return something plausible. Map over the stack instead; the callers all do.
+        if raw.ndim != 2 or raw.shape[0] != NUM_OUT:
+            raise ValueError(f"to_transfer takes one ({NUM_OUT}, ports) sweep with detectors "
+                             f"on axis 0, got {raw.shape}")
         off = self.pd_offset if dark is None else np.asarray(dark, float)
-        P = np.clip((np.asarray(raw, float) - off[:, None]) / self.pd_gain[:, None], 0.0, None)
+        P = np.clip((raw - off[:, None]) / self.pd_gain[:, None], 0.0, None)
         s = P.sum(0, keepdims=True)
         return np.divide(P, s, out=np.zeros_like(P), where=s > 0)
 
-    @property
-    def reach_span(self) -> np.ndarray:
-        """Phase span each heater covers over 0..VOLTAGE_MAX, in units of pi. Below 2 the
-        heater cannot reach every phase and some targets are unprogrammable."""
-        return (VOLTAGE_MAX / self.vpi) ** 2
+    def reach_span(self, vmax=VOLTAGE_MAX) -> np.ndarray:
+        """Phase span each heater covers over 0..vmax, in units of pi. Below 2 the heater
+        cannot reach every phase and some targets are unprogrammable.
+
+        `vmax` is per channel on this board and the caller has to say so. The ceiling is
+        I*R at the heater's own measured resistance (`pic.config.VOLTAGE_MAX_CH`, 1.50 to
+        4.75 V), so the design scalar overstates the 60-ohm channels and understates the
+        118-ohm ones -- an error in both directions, which is why defaulting to it read as
+        plausible. `theory` must not import `pic`, so the board's table arrives as an
+        argument; the scalar default is the design ceiling and nothing measured."""
+        return (np.asarray(vmax, float) / self.vpi) ** 2
 
     def save(self, path=CONFIG_PATH):
         path = Path(path)
@@ -299,4 +314,6 @@ if __name__ == "__main__":
     c = Calibration.sample(seed=0)
     print(f"volts <-> phases round trip OK; {n}/{tot} random targets reachable at "
           f"{VOLTAGE_MAX:.0f} V")
-    print(f"phase span per heater (units of pi): {np.round(c.reach_span, 2)}")
+    print(f"phase span per heater at the {VOLTAGE_MAX:.0f} V design ceiling (units of pi): "
+          f"{np.round(c.reach_span(), 2)}   -- the board's real per-channel ceilings are in "
+          f"pic.config.VOLTAGE_MAX_CH")

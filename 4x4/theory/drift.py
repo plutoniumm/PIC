@@ -164,7 +164,7 @@ def observable_split(twin, phases, rcond: float = RCOND):
 
 @dataclass
 class DriftEstimate:
-    dphi: np.ndarray                 # (18,) subtract from the next command
+    dphi: np.ndarray                 # (16,) subtract from the next command
     gain: np.ndarray                 # per-output PD gain relative to the reference
     coupling: np.ndarray             # per-input coupling relative to the reference
     residual: float                  # unitarity defect: RMS the best unitary still misses
@@ -223,7 +223,9 @@ def infer_drift(twin, phases0, T_meas, T_ref=None, *, rcond: float = RCOND,
     # zero by construction. Fitting them from the drifted probe instead lets seven diagonal
     # parameters absorb part of a twelve-parameter phase drift, and the phase fit then has
     # nothing left to find -- measured: the correction stopped working entirely.
-    g0, c0 = (fit_gains(ref, T_pred0) if T_ref is not None else (np.ones(NMODE),) * 2)
+    # two arrays, not one aliased twice: g0 is per detector and c0 per input port
+    g0, c0 = (fit_gains(ref, T_pred0) if T_ref is not None
+              else (np.ones(NMODE), np.ones(NMODE)))
     g1, c1 = fit_gains(T, ref)                 # what the gains did since the reference
     g, c = g0 * g1, c0 * c1
     T_flat = degain(T, g, c)

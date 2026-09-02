@@ -1,0 +1,17 @@
+heater box: 8 steerable channels, widest span 1.51 pi (measured calibration)
+transfer table: 155 measured states from /Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic_data/sessions/2026-08-27/raw_transfers_fresh.json
+
+measured rail ranking for a 2x2 block over 155 states, best hosting first:
+  out      in        host err   cond   ill   |det|   steer  bright
+  (1, 2)   (1, 2)       0.074    1.9    1%   0.937   0.843   1.585
+  (1, 2)   (0, 2)       0.099    2.2    1%   0.896   0.809   1.508
+  (1, 3)   (0, 3)       0.126    1.7    0%   0.511   0.529   1.140
+  (0, 1)   (0, 1)       0.134    4.4    4%   0.811   0.953   1.565
+  (0, 2)   (0, 1)       0.148   15.9   23%   0.397   0.819   0.811
+  (0, 2)   (0, 3)       0.154   14.4   23%   0.271   0.525   0.860
+
+twin rail scan for the same block (feasible first, brightest among those) -- a ranking of the model, not the die:
+  out      in        residual  brightness
+  (1, 2)   (2, 3)      0.0009       0.998
+  (0, 3)   (0, 1)      0.0034       0.995
+  (1, 3)   (0, 2)      0.0000       0.989

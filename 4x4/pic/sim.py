@@ -50,7 +50,7 @@ from .config import (
     ADC_AVG_N, VOLTAGE_MAX_CH, ADC_BITS, ADC_REF_V, DAC_BITS, DAC_REF_V, FIRMWARE_VMAX, NUM_ADC_RAW,
     OUT_PDS, PICConfig, WIRED_DACS,
 )
-from .interface import PIC
+from .interface import MOCK_CAPS, PIC, emulate_sweep
 
 # --- the measured chip -------------------------------------------------------------
 
@@ -343,6 +343,7 @@ class BenchPIC(PIC):
         super().__init__(config, **kw)
         self.sim = BenchSim() if sim is None else sim
         self.switch = switch
+        self._last_v = np.zeros(self.cfg.num_dac)
 
     def open(self):
         self.ser = "sim"
@@ -351,8 +352,15 @@ class BenchPIC(PIC):
     def close(self):
         self.ser = None
 
+    def capabilities(self, refresh: bool = False) -> dict:
+        return dict(MOCK_CAPS)
+
+    def sweep_raw(self, cycles: int = 1, reads: int = 1, timeout_s=None) -> np.ndarray:
+        return emulate_sweep(self, cycles, reads)
+
     def measure_raw(self, voltages, retries: int = 3) -> np.ndarray:
         v = self._prep_dac(voltages)
+        self._last_v = v
         raw = np.zeros(NUM_ADC_RAW)
         if self.switch is not None and self.switch.selected is None:
             raw[list(OUT_PDS)] = self.sim.dark_read()  # `SET 0`: the path is open

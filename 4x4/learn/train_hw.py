@@ -48,6 +48,7 @@ from pic.acquisition import estimate_seconds, random_vectors, settled_read
 from pic.config import (
     DRIVE_MAX_V, DRIVE_SCALE, NUM_OUT, OUT_PDS, SWITCH_SETTLE_S, drive_to_volts,
 )
+from pic.session import WatchdogTripped
 from theory.calib import Calibration
 from theory.clements import NMODE
 from theory.layout import HEATERS, N_HEATERS
@@ -93,20 +94,28 @@ def collect_round(rig, n, *, dbm, settle_s, repeats, rng, ports, channels=None):
         if not s.emitted:
             raise RuntimeError("laser reports on but no emission detected -- check coupling "
                                "and the front panel before trusting any of this data")
-        for port in ports:
-            rig.select_input(port)
-            for d in random_vectors(per, rng=rng, channels=channels, vmax=DRIVE_MAX_V):
-                if s.expired():
-                    print("    watchdog reached; keeping the partial round.")
-                    return (np.asarray(Ds), np.asarray(Ps, int), np.asarray(Ts),
-                            np.asarray(Ys))
-                y = settled_read(rig.board, drive_to_volts(d), settle_s, repeats)
-                bfm, dtemp, mA, chip = s.telemetry()
-                Ds.append(d)
-                Ps.append(port)
-                Ts.append([dbm, bfm, dtemp, mA, chip])
-                Ys.append(y[list(OUT_PDS)])
-                s.keepalive()
+        # A sample is appended only after its read has returned, and `settled_read` raises
+        # once the watchdog has hard-offed the laser -- so the buffer this keeps contains
+        # only points measured with the beam on, whichever of the two exits it takes.
+        try:
+            for port in ports:
+                rig.select_input(port)
+                for d in random_vectors(per, rng=rng, channels=channels, vmax=DRIVE_MAX_V):
+                    if s.expired():
+                        print("    watchdog deadline reached; keeping the partial round "
+                              "(every sample below was taken before it).")
+                        return (np.asarray(Ds), np.asarray(Ps, int), np.asarray(Ts),
+                                np.asarray(Ys))
+                    y = settled_read(rig.board, drive_to_volts(d), settle_s, repeats)
+                    bfm, dtemp, mA, chip = s.telemetry()
+                    Ds.append(d)
+                    Ps.append(port)
+                    Ts.append([dbm, bfm, dtemp, mA, chip])
+                    Ys.append(y[list(OUT_PDS)])
+                    s.keepalive()
+        except WatchdogTripped as e:
+            print(f"    {e}")
+            print(f"    keeping the {len(Ds)} sample(s) taken before the trip.")
     return np.asarray(Ds), np.asarray(Ps, int), np.asarray(Ts), np.asarray(Ys)
 
 

@@ -23,7 +23,7 @@ What that buys, against the black-box surrogate in `learn.dpnn`:
   * it needs far fewer samples, because it is not spending them learning V^2.
 
 Vpi first, then everything else. A joint fit from a nominal start does not converge: with
-18 unknown Vpi the forward map oscillates at the wrong frequency in every heater at once,
+16 unknown Vpi the forward map oscillates at the wrong frequency in every heater at once,
 and no number of restarts finds its way back (measured: R^2 plateaus at 0.42 whether you
 allow 4 restarts or 12). Hand it the Vpi that `pic.characterize`'s single-heater fringe
 sweeps recover and the same fit reaches R^2 = 1.0000. Bootstrap first; this is a refiner,
@@ -44,8 +44,8 @@ import torch
 
 from pic.config import NUM_OUT
 from theory.calib import Calibration
-from theory.clements import NMODE, NMZI
-from theory.layout import N_HEATERS
+from theory.clements import NCOL, NMODE, NMZI
+from theory.layout import COLUMN_OF_HEATER, N_HEATERS, PHI_IDX, THETA_IDX
 from theory.twin import MeshError, Twin
 
 KAPPA_HALF_RANGE = 0.45  # kappa stays in 0.5 +/- this, so a coupler can never invert
@@ -164,21 +164,42 @@ def fit(V, Y, X=None, *, calib0=None, error0=None, steps: int = 3000, lr: float 
     return model, calib, err, r2
 
 
+def column_masks() -> list[tuple[int, np.ndarray]]:
+    """(column, gradient mask over DAC channels) for each rectangular column of the mesh.
+
+    One place, so `fit_staged` and `_selftest` cannot disagree about which space the mask is
+    in. `phi0`, `COLUMN_OF_HEATER` and the mask are all keyed by DAC channel; `THETA_IDX` and
+    `PHI_IDX` are the DAC channels driving mesh element k, in mesh order, so concatenating
+    them gives the twelve channels that carry a mesh phase and nothing else."""
+    dacs = np.concatenate([THETA_IDX, PHI_IDX])
+    out = []
+    for c in sorted(set(COLUMN_OF_HEATER[dacs].tolist())):
+        m = np.zeros(N_HEATERS)
+        m[dacs[COLUMN_OF_HEATER[dacs] == c]] = 1.0
+        out.append((int(c), m))
+    return out
+
+
 def fit_staged(V, Y, X=None, *, calib0, steps: int = 600, lr: float = 0.05,
                restarts: int = 4, val_frac: float = 0.2, polish: int = 1500, seed: int = 0,
                verbose: bool = False):
     """Fit phi0 column by column, then polish everything jointly.
 
-    Eighteen unknown phases at once is a bad optimisation: the loss is periodic in every one
-    of them, so Adam finds a local basin and restarts only re-roll the same dice. The mesh
+    Twelve unknown mesh phases at once is a bad optimisation: the loss is periodic in every
+    one of them, so Adam finds a local basin and restarts only re-roll the same dice. The mesh
     itself says how to break it up. Light crosses the columns in order, so column 0's phases
     are determined by data that column 3 cannot touch; fit column 0 alone (four unknowns,
     where a handful of restarts really is exhaustive), freeze it, move to column 1, and each
     stage stays small. The output screen never enters, being invisible in intensity.
 
-    Returns (model, calibration, error, val_r2), same as `fit`."""
-    from theory.layout import COLUMN_OF_HEATER, MESH_IDX
+    Everything here stays in DAC-channel space, which is the space `phi0` and the gradient
+    mask are indexed in. The previous version tested `h in MESH_IDX` with h a DAC channel and
+    MESH_IDX a DAC-ordered array of *mesh element numbers*: the two spaces are 0..15 and
+    0..5, so the test silently reduced to `h < 6` and staged only the six theta channels,
+    handing all six phi channels to the joint polish from a cold start -- the exact failure
+    staging exists to avoid -- while running a whole column of Adam against an all-zero mask.
 
+    Returns (model, calibration, error, val_r2), same as `fit`."""
     V = np.atleast_2d(np.asarray(V, float))
     Y = np.atleast_2d(np.asarray(Y, float))
     rng = np.random.default_rng(seed)
@@ -215,10 +236,7 @@ def fit_staged(V, Y, X=None, *, calib0, steps: int = 600, lr: float = 0.05,
         return model
 
     model = InstrumentModel(calib0, fit_couplers=False, fit_readout=True)
-    cols = sorted({COLUMN_OF_HEATER[h] for h in MESH_IDX})
-    for c in cols:
-        active = np.array([1.0 if (h in MESH_IDX and COLUMN_OF_HEATER[h] == c) else 0.0
-                           for h in range(N_HEATERS)])
+    for c, active in column_masks():
         best = (-np.inf, None)
         for r in range(restarts):
             trial = InstrumentModel(*model.extract(), fit_couplers=False, fit_readout=True)
@@ -274,6 +292,16 @@ def _selftest(n: int = 300, seed: int = 0, verbose: bool = True):
     from pic.config import DRIVE_MAX_V, drive_to_volts
 
     from . import dpnn
+
+    # `fit_staged` is never exercised end to end here, so its one index-space hazard is
+    # checked directly: the masks live in DAC space and must partition the twelve mesh
+    # channels. Ordering them by mesh element instead is what mirrored the twin once already.
+    cm = column_masks()
+    stages = [np.flatnonzero(m) for _, m in cm]
+    assert all(s.size for s in stages), cm
+    assert sum(s.size for s in stages) == 2 * NMZI, [s.tolist() for s in stages]
+    assert set(np.concatenate(stages).tolist()) == set(THETA_IDX.tolist()) | set(PHI_IDX.tolist())
+    assert not any(COLUMN_OF_HEATER[s].max() >= NCOL for s in stages), "output screen staged"
 
     rng = np.random.default_rng(seed)
     truth_c = Calibration.sample(seed=seed)

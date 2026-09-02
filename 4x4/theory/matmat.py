@@ -26,34 +26,74 @@ this die k is 2, so the chip does about one MAC per read; the whole optical adva
 linear in the block size, which is why the reachability ceiling below is the number that
 matters and not the residual.
 
-**Tile size.** `intensity_matvec.reachability` on the calibration in force: a 2x2 block is
-hosted to 0.002, a 3x3 to 0.130, a 4x4 to 0.490. So the default is k = 2 -- not because 2 is
-convenient but because 3 already misses by 13 percent of the target and 4 is not a
-measurement of anything. On the mesh as designed the same fits reach 0.0004 at k = 2 and
-0.0001 at k = 3, so up to there the limit is heater span and only heater span.
+**Tile size, and why 3 is not on the table.** A 16x16 in 3x3 tiles is 36 programs against
+64, so the question is worth asking properly. It fails twice over, independently, and both
+halves are measured.
 
-k = 4 has a second limit that is nobody's fault: |U|^2 of a unitary is not merely doubly
-stochastic, it is UNISTOCHASTIC, and for n >= 3 that is a proper subset of the Birkhoff
-polytope. Sinkhorn lands a target with a wide dynamic range near the polytope boundary,
-where the subset has holes. Measured on the ideal box: two of twelve random 4x4 targets
-plateau at 0.05 and stay there from 12 restarts to 64, while |V|^2 of a random unitary --
-unistochastic by construction -- always fits (`_selftest` checks that control). So a k = 4
-tile fails on this die by heater span, and would still fail on about one target in six with
-perfect heaters.
+`intensity_matvec.reachability` on the calibration in force -- a best-case FIT, no table:
+2x2 hosts to 0.0007, 3x3 to 0.112, 4x4 to 0.258. On the mesh as DESIGNED the same fits reach
+0.0009 and 0.0001, so the k = 3 gap is heater span and nothing else. It is span and not
+geometry: scaling the current limit by 1.25 takes the widest heater past 2 pi and the k = 3
+fit from 0.138 to 0.020, by 1.5 to 0.007. (The "heater span does not bind" result recorded
+in `talk/progress.md` is a k = 2 result and does not carry over -- at k = 2 three free
+numbers are chased with eight heaters, at k = 3 it is eight with eight.)
+
+Then the table. Picking off the 115-state bench table rather than fitting, over 48 random
+signed targets on every rail triple, k = 3's best pair hosts at a median 0.83 and a worst
+1.84, against 0.14 and 0.32 for the best 2x2 pair. A relative error of 0.83 is barely better
+than answering zero. And it does not improve with table size the way k = 2 does: from 15 to
+115 states k = 2 falls 0.53 -> 0.16 and k = 3 only 1.14 -> 0.72, roughly N^-0.6 against
+N^-0.22, so reaching k = 2's accuracy would take on the order of 10^5 states -- days of
+capture for a table that is stale in an hour.
+
+So k = 3 would buy 44 percent of the wall clock for a 5.8x worse block, which is not a
+trade. k = 4 is worse again and has a second limit that is nobody's fault: |U|^2 of a unitary
+is not merely doubly stochastic, it is UNISTOCHASTIC, and for n >= 3 that is a proper subset
+of the Birkhoff polytope.
+
+That k = 4 limit again, measured: Sinkhorn lands a target with a wide dynamic range near the
+polytope boundary,
+where the subset has holes. Measured on the ideal box over twelve random 4x4 targets: eleven
+fit under 0.010 and one plateaus at 0.033, unmoved to four decimal places from 12 restarts
+to 64 -- which is the plateau signature, since everything else in that table moves when the
+budget does. Against it, |V|^2 of a random unitary -- unistochastic by construction -- fits
+to 0.017 or better on every draw at the *low* budget (`_selftest` checks that control). So a
+k = 4 tile fails on this die by heater span, and a minority of targets would still fail with
+perfect heaters. One in twelve is the rate this many draws supports and no more.
 
 **How the error accumulates, measured.** Each tile carries its own hosting residual and its
 own read noise, and the output block is a sum of t = n/k of them. If those errors are
 independent the sum grows as sqrt(t); if they are one systematic error repeated it grows as
 t. `accumulation` computes both bounds from the *same* measured per-tile errors, so the
-comparison is about correlation and not about how large the residuals happened to be --
-which matters, because the per-tile residual is heavy tailed (nominally identical targets
-land anywhere from 1e-4 to 2e-2) and a log-log slope over three tile counts cannot see past
-that. Observed: 0.80 to 1.02 times the independent bound at every tile count tried, and
-0.42 times the correlated bound at t = 8 and still falling. So the errors add incoherently
--- sqrt(t), not t. The signal accumulates incoherently too, so the RELATIVE error of a block
-product is roughly flat in the tile count rather than growing: over three draws each, 0.000
-to 0.005 for a single 2x2 tile and 0.004 to 0.012 for the sixteen tiles of an 8x8. Tiling
-costs time, not accuracy.
+comparison is about correlation and not about how large the residuals happened to be. Over
+12 trials at seed 0 the observed sum sits ON the independent bound at every tile count and
+both noise levels: 0.96, 0.97, 0.98 times it at t = 2, 4, 8 noiseless, and 1.00, 1.05, 1.08
+at 1.2 percent read noise. Six cells, all within 8 percent of 1. The errors add incoherently
+-- sqrt(t), not t -- and this is the strongest form of the claim available, because the
+denominator is computed from the very same per-tile errors as the numerator.
+
+The SPREAD is as much of the result as the ratio. The per-trial ratio has sd 0.08, 0.04,
+0.17 noiseless and 0.15, 0.17, 0.25 at bench noise, rising with t because summing t vectors
+in k*cols = 8 dimensions carries that much sampling scatter on its own. So a two- or
+three-trial run of this same function returns anything from 0.5 to 1.3, and no single triple
+taken out of one is a measurement of anything -- which is why `trials` defaults to 12 and why
+`vs_indep_sd` and `trials` come back beside the ratio. Quote the mean with its spread or do
+not quote it.
+
+`vs_corr` is not the mirror image of `vs_indep` and is not evidence about correlation. It
+factors exactly as `vs_indep * (indep/corr)`, and `indep/corr` says only how UNEQUAL the
+per-tile residuals are: 1/sqrt(t) if they are all the same size, 1 if one tile dominates.
+Measured it runs 0.88, 0.90, 0.75 noiseless against a 1/sqrt(t) of 0.71, 0.50, 0.35, because
+the per-tile residual is heavy tailed (nominally identical targets land anywhere from 1e-4 to
+2e-2); read noise evens the tiles out and pulls it back to 0.78, 0.56, 0.41. So the two
+bounds sit only 1.3x apart noiseless at t = 8, and the correlated hypothesis is excluded by
+`vs_indep` sitting on 1, not by `vs_corr` being small.
+
+The signal accumulates incoherently too, so the RELATIVE error of a block product does not
+grow with the tile count: at bench noise it is flat, 0.080, 0.084, 0.073 at t = 2, 4, 8.
+Noiseless it is two orders of magnitude smaller and set entirely by which tiles happened to
+fit badly -- 0.0007, 0.0077, 0.0048, no trend in t and none to be had from three points
+against that tail. Tiling costs time, not accuracy.
 
 **Unitarity as a prior, and what it is honestly a prior over.** The photodiodes measure
 |U|^2, which is moduli; the differential passes recover the SIGN of each entry; no phase is
@@ -72,24 +112,33 @@ as the right one -- so what it misses is exactly the error along the manifold; i
 to 0.9 of the truth here. A large distance says the measurement is inconsistent with *any*
 orthogonal matrix, which is a stronger statement than being far from one particular target.
 
-Projection then removes the normal part and cannot touch the rest: 0.010 -> 0.005 noiseless
-and 0.081 -> 0.029 at 1.2 percent read noise over the five draws the selftest prints, 0.017
--> 0.004 and 0.102 -> 0.032 over eight. Single draws range over 7x, so only the means mean
-anything. An isotropic error at k = 2 would halve exactly -- one of the four dimensions is
-tangent to O(2) -- and 2-4x observed says this error is at least as normal-to-manifold as
-isotropic and sometimes much more, which is what a gain-like error looks like (the hosted
-scale and the Sinkhorn diagonals are gains, and a gain is entirely normal). The prior is
-doing real work rather than dressing the answer up: agreement with the TRUE product
-improves, and that is a claim only the twin can check, which is why the check lives here.
+Projection then removes the normal part and cannot touch the rest: over 24 draws, 0.0099 ->
+0.0046 noiseless and 0.096 -> 0.035 at 1.2 percent read noise, and polar improves on the raw
+product in every single draw at both levels. Twenty-four draws and not five, because a single
+draw ranges over 7x: the same quantity over the first five reads 0.0056 -> 0.0039, which is a
+different-looking answer to the same question. An isotropic error at k = 2 would halve exactly
+-- one of the four dimensions is tangent to O(2) -- and the 2.2x and 2.7x observed say this
+error is at least as normal-to-manifold as isotropic, which is what a gain-like error looks
+like (the hosted scale and the Sinkhorn diagonals are gains, and a gain is entirely normal).
+The prior is doing real work rather than dressing the answer up: agreement with the TRUE
+product improves, and that is a claim only the twin can check, which is why the check lives
+here.
 
 **Polar, not QR.** `polar` is the nearest orthogonal matrix in Frobenius norm and has no
 preferred column order. `qr_orth` returns *an* orthogonal matrix: Gram-Schmidt keeps the
 first column exactly and spends every correction on the last, so it is by construction no
-closer, and permuting the columns moves its answer while polar's does not. Both are in the
-table because the gap is the point -- QR left 1.3 to 1.8x polar's error (0.007 against
-0.004 noiseless, 0.042 against 0.032 at bench noise), and `qr_order_spread` says its answer
-shifts by 0.010 to 0.047 under a column permutation, which is the size of the residual it
-was supposed to be removing.
+closer *to the measurement* -- `polar_step <= qr_step` identically, which `_selftest` checks
+-- and permuting the columns moves its answer while polar's does not.
+
+Closer to the TRUTH is a separate question and the answer depends on how large the error is.
+At 1.2 percent read noise polar wins on the mean at every draw count tried (0.035 against
+0.047 over 24, 1.4x) and in 58 percent of individual draws, so that is what `_selftest`
+asserts. Noiseless the composed error is small enough that the two sit inside the
+draw-to-draw spread -- 0.0046 against 0.0052 over 24 draws, with QR ahead over the first 5,
+8 and 12 -- and asserting an ordering there would be asserting the sampling noise. What is
+not a coin flip is the arbitrariness: `qr_order_spread` says QR's answer shifts under a
+column permutation by roughly the size of the correction it just applied, and polar's does
+not move at all.
 
     python -m theory.matmat        # the ladder, both boxes, and the group-property check
 """
@@ -106,7 +155,8 @@ from .intensity_matvec import (HeaterBox, MatvecPlan, block_rails, fit_nonneg, p
                                score, twin_probe)
 from .twin import Twin
 
-TILE_K = 2   # see the docstring: 3 misses by 13 percent on this die, 4 by 49
+TILE_K = 2   # see the docstring: fitted, 3 misses by 11 percent on this die and 4 by 26;
+             # picked off the measured table, 3 misses by 83 percent and is unusable
 
 
 class CountedProbe:
@@ -375,37 +425,54 @@ def compose(box: HeaterBox, twin: Twin | None = None, k: int = TILE_K, noise: fl
 
 
 def accumulation(box: HeaterBox, twin: Twin | None = None, k: int = TILE_K,
-                 tiles=(2, 4, 8), cols: int = 4, trials: int = 3, noise: float = 0.0,
+                 tiles=(2, 4, 8), cols: int = 4, trials: int = 12, noise: float = 0.0,
                  seed: int = 0, rails=None, **fit_kw) -> list[dict]:
     """Does tile error add as sqrt(t) or as t? Measured, from the tile errors themselves.
 
     One output block fed by t tiles: the error is sum_j d_j with d_j = (B_hat_j - B_j) X_j,
     and both bounds are computed from the same measured d_j -- sqrt(sum |d_j|^2) if they are
-    independent, sum |d_j| if they are one systematic error repeated. Reporting the observed
-    norm against both is a statement about correlation alone, which a log-log fit of error
-    against t cannot give here: the per-tile residual is heavy tailed enough to swamp the
-    slope."""
+    independent, sum |d_j| if they are one systematic error repeated. `vs_indep` is the
+    answer; see the module note for what it measures and for why `vs_corr` does not measure
+    the mirror image of it.
+
+    `vs_indep` is the MEAN OF THE PER-TRIAL RATIOS and `vs_indep_sd` is their spread, not a
+    ratio of two averaged norms -- the residual is heavy tailed enough that averaging the
+    norms first hides which trials the ratio came from. The spread is the reason `trials`
+    defaults to 12: it reaches 0.24 at t = 8 under bench noise, so a 2- or 3-trial call
+    returns a number with no significant figures.
+
+    Deterministic in `seed`. Every draw is keyed on (seed, t, trial) and every tile's
+    optimiser on (seed, t, trial, tile), so no two cells of the table share a stream, no
+    arithmetic on the seed can collide two of them, and a rerun returns the same numbers.
+    The keys deliberately include t: a tile fitted for the t = 2 row is not the same
+    measurement as the same-indexed tile of the t = 8 row and must not reuse its start."""
     twin = twin or Twin()
     rows = []
     for t in tiles:
-        acc = []
+        acc, ratio = [], []
         for s in range(trials):
-            rng = np.random.default_rng(seed + 11 * s + 3 * t)
+            rng = np.random.default_rng([seed, t, s])
             B = rng.normal(size=(k, k * t))
             X = rng.normal(size=(k * t, cols))
             probe = twin_probe(twin, box, noise=noise, rng=rng)
             d = []
             for j in range(t):
                 Bj, Xj = B[:, j * k:(j + 1) * k], X[j * k:(j + 1) * k]
-                plan = plan_matvec(Bj, box, twin, rails=rails, seed=seed + 13 * j, **fit_kw)
+                fit_seed = int(np.random.default_rng([seed, t, s, j]).integers(1 << 30))
+                plan = plan_matvec(Bj, box, twin, rails=rails, seed=fit_seed, **fit_kw)
                 d.append(matmat(plan, probe, Xj) - Bj @ Xj)
             d = np.asarray(d)
             per = np.linalg.norm(d, axis=(1, 2))
-            acc.append((float(np.linalg.norm(d.sum(0))), float(np.linalg.norm(per)),
-                        float(per.sum()), float(np.linalg.norm(B @ X))))
+            o, i_, c = (float(np.linalg.norm(d.sum(0))), float(np.linalg.norm(per)),
+                        float(per.sum()))
+            acc.append((o, i_, c, float(np.linalg.norm(B @ X))))
+            ratio.append((o / max(i_, 1e-18), o / max(c, 1e-18), i_ / max(c, 1e-18)))
         obs, ind, cor, nrm = np.mean(acc, axis=0)
-        rows.append({"tiles": t, "observed": obs, "indep": ind, "corr": cor,
-                     "vs_indep": obs / max(ind, 1e-18), "vs_corr": obs / max(cor, 1e-18),
+        vi, vc, ic = np.mean(ratio, axis=0)
+        rows.append({"tiles": t, "trials": trials, "observed": obs, "indep": ind, "corr": cor,
+                     "vs_indep": float(vi), "vs_corr": float(vc), "spread": float(ic),
+                     "vs_indep_sd": float(np.std([r[0] for r in ratio])),
+                     "sqrt_bound": float(1 / np.sqrt(t)),
                      "rel": obs / max(nrm, 1e-18), "noise": noise})
     return rows
 
@@ -480,10 +547,10 @@ def _selftest(k: int = TILE_K, cols: int = 6, noise: float = 0.012, restarts: in
     noisy = validate_block(box, twin, k=k, n=(8, 8), cols=3, noise=noise, seed=seed,
                            label=f"measured {noise:.1%}", **kw)
 
-    acc = accumulation(box, twin, k=k, tiles=(2, 4, 8), trials=2, seed=seed, **kw)
-    # five draws, because a single one is not a measurement: the projected error moves by
-    # 7x across seeds and QR beats polar on individual draws while losing on the mean
-    grp = {nz: compose(box, twin, k=k, noise=nz, trials=5, seed=seed, **kw)
+    acc = accumulation(box, twin, k=k, tiles=(2, 4, 8), trials=4, seed=seed, **kw)
+    # 24 draws, because a single one is not a measurement: the projected error moves by 7x
+    # across seeds, and at five draws the polar-vs-QR mean flips sign in the noiseless case
+    grp = {nz: compose(box, twin, k=k, noise=nz, trials=24, seed=seed, **kw)
            for nz in (0.0, noise)}
 
     # the control behind the unistochastic claim: |V|^2 of a random unitary IS reachable by
@@ -503,20 +570,34 @@ def _selftest(k: int = TILE_K, cols: int = 6, noise: float = 0.012, restarts: in
     assert big["vec_err"] < 0.05, big["vec_err"]
     assert big["sign_acc"] == 1.0, big["sign_acc"]
     # the ideal box separates method from die -- but only up to k = 3. At k = 4 the target
-    # has to be UNISTOCHASTIC, not merely doubly stochastic, and about one random tile in six
-    # is not: those plateau near 0.05 from restarts=12 to restarts=64, while `uni` shows a
-    # reachable-by-construction target still fits.
-    assert uni < 0.01, uni
+    # has to be UNISTOCHASTIC, not merely doubly stochastic, and a minority of random tiles
+    # are not: one of twelve plateaus at 0.033, unmoved from restarts=12 to restarts=64,
+    # while `uni` shows a reachable-by-construction target still fits at the LOW budget.
+    # The bar is 0.03 and not 0.01 because this is the low budget: the worst of these three
+    # draws is 0.017 and the worst of six in a wider check was 0.011, against a plateau at
+    # 0.033. Tightening it to 0.01 is asserting that 12 restarts always converge, which is
+    # a claim about the optimiser and not about the set.
+    assert uni < 0.03, uni
     for r in rows:
         if r["label"] == "ideal":
             lim = 0.05 if r["k"] < 4 else 0.10
             assert r["vec_err"] < lim, (r["label"], r["k"], r["shape"], r["vec_err"])
-    assert acc[-1]["vs_indep"] < 1.3, acc[-1]    # errors add incoherently, sqrt(t) not t
-    assert acc[-1]["vs_corr"] < 0.75, acc[-1]
+    # errors add incoherently, sqrt(t) not t. The band is 0.65-1.35 because the per-trial
+    # ratio has sd up to 0.24 and this runs four trials; a tighter bar would be testing the
+    # sampling noise. `vs_corr` is NOT asserted -- it is `vs_indep` times the residual
+    # inequality, so a bar on it is a bar on how heavy the tail happened to be.
+    for a in acc:
+        assert 0.65 < a["vs_indep"] < 1.35, a
+    # and the observed sum is on the independent SIDE of the two bounds, not merely near
+    # one of them: below their geometric midpoint, which self-scales with the tail
+    assert acc[-1]["observed"] < np.sqrt(acc[-1]["indep"] * acc[-1]["corr"]), acc[-1]
     for nz, g in grp.items():
-        assert g["polar_step"] <= g["qr_step"] + 1e-12, g   # polar IS the nearest
+        assert g["polar_step"] <= g["qr_step"] + 1e-12, g   # polar IS the nearest, exactly
         assert g["polar"] < g["raw"], (nz, g)              # and projecting improves the answer
-        assert g["polar"] < g["qr"], (nz, g)
+    # closer to the TRUTH than QR is only asserted where it reproduces. Noiseless the two are
+    # inside the draw-to-draw spread (QR ahead over the first 5, 8 and 12 of the same 24
+    # draws, polar ahead over all 24), so a bar there would be a bar on the sampling noise.
+    assert grp[noise]["polar"] < grp[noise]["qr"], grp[noise]
     return {"rows": rows, "noisy": noisy, "marginal": marginal, "order_gap": order_gap,
             "accumulation": acc, "group": grp, "box": box, "unistochastic_control": uni,
             "calibrated": bool(Calibration.load_or_nominal().meta)}
@@ -547,12 +628,17 @@ if __name__ == "__main__":
           f"{'8x8':>9}{n['tiles']:>7}{n['fit_err']:>9.4f}{n['matrix_err']:>9.4f}"
           f"{n['vec_err']:>9.4f}{n['sign_acc']:>7.0%}{n['reads']:>11.1f}{n['writes']:>8}")
 
-    print("\nhow tile errors add (both bounds from the same measured per-tile errors)")
+    a0 = r["accumulation"][0]
+    print(f"\nhow tile errors add, {a0['trials']} trials (both bounds from the same measured "
+          f"per-tile errors)")
     print(f"{'tiles':>6}{'observed':>10}{'if independent':>16}{'if correlated':>15}"
-          f"{'obs/indep':>11}{'obs/corr':>10}{'rel err':>9}")
+          f"{'obs/indep':>11}{'sd':>7}{'ind/corr':>10}{'1/sqrt(t)':>11}{'rel err':>9}")
     for a in r["accumulation"]:
         print(f"{a['tiles']:>6}{a['observed']:>10.4f}{a['indep']:>16.4f}{a['corr']:>15.4f}"
-              f"{a['vs_indep']:>11.2f}{a['vs_corr']:>10.2f}{a['rel']:>9.4f}")
+              f"{a['vs_indep']:>11.2f}{a['vs_indep_sd']:>7.2f}{a['spread']:>10.2f}"
+              f"{a['sqrt_bound']:>11.2f}{a['rel']:>9.4f}")
+    print("  obs/indep is the result; ind/corr against 1/sqrt(t) says how unequal the "
+          "per-tile residuals were, which is all obs/corr would have added")
 
     print("\ngroup property: host O_a and O_b, run the measured A through program b")
     print(f"{'noise':>7}{'dist(A)':>9}{'dist(C)':>9}{'C raw':>8}{'C polar':>9}{'C qr':>8}"

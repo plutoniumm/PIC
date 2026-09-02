@@ -1,0 +1,22 @@
+TEC settling to 25.0 C ...
+  stable at 25.030 C
+drive-v repeatability between dwells: 3.34 mV  (251 s)
+reference DAC 3 (114.1 ohm), d0 = +0.1739 V
+       9.4 mW  ->     +5.18 mV
+      33.0 mW  ->     +3.17 mV
+      56.7 mW  ->     +9.08 mV
+      80.4 mW  ->    +15.63 mV
+  WARNING: response is not monotone in power -- the interpolation is unsafe
+
+holdout -- channels whose resistance is already known:
+
+VERDICT: the TEC is not sensitive enough to weigh one heater at a safe voltage.
+Measured sensitivity 0.147 mV/mW (5.18 mV at 9.4 mW to 15.63 mV at 80.4 mW), against a
+between-dwell noise floor of 3.34 mV after averaging 30 s per dwell to beat the loop's 4.5 s
+limit cycle. An unknown channel staged at 1.5 V dissipates ~20 mW and so produces ~2.9 mV --
+SNR below 1. Reaching the 5 sigma gate needs ~114 mW, i.e. 3.6 V on a channel whose current
+rating cannot be checked, which is the thing the measurement was for.
+
+The substitution method itself is sound and its self-test recovers known resistances to 2.15%
+against a simulated calorimeter; the instrument is what fails, not the maths. Use an ohmmeter:
+UH6 = TP11/TP10, UH14 = TP26/TP25, UH18 = TP26/BP21 (mrunal/PIC1A_packaged_IO.pdf p.5).

@@ -26,7 +26,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from .config import VOLTAGE_MAX, VOLTAGE_MAX_CH, VPI_NOMINAL
+from .config import VOLTAGE_MAX_CH, VPI_NOMINAL
+from .session import WatchdogTripped, check_active
 from theory.clements import NMODE
 
 # The band a thermo-optic shifter on this process can plausibly sit in. A fit outside it is
@@ -54,8 +55,15 @@ def fringe(v, A, B, vpi, phi0):
     return A + B * np.cos(np.pi * (np.asarray(v, float) / vpi) ** 2 + phi0)
 
 
-def seed_vpi(v, y, vmax: float = VOLTAGE_MAX):
+def seed_vpi(v, y, vmax: float = None):
     """Estimate Vpi straight off the data, by FFT, with no search.
+
+    `vmax` is the top of the range these samples cover, and it defaults to exactly that --
+    `max(v)` -- not to the global `VOLTAGE_MAX`. It only ever appears inside the alias
+    gate, where the quantity that matters is the phase span the *data* covers: assuming a
+    3.0 V sweep of a channel swept to 4.55 understates the span by 2.3x and lets an alias
+    through, and assuming it of a channel swept to 2.25 overstates it and rejects an honest
+    fit. Callers that know the channel's ceiling pass it and get the same number.
 
     Phase is linear in V^2, so against u = V^2 the trace is a pure sinusoid:
     y(u) = A + B cos(pi u / Vpi^2 + phi0). Resample onto a uniform u grid, take the
@@ -68,6 +76,7 @@ def seed_vpi(v, y, vmax: float = VOLTAGE_MAX):
     follows starts from a short list rather than a grid."""
     u = np.asarray(v, float).ravel() ** 2
     y = np.asarray(y, float).ravel()
+    vmax = float(np.sqrt(u.max())) if vmax is None else float(vmax)
     n = max(256, 8 * u.size)
     uu = np.linspace(u.min(), u.max(), n)
     yy = np.interp(uu, u, y[np.argsort(u)] if not np.all(np.diff(u) >= 0) else y)
@@ -87,19 +96,28 @@ def seed_vpi(v, y, vmax: float = VOLTAGE_MAX):
     return out or [VPI_NOMINAL]
 
 
-def fit_fringe(v, y, vpi_seeds=None, vmax: float = VOLTAGE_MAX):
+def fit_fringe(v, y, vpi_seeds=None, vmax: float = None):
     """Least-squares fit of one heater's fringe, seeded by `seed_vpi`.
 
     Returns a dict with A, B, vpi, phi0, rmse, r2 and `visibility` = B / A, the contrast
     the channel actually produced. A fit with low visibility is a fit to noise however good
     its residual looks, so callers gate on visibility, not rmse. A fit whose Vpi runs to the
-    edge of the physical band is rejected outright for the same reason."""
+    edge of the physical band is rejected outright for the same reason.
+
+    `vmax` sets both the alias gate and the reported `span_pi`, and defaults to the top of
+    `v` -- the range these samples actually cover. It used to default to the global
+    `VOLTAGE_MAX` of 3.0 V, which was right only while every channel was swept to 3.0 V. It
+    is not any more: the per-channel ceilings run 1.50 to 4.75 V, so a fixed 3.0 both
+    understated the span on the wide channels (loosening the alias gate that
+    `resolvable_span` exists to be) and overstated it on the narrow ones, which is why
+    stored `span_pi` disagreed with the sweep it came from."""
     from scipy.optimize import curve_fit
 
     v = np.asarray(v, float).ravel()
     y = np.asarray(y, float).ravel()
     if v.size != y.size or v.size < 8:
         raise ValueError(f"need >=8 paired samples, got {v.size}/{y.size}")
+    vmax = float(np.max(np.abs(v))) if vmax is None else float(vmax)
 
     seeds = seed_vpi(v, y, vmax) if vpi_seeds is None else list(vpi_seeds)
     A0, B0 = float(y.mean()), float((y.max() - y.min()) / 2)
@@ -176,8 +194,13 @@ def read_noise(pic, n: int = 16, settle_s: float = 1.0) -> np.ndarray:
     ~44 mV, because its noise is slow rather than white. A sweep point is seconds from its
     neighbours, so the slow figure is the one that decides whether a fringe is real, and a
     fast sample flatters the noisiest detector by two orders of magnitude."""
+    # 16 reads at a second each, and it goes straight to the board rather than through
+    # `settled_read`, so it needs its own guard: a floor measured on a dark chip is small,
+    # and a small floor makes the SNR gate pass everything it should reject.
+    check_active()
     z = np.zeros(pic.cfg.num_dac)
     a = np.array([pic.measure(z, settle_s=settle_s) for _ in range(n)])
+    check_active()
     return a.std(axis=0)
 
 
@@ -232,9 +255,11 @@ def better(a, b, min_visibility: float = 0.05, min_amplitude: float = MIN_AMPLIT
 
 def best_fringe(levels, curves, pds=None, min_visibility: float = 0.05,
                 min_amplitude: float = MIN_AMPLITUDE_V, min_r2: float = 0.5,
-                noise=None) -> dict:
+                noise=None, vmax: float = None) -> dict:
     """Fit one heater's sweep against every detector it was recorded on, keep the best.
-    `curves` is (levels, n_detectors)."""
+    `curves` is (levels, n_detectors). `vmax` is the channel's own voltage ceiling and is
+    passed straight to `fit_fringe`; leaving it None uses the swept top, which is the same
+    number whenever the caller sized the grid per channel."""
     curves = np.atleast_2d(np.asarray(curves, float))
     if curves.shape[0] != len(levels):
         curves = curves.T
@@ -242,7 +267,7 @@ def best_fringe(levels, curves, pds=None, min_visibility: float = 0.05,
     best = dict(NO_FIT)
     for k, p in enumerate(pds):
         try:
-            f = fit_fringe(levels, curves[:, k])
+            f = fit_fringe(levels, curves[:, k], vmax=vmax)
         except (RuntimeError, ValueError):
             continue
         f["pd"] = int(p)
@@ -276,19 +301,26 @@ def probe_inputs(nmode: int = None, paired: bool = True):
     return single + [(E[0] + E[1]) / 2**0.5, (E[2] + E[3]) / 2**0.5]
 
 
-def random_bases(n: int, rng=None, channels=None, vmax: float = VOLTAGE_MAX):
+def random_bases(n: int, rng=None, channels=None, vmax=None):
     """Base biases to sweep from. The first is all-zero, the rest random, so a heater that
-    is dark in one mesh state has other chances to be seen."""
+    is dark in one mesh state has other chances to be seen.
+
+    Drawn per channel from `VOLTAGE_MAX_CH`, not from a flat global ceiling. A flat 3.0 V
+    draw is clipped by the driver on every channel rated below it, so a third of each base
+    would be the same clipped value at a state the host believed was random -- the host and
+    the chip in different states with nothing reporting it."""
     import numpy as _np
 
     from .layout import ACTIVE_DACS, N_HEATERS
 
     rng = _np.random.default_rng(0) if rng is None else rng
     channels = ACTIVE_DACS if channels is None else _np.asarray(channels, int)
+    hi = (_np.asarray(VOLTAGE_MAX_CH, float)[channels] if vmax is None
+          else _np.full(channels.size, float(vmax)))
     out = [_np.zeros(N_HEATERS)]
     for _ in range(max(0, n - 1)):
         v = _np.zeros(N_HEATERS)
-        v[channels] = rng.uniform(0, vmax, channels.size)
+        v[channels] = rng.uniform(0, hi, channels.size)
         out.append(v)
     return out
 
@@ -435,11 +467,18 @@ def characterize(pic, session, *, pd=None, levels=None, channels=None, bases=Non
     base_levels = grid() if levels is None else np.asarray(levels, float)
 
     def levels_for(c):
+        # Scaled to the channel's ceiling in BOTH directions, so the swept top IS
+        # `VOLTAGE_MAX_CH[c]` and the alias gate can be evaluated against it. Down-scaling
+        # was always here; up-scaling is new and matters since the 40 mA limit opened the
+        # ~118 ohm channels to 4.55-4.75 V. A grid stopping at the old 3.0 V global threw
+        # away (4.55/3.0)^2 = 2.3x of phase span -- which was the entire point of raising
+        # the current -- and left `span_pi` describing a range the sweep never reached.
+        # The grid stays uniform in V^2 under any scaling, so the sampling argument holds.
         vmax = VOLTAGE_MAX_CH[int(c)]
         if vmax <= 0:
             return None                       # nothing to sweep; do not invent an axis
         top = float(base_levels.max())
-        return base_levels if top <= vmax + 1e-9 else base_levels * (vmax / top)
+        return base_levels if top <= 0 else base_levels * (vmax / top)
 
     levels = base_levels
     channels = ACTIVE_DACS if channels is None else np.asarray(channels, int)
@@ -455,76 +494,93 @@ def characterize(pic, session, *, pd=None, levels=None, channels=None, bases=Non
         print("  read noise per detector (mV): "
               + "  ".join(f"PD{p}:{1e3 * n:.1f}" for p, n in zip(pds, noise)))
     results, raw = {}, {}
-    for c in channels:
-        if session.expired():
-            if verbose:
-                print("  watchdog reached; keeping the partial characterization.")
-            break
-        levels = levels_for(c)
-        if levels is None:
-            f = dict(NO_FIT)
-            f["dac"], f["label"] = int(c), role[int(c)]
-            f["ok"], f["fingerprint"] = False, []
-            f["note"] = "held at 0 V (resistance unconfirmed); not swept"
-            results[int(c)] = f
-            if verbose:
-                print(f"  {role[int(c)]:<14} held at 0 V, not swept")
-            continue
-        f = dict(NO_FIT)
-        # Modulation depth on every (port, detector), not just the winning one. `better`
-        # keeps a single best fit because that is what Vpi needs, but the map from DAC to
-        # mesh position is carried by the *pattern* -- a first-column MZI moves a different
-        # set of outputs from a third-column one, and that distinction is invisible in the
-        # one number the fit reports. The sweep already measures it; only the keeping is new.
-        fp = np.full((len(ports), len(pds)), np.nan)
-        raw_c = np.full((len(ports), len(bases), len(levels), len(pds)), np.nan)
-        for pi, port in enumerate(ports):
+    truncated = False
+    # A watchdog trip aborts mid-channel rather than finishing it: `settled_read` raises
+    # once the laser has been hard-offed, so the sweep in flight is dropped whole instead
+    # of being fitted from a trace that goes dark part way through. Everything already in
+    # `results` was measured before the trip -- each channel is recorded only after its
+    # last complete trace -- so the partial that survives is provably lit data.
+    try:
+        for c in channels:
             if session.expired():
+                # Asked before the sweep, so nothing here was read after the trip: the
+                # channels already in `results` are all fully lit.
+                truncated = "watchdog deadline reached between channels"
+                if verbose:
+                    print("  watchdog reached; keeping the partial characterization "
+                          "(every channel below was swept before the deadline).")
                 break
-            if port is not None:
-                switch.select(port)
-            for bi, base in enumerate(bases):
+            levels = levels_for(c)
+            if levels is None:
+                f = dict(NO_FIT)
+                f["dac"], f["label"] = int(c), role[int(c)]
+                f["ok"], f["fingerprint"] = False, []
+                f["note"] = "held at 0 V (resistance unconfirmed); not swept"
+                results[int(c)] = f
+                if verbose:
+                    print(f"  {role[int(c)]:<14} held at 0 V, not swept")
+                continue
+            f = dict(NO_FIT)
+            # Modulation depth on every (port, detector), not just the winning one. `better`
+            # keeps a single best fit because that is what Vpi needs, but the map from DAC to
+            # mesh position is carried by the *pattern* -- a first-column MZI moves a different
+            # set of outputs from a third-column one, and that distinction is invisible in the
+            # one number the fit reports. The sweep already measures it; only the keeping is new.
+            fp = np.full((len(ports), len(pds)), np.nan)
+            raw_c = np.full((len(ports), len(bases), len(levels), len(pds)), np.nan)
+            for pi, port in enumerate(ports):
                 if session.expired():
                     break
-                v = np.asarray(base, float).copy()
-                ys = []
-                for lv in levels:
-                    v[c] = lv
-                    ys.append(settled_read(pic, v, settle_s, repeats)[pds])
-                    session.keepalive()
-                ys = np.asarray(ys)
-                raw_c[pi, bi] = ys
-                depth = ys.max(axis=0) - ys.min(axis=0)
-                fp[pi] = depth if np.isnan(fp[pi]).all() else np.fmax(fp[pi], depth)
-                g = best_fringe(levels, ys, pds, min_visibility, min_amplitude,
-                                min_r2, noise=noise)
-                g["base"], g["port"] = bi, port
-                f = better(g, f, min_visibility, min_amplitude, min_r2)
-        # One gate, not two. This used to re-derive `ok` with its own copy of the rule, so
-        # the SNR override in `better` applied when ranking candidates and then vanished
-        # when the winner was recorded -- a channel accepted during the sweep came out of
-        # the file rejected. Ask `better` instead, by comparing the fit against a reject.
-        f["ok"] = passes(f, min_visibility, min_amplitude, min_r2)
-        f["dac"], f["label"] = int(c), role[int(c)]
-        f["fingerprint"] = fp.tolist()
-        raw[int(c)] = raw_c
-        # Keep every trace, not just the winning one. All of a heater's (port, base) sweeps
-        # share the same Vpi and phi0 -- only A and B change with the upstream state -- so
-        # fitting them together turns ~11 points into ~88 AND breaks the degeneracy that
-        # makes (A, B, Vpi) inseparable over a sub-pi segment, because the degenerate
-        # direction differs in each trace. `better` keeps one fit and discards the rest,
-        # which is the right call for ranking and the wrong one for estimating Vpi.
-        f["levels"] = np.asarray(levels, float).tolist()
-        f["curves"] = raw_c.tolist()
-        if f["ok"]:
-            vpi[c], phi0[c] = f["vpi"], f["phi0"]
-        results[int(c)] = f
+                if port is not None:
+                    switch.select(port)
+                for bi, base in enumerate(bases):
+                    if session.expired():
+                        break
+                    v = np.asarray(base, float).copy()
+                    ys = []
+                    for lv in levels:
+                        v[c] = lv
+                        ys.append(settled_read(pic, v, settle_s, repeats)[pds])
+                        session.keepalive()
+                    ys = np.asarray(ys)
+                    raw_c[pi, bi] = ys
+                    depth = ys.max(axis=0) - ys.min(axis=0)
+                    fp[pi] = depth if np.isnan(fp[pi]).all() else np.fmax(fp[pi], depth)
+                    g = best_fringe(levels, ys, pds, min_visibility, min_amplitude,
+                                    min_r2, noise=noise, vmax=VOLTAGE_MAX_CH[int(c)])
+                    g["base"], g["port"] = bi, port
+                    f = better(g, f, min_visibility, min_amplitude, min_r2)
+            # One gate, not two. This used to re-derive `ok` with its own copy of the rule, so
+            # the SNR override in `better` applied when ranking candidates and then vanished
+            # when the winner was recorded -- a channel accepted during the sweep came out of
+            # the file rejected. Ask `better` instead, by comparing the fit against a reject.
+            f["ok"] = passes(f, min_visibility, min_amplitude, min_r2)
+            f["dac"], f["label"] = int(c), role[int(c)]
+            f["fingerprint"] = fp.tolist()
+            raw[int(c)] = raw_c
+            # Keep every trace, not just the winning one. All of a heater's (port, base) sweeps
+            # share the same Vpi and phi0 -- only A and B change with the upstream state -- so
+            # fitting them together turns ~11 points into ~88 AND breaks the degeneracy that
+            # makes (A, B, Vpi) inseparable over a sub-pi segment, because the degenerate
+            # direction differs in each trace. `better` keeps one fit and discards the rest,
+            # which is the right call for ranking and the wrong one for estimating Vpi.
+            f["levels"] = np.asarray(levels, float).tolist()
+            f["curves"] = raw_c.tolist()
+            if f["ok"]:
+                vpi[c], phi0[c] = f["vpi"], f["phi0"]
+            results[int(c)] = f
+            if verbose:
+                print(f"  {role[int(c)]:<14} PD{f.get('pd')} port{f.get('port')} base{f.get('base')}  "
+                      f"vis {f['visibility']:.3f}  amp {1e3 * f.get('amplitude', 0):5.1f}mV  "
+                      f"r2 {f.get('r2', 0):+.3f}  "
+                      f"Vpi {f.get('vpi', float('nan')):.2f}  "
+                      f"{'ok' if f['ok'] else 'REJECTED (invisible in intensity)'}")
+    except WatchdogTripped as e:
+        truncated = "watchdog tripped mid-sweep"
         if verbose:
-            print(f"  {role[int(c)]:<14} PD{f.get('pd')} port{f.get('port')} base{f.get('base')}  "
-                  f"vis {f['visibility']:.3f}  amp {1e3 * f.get('amplitude', 0):5.1f}mV  "
-                  f"r2 {f.get('r2', 0):+.3f}  "
-                  f"Vpi {f.get('vpi', float('nan')):.2f}  "
-                  f"{'ok' if f['ok'] else 'REJECTED (invisible in intensity)'}")
+            print(f"\n  {e}")
+            print(f"  keeping the {len(results)} channel(s) completed before the trip; "
+                  f"the channel in flight is discarded.")
 
     n_ok = sum(r["ok"] for r in results.values())
     calib = Calibration(vpi, phi0, meta={
@@ -533,6 +589,9 @@ def characterize(pic, session, *, pd=None, levels=None, channels=None, bases=Non
         "min_visibility": min_visibility, "min_amplitude": min_amplitude, "min_r2": min_r2,
         "n_ok": n_ok, "n_swept": len(results),
         "chip_c": getattr(session, "chip_c", None),
+        # provenance, not decoration: a calibration merged from a truncated run covers
+        # fewer channels than its `ports`/`n_bases` fields imply
+        "truncated": truncated,
     })
     return results, calib
 

@@ -1,22 +1,23 @@
-"""The mesh's phase inventory: what each of the 18 heaters does.
+"""The mesh's phase inventory: what each of the 16 driven heaters does.
 
 The delivered part (`mrunal/PIC1A_packaged_IO.pdf`) wires **UH1..UH18** to the 4x4 Unitary
 block, and `mrunal/PIC_Design_Review.pptx` shows it as six MZIs across four input and four
 output ports. MH1..MH3 belong to the separate single-MZI test block and are not part of this
 mesh.
 
-Eighteen heaters, but a 4x4 unitary has only 15 free phases:
+Eighteen heater pads, sixteen DAC channels, and a 4x4 unitary has only 15 free phases. The
+DAC81416 is what the model is sized to, so the inventory here is 16 and not 18:
 
     6 MZI x (theta, phi)  12
     output trimmers        3   on rails 1, 2, 3
-    aux                    3   real heaters, role not yet assigned
+    aux                    1   real heater, role not yet assigned
                           --
-                          18
+                          16   (two of the 18 pads have no driver at all)
 
 Rail 0 gets no trimmer because the fourth output phase is a global phase, which no detector
-can see and no heater needs to make. So three of the eighteen are redundant degrees of
-freedom by construction -- a checkable claim, and the first thing a full characterization
-should confirm.
+can see and no heater needs to make. So one of the sixteen is a redundant degree of freedom
+by construction -- a checkable claim, and the first thing a full characterization should
+confirm.
 
 PROVISIONAL: which UH number is which role. The count is from the packaging document; the
 assignment is a reading of the standard rectangular layout and needs the GDS or a per-heater
@@ -49,7 +50,7 @@ N_HEATERS = 16
 # held dark; see pic.config.VOLTAGE_MAX_CH.
 DAC_HEATER = ("H15", "H12", "H11", "H8", "H4", "H3", "H18", "H9",
               "H14", "H13", "H10", "H6", "H7", "H5", "H2", "H1")
-N_AUX = N_HEATERS - (2 * NMZI + NMODE - 1)  # 3 heaters the model does not use
+N_AUX = N_HEATERS - (2 * NMZI + NMODE - 1)  # heaters the model does not use
 REF_RAIL = 0         # the output rail with no trimmer: its phase is the global phase
 
 
@@ -161,7 +162,7 @@ assert AUX_IDX.size == N_AUX
 
 
 def pack(theta, phi, alpha=None) -> np.ndarray:
-    """Mesh parameters -> the 18-long optical-phase vector, in heater order.
+    """Mesh parameters -> the 16-long optical-phase vector, in DAC-channel order.
 
     `alpha` may be the full 4-rail screen (rail 0 must be the reference and is dropped) or
     just the 3 trimmer phases."""
@@ -175,7 +176,7 @@ def pack(theta, phi, alpha=None) -> np.ndarray:
 
 
 def unpack(ph):
-    """The 18-long phase vector -> (theta[6], phi[6], alpha[4]) with alpha[0] = 0."""
+    """The 16-long phase vector -> (theta[6], phi[6], alpha[4]) with alpha[0] = 0."""
     ph = np.asarray(ph, float).ravel()
     if ph.size != N_HEATERS:
         raise ValueError(f"expected {N_HEATERS} phases, got {ph.size}")

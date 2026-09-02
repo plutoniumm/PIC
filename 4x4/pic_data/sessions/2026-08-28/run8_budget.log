@@ -1,0 +1,139 @@
+hw 1: powering on
+  [OK] connected, key ON, interlocks closed
+  ceilings clamped to 250 mA
+  TEC on
+  LASER ON at floor setpoint 5 (~0.2 mW). Use `set <dBm>` to ramp.
+  ramp setpoint 5.0 -> 28.2  (0.4s @ 60/s)
+  +10.0 dBm -> setpoint 28.2  (~10.0 mW; measured I 24 mA)
+hw 0: powering off
+hw 0: powering off
+Traceback (most recent call last):
+  File "/usr/local/Caskroom/miniconda/base/envs/pic/lib/python3.13/site-packages/serial/serialposix.py", line 575, in read
+    buf = os.read(self.fd, size - len(read))
+OSError: [Errno 6] Device not configured
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/session.py", line 207, in laser_session
+    yield s
+  File "/private/tmp/claude-501/-Users-gojira-Documents-GitHub-nosync-PIC/dc76370f-cff6-4d83-9819-456d61215fd2/scratchpad/run8_save.py", line 17, in <module>
+    res = run_block(rig, B, box, k=2, cols=8, rails=((0,1),(0,1)), calib=calib,
+                    transfers=tr, repeats=32, budget=512, dbm=10.0)
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/matvec.py", line 1037, in run_block
+    tile.terms = (refine_term(tile.terms[0], H, probe, plan.rails, box,
+                  ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                              trials=int(n), rng=rng),)
+                              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/matvec.py", line 490, in refine_term
+    e, blk, sc = err_of(v)
+                 ~~~~~~^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/matvec.py", line 478, in err_of
+    blk = measure_transfer(probe, volts)[np.ix_(list(rails[0]), list(rails[1]))]
+          ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/matvec.py", line 271, in measure_transfer
+    return np.column_stack([np.asarray(probe(volts, k, 1.0), float) for k in range(n)])
+                                       ~~~~~^^^^^^^^^^^^^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/matvec.py", line 198, in __call__
+    self._state = (v.copy(), *self._sweep(v))
+                              ~~~~~~~~~~~^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/matvec.py", line 184, in _sweep
+    raw = sweep(self.rig, v, n, cycles=self.cycles)
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/normalise.py", line 183, in sweep
+    got = batch(c, -(-n // c))     # ceil: never fewer frames than the caller asked for
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/rig.py", line 316, in sweep_ports
+    raw = board.sweep_raw(int(cycles), int(reads))
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/interface.py", line 224, in sweep_raw
+    raw = self.ser.readline().decode("utf-8", "ignore").strip()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/usr/local/Caskroom/miniconda/base/envs/pic/lib/python3.13/site-packages/serial/serialposix.py", line 581, in read
+    raise SerialException('read failed: {}'.format(e))
+serial.serialutil.SerialException: read failed: [Errno 6] Device not configured
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-gojira-Documents-GitHub-nosync-PIC/dc76370f-cff6-4d83-9819-456d61215fd2/scratchpad/run8_save.py", line 16, in <module>
+    with rig.session(duration_s=900, power_dbm=10.0):
+         ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Caskroom/miniconda/base/envs/pic/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/session.py", line 219, in laser_session
+    laser.off()
+    ~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/laser.py", line 365, in off
+    self.hw_off()
+    ~~~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/laser.py", line 296, in hw_off
+    if self.is_on():
+       ~~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/laser.py", line 176, in is_on
+    self.dev.read_setting("laser_status"),
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/pdmv5.py", line 206, in read_setting
+    body = self._txn(_CMD_READ, bytes([(rid >> 8) & 0xFF, rid & 0xFF]))
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/pdmv5.py", line 159, in _txn
+    self.ser.reset_input_buffer()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/local/Caskroom/miniconda/base/envs/pic/lib/python3.13/site-packages/serial/serialposix.py", line 683, in reset_input_buffer
+    self._reset_input_buffer()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/local/Caskroom/miniconda/base/envs/pic/lib/python3.13/site-packages/serial/serialposix.py", line 677, in _reset_input_buffer
+    termios.tcflush(self.fd, termios.TCIFLUSH)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+termios.error: (6, 'Device not configured')
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/rig.py", line 355, in close
+    self.board.set_zero()
+    ~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/interface.py", line 240, in set_zero
+    self.measure_raw(np.zeros(self.cfg.num_dac))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/interface.py", line 110, in measure_raw
+    self.ser.reset_input_buffer()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/local/Caskroom/miniconda/base/envs/pic/lib/python3.13/site-packages/serial/serialposix.py", line 683, in reset_input_buffer
+    self._reset_input_buffer()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/local/Caskroom/miniconda/base/envs/pic/lib/python3.13/site-packages/serial/serialposix.py", line 677, in _reset_input_buffer
+    termios.tcflush(self.fd, termios.TCIFLUSH)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+termios.error: (6, 'Device not configured')
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-gojira-Documents-GitHub-nosync-PIC/dc76370f-cff6-4d83-9819-456d61215fd2/scratchpad/run8_save.py", line 11, in <module>
+    with rig:
+         ^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/rig.py", line 373, in __exit__
+    self.close()
+    ~~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/rig.py", line 363, in close
+    self.laser.off()
+    ~~~~~~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/laser.py", line 365, in off
+    self.hw_off()
+    ~~~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/laser.py", line 296, in hw_off
+    if self.is_on():
+       ~~~~~~~~~~^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/laser.py", line 176, in is_on
+    self.dev.read_setting("laser_status"),
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/pdmv5.py", line 206, in read_setting
+    body = self._txn(_CMD_READ, bytes([(rid >> 8) & 0xFF, rid & 0xFF]))
+  File "/Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic/devices/pdmv5.py", line 159, in _txn
+    self.ser.reset_input_buffer()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/local/Caskroom/miniconda/base/envs/pic/lib/python3.13/site-packages/serial/serialposix.py", line 683, in reset_input_buffer
+    self._reset_input_buffer()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/local/Caskroom/miniconda/base/envs/pic/lib/python3.13/site-packages/serial/serialposix.py", line 677, in _reset_input_buffer
+    termios.tcflush(self.fd, termios.TCIFLUSH)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+termios.error: (6, 'Device not configured')

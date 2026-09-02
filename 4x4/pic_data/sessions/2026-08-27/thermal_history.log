@@ -1,0 +1,14 @@
+source: pic_data/quarantine_not25C/raw_transfers_fresh.json (100 states, captured 2026-08-28 04:15 at 27 C)
+heater power per state: 0.0 - 1189.0 mW
+total detected power varies 4.7% rms
+
+corr(total detected, P_now)                  -0.222
+corr(total detected, P_prev)                 +0.054
+corr(total detected, P_prev | P_now removed) +0.076
+corr(total detected, P_prev2 | now, prev)    -0.060
+
+per-entry corr(transfer residual, P_prev), after removing the state's own volts:
+  median -0.000   |max| 0.138   0/16 above 0.2
+
+VERDICT: no thermal memory. The table is not contaminated by the heat of the state
+before it, so the 0.0375 of unexplained shape error is not capture ordering.

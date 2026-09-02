@@ -1,0 +1,40 @@
+hw 1: powering on
+  [OK] connected, key ON, interlocks closed
+  ceilings clamped to 250 mA
+  TEC OFF (open-loop; room temp-controlled)
+  LASER ON at floor setpoint 5 (~0.2 mW). Use `set <dBm>` to ramp.
+  ramp setpoint 5.0 -> 28.2  (0.4s @ 60/s)
+  +10.0 dBm -> setpoint 28.2  (~10.0 mW; measured I 24 mA)
+  state  0: raw row sums [0.84  0.705 0.671 0.68 ]  col sums [0.949 0.894 0.634 0.419]
+  state  1: raw row sums [1.004 0.777 0.648 0.526]  col sums [0.999 0.892 0.65  0.414]
+  state  2: raw row sums [1.182 0.77  0.626 0.445]  col sums [1.111 0.822 0.661 0.429]
+  state  3: raw row sums [1.248 0.737 0.629 0.471]  col sums [1.215 0.763 0.663 0.444]
+  state  4: raw row sums [1.189 0.716 0.652 0.504]  col sums [1.221 0.711 0.696 0.431]
+  state  5: raw row sums [1.289 0.639 0.625 0.545]  col sums [1.277 0.752 0.651 0.418]
+  state  6: raw row sums [1.082 0.76  0.64  0.508]  col sums [1.048 0.878 0.645 0.419]
+  state  7: raw row sums [1.045 0.761 0.644 0.523]  col sums [0.924 0.93  0.679 0.441]
+  state  8: raw row sums [1.244 0.66  0.63  0.473]  col sums [1.125 0.796 0.64  0.446]
+  state  9: raw row sums [1.012 0.723 0.665 0.571]  col sums [0.887 1.007 0.663 0.413]
+  state 10: raw row sums [1.268 0.662 0.613 0.474]  col sums [1.205 0.725 0.646 0.441]
+  state 11: raw row sums [1.192 0.778 0.623 0.45 ]  col sums [1.087 0.867 0.656 0.434]
+  state 12: raw row sums [1.117 0.8   0.64  0.437]  col sums [1.093 0.81  0.657 0.434]
+  state 13: raw row sums [1.01  0.752 0.583 0.63 ]  col sums [0.974 0.96  0.635 0.405]
+  state 14: raw row sums [1.191 0.769 0.611 0.482]  col sums [1.213 0.74  0.663 0.436]
+  state 15: raw row sums [1.194 0.76  0.525 0.6  ]  col sums [1.183 0.837 0.66  0.4  ]
+  state 16: raw row sums [1.184 0.751 0.635 0.461]  col sums [1.174 0.774 0.638 0.446]
+  state 17: raw row sums [0.9   0.758 0.73  0.584]  col sums [1.066 0.84  0.65  0.416]
+  state 18: raw row sums [1.227 0.748 0.652 0.444]  col sums [1.144 0.816 0.664 0.447]
+  state 19: raw row sums [1.174 0.698 0.655 0.494]  col sums [1.079 0.859 0.652 0.431]
+  state 20: raw row sums [1.065 0.758 0.715 0.464]  col sums [0.965 0.955 0.654 0.429]
+  state 21: raw row sums [1.026 0.792 0.715 0.431]  col sums [0.978 0.915 0.636 0.436]
+  state 22: raw row sums [1.243 0.677 0.643 0.462]  col sums [1.136 0.77  0.679 0.44 ]
+  state 23: raw row sums [1.064 0.8   0.629 0.498]  col sums [1.141 0.768 0.651 0.431]
+  state 24: raw row sums [1.149 0.703 0.635 0.493]  col sums [1.013 0.864 0.66  0.444]
+  state 25: raw row sums [1.165 0.741 0.534 0.628]  col sums [1.121 0.869 0.666 0.411]
+  state 26: raw row sums [1.077 0.772 0.627 0.487]  col sums [0.949 0.922 0.659 0.433]
+  state 27: raw row sums [1.258 0.591 0.622 0.608]  col sums [1.238 0.751 0.676 0.414]
+  state 28: raw row sums [0.843 0.788 0.673 0.656]  col sums [0.962 0.893 0.68  0.424]
+  state 29: raw row sums [1.192 0.711 0.679 0.443]  col sums [1.087 0.854 0.64  0.442]
+  state 30: raw row sums [1.022 0.747 0.649 0.602]  col sums [0.934 1.01  0.664 0.412]
+  state 31: raw row sums [1.169 0.735 0.659 0.479]  col sums [1.175 0.783 0.671 0.414]
+  state 32: raw row sums [1.168 0.744 0.612 0.484]  col sums [1.052 0.85  0.674 0.433]

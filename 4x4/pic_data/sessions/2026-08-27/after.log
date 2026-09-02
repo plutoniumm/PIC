@@ -1,0 +1,22 @@
+########## capture done, ranking rails  06:35:22
+heater box: 8 steerable channels, widest span 1.51 pi (measured calibration)
+transfer table: 115 measured states from /Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic_data/sessions/2026-08-27/raw_transfers_fresh.json
+
+measured rail ranking for a 2x2 block over 115 states, best hosting first:
+  out      in        host err   cond   ill   |det|   steer  bright
+  (1, 2)   (1, 2)       0.132    3.2    1%   0.754   0.791   1.338
+  (0, 1)   (0, 1)       0.174    3.7    2%   0.787   0.880   1.648
+  (1, 2)   (0, 2)       0.194    3.7    0%   0.669   0.752   1.274
+  (1, 3)   (1, 2)       0.214   14.9   17%   0.217   0.583   0.714
+  rails: 1,2:1,2
+########## 2x2  06:35:48
+  reanchor: 10 states re-measured, table moved 0.0492 per entry, 15-parameter output mixing applied to all 115
+transfer table: 115 measured states from /Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic_data/sessions/2026-08-27/raw_transfers_fresh.json
+hosted residual 0.1276 (picked off the measured table)   twin predicts 0.1791 vs target
+MEASURED matrix vs target 0.2208   (shape 0.1209, brightness x0.802, cond 3.3)
+mean vector error 0.0909 (uncorrected 0.2392; the measured scale x0.802 is divided out), sign accuracy 100%
+cost: 1 heater writes, 24 switch moves, 24 reads for the matrix and 4 vectors -- the vectors are arithmetic on the held sweep, so their error is a function of the measured matrix, not a second opinion on it
+the mesh does not host this target: the 0.2208 above is MEASURED, and it is in the MATRIX, not the readout. Try --scan for better rails, or a smaller block.
+########## 8x8  06:36:37
+  reanchor: 10 states re-measured, table moved 0.0492 per entry, 15-parameter output mixing applied to all 115
+transfer table: 115 measured states from /Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic_data/sessions/2026-08-27/raw_transfers_fresh.json

@@ -14,7 +14,10 @@ import time
 
 import numpy as np
 
-from .config import NUM_ADC_RAW, NUM_DAC, OUT_PDS, VOLTAGE_MAX_CH, PICConfig, out_mask
+from theory.clements import NMODE
+
+from .config import (ADC_FRAME_S, NUM_ADC_RAW, NUM_DAC, OUT_PDS, SERIAL_RTT_S,
+                     SWITCH_SETTLE_S, VOLTAGE_MAX_CH, PICConfig, out_mask)
 
 
 class PICError(RuntimeError):
@@ -49,6 +52,7 @@ class PIC:
     def __init__(self, config: PICConfig | None = None, **kw):
         self.cfg = config or PICConfig(**kw)
         self.ser = None
+        self._caps = None
         self._mask = out_mask(self.cfg.num_adc_raw, self.cfg.out_pds)
 
     def __enter__(self):
@@ -60,6 +64,7 @@ class PIC:
     def open(self):
         import serial  # lazy so MockPIC needs no pyserial
 
+        self._caps = None                 # a different board may answer differently
         port, cands = find_port(self.cfg.port)
         if port is None:
             raise PICError(f"no serial port found; candidates were {cands}")
@@ -142,6 +147,95 @@ class PIC:
                 raise PICError(f"firmware refused port {port}: {raw!r}")
         raise PICError(f"no PORT echo for port {port} from {self.cfg.port}")
 
+    def capabilities(self, refresh: bool = False) -> dict:
+        """What the firmware can do beyond the frozen line protocol. `{}` means "only the
+        protocol", which is a working board and not an error.
+
+        Asked, not assumed, and asked separately from the `V` clamp query: a board can carry
+        that table and still predate the batched sweep, so one capability does not imply the
+        other. A firmware without `C` parses it as a DAC line -- zeroing every channel -- and
+        replies with an ADC frame, which is the shape detected below. That is why `Rig.open`
+        asks at open time, before anything is driven, and nowhere else."""
+        if self._caps is not None and not refresh:
+            return self._caps
+        ser = self.ser
+        if ser is None or isinstance(ser, str) or not hasattr(ser, "write"):
+            self._caps = {}
+            return self._caps
+        ser.reset_input_buffer()
+        ser.write(b"C\n")
+        caps, deadline = {}, time.time() + self.cfg.timeout_s
+        while time.time() < deadline:
+            raw = ser.readline().decode("utf-8", "ignore").strip()
+            if not raw:
+                continue
+            if raw.startswith("CAP"):
+                for tok in raw.split()[1:]:
+                    k, _, v = tok.partition("=")
+                    try:
+                        caps[k] = int(v)
+                    except ValueError:
+                        caps[k] = v
+                break
+            if len(raw.split(",")) == self.cfg.num_adc_raw:
+                break                          # an ADC frame: firmware from before `C`
+        self._caps = caps
+        return caps
+
+    @property
+    def batched(self) -> bool:
+        return bool(self.capabilities().get("sweep"))
+
+    def sweep_raw(self, cycles: int = 1, reads: int = 1,
+                  timeout_s: float | None = None) -> np.ndarray:
+        """A whole four-port sweep in ONE round trip -> raw volts `T[pd, port]`.
+
+        The heaters are not written here and the settle is not paid here; the caller owns
+        both, exactly as `pic.normalise.sweep` does, so this is a drop-in for that loop and
+        not a different measurement. What it removes is 4*cycles*reads round trips and
+        4*(cycles*reads - cycles) mirror settles.
+
+        `reads` are frames averaged back to back at one mirror position -- 7 ms apart, so
+        they average detector and ADC noise and nothing slower -- and `cycles` are complete
+        visits to all four ports, which spreads the frames over the same seconds the host's
+        `repeats` loop used to. They are not interchangeable; see `pic.acquisition.
+        batch_sweep_seconds` for what each costs."""
+        if not self.batched:
+            raise PICError("this firmware has no batched sweep; reflash "
+                           "Arduino/pic4x4/pic4x4.ino or use pic.normalise.sweep")
+        cycles, reads = max(1, int(cycles)), max(1, int(reads))
+        caps = self.capabilities()
+        lim = (caps.get("maxcycles", cycles), caps.get("maxreads", reads),
+               caps.get("maxframes", cycles * reads))
+        if cycles > lim[0] or reads > lim[1] or cycles * reads > lim[2]:
+            raise PICError(f"sweep {cycles}x{reads} exceeds the firmware's limits "
+                           f"(maxcycles {lim[0]}, maxreads {lim[1]}, maxframes {lim[2]})")
+        n = NMODE * self.cfg.num_adc_raw
+        # The board is busy for the whole sweep and answers nothing until it is done, so the
+        # read deadline has to be the sweep's own duration and not `timeout_s`. A default
+        # 3 s timeout silently truncates any sweep past ~8 frames.
+        if timeout_s is None:
+            timeout_s = 3.0 * (cycles * NMODE * (SWITCH_SETTLE_S + 0.02)
+                               + cycles * reads * NMODE * ADC_FRAME_S) + self.cfg.timeout_s
+        self.ser.reset_input_buffer()
+        self.ser.write(f"S{cycles},{reads}\n".encode())
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            raw = self.ser.readline().decode("utf-8", "ignore").strip()
+            if not raw:
+                continue
+            if raw.startswith("ERR"):
+                raise PICError(f"firmware refused sweep {cycles}x{reads}: {raw!r}")
+            if not raw.startswith("SWEEP"):
+                continue
+            parts = raw.split(None, 1)[1].split(",") if " " in raw else []
+            if len(parts) != n:
+                raise PICError(f"sweep returned {len(parts)} values, expected {n}")
+            # port-major on the wire, as the mirror visits and as a session file stores it
+            return np.array([float(p) for p in parts]).reshape(NMODE,
+                                                               self.cfg.num_adc_raw).T
+        raise PICError(f"timeout waiting for a {cycles}x{reads} sweep from {self.cfg.port}")
+
     def set_zero(self):
         self.measure_raw(np.zeros(self.cfg.num_dac))
 
@@ -160,6 +254,30 @@ class PIC:
         raise PICError(f"timeout waiting for {n} values from {self.cfg.port}")
 
 
+# What a firmware carrying the batched sweep reports, mirrored here so a `--mock` run walks
+# the same branch the bench does. Must match Arduino/pic4x4/pic4x4.ino.
+MOCK_CAPS = {"sweep": 1, "ports": NMODE, "pins": NUM_ADC_RAW, "dac": NUM_DAC,
+             "avg": 16, "maxcycles": 16, "maxreads": 64, "maxframes": 64, "switchms": 150}
+
+
+def emulate_sweep(board, cycles: int, reads: int) -> np.ndarray:
+    """The firmware's `S` command, done in Python against a simulated board.
+
+    Same loop order as `readSweep` -- cycles outside, ports inside, `reads` frames averaged
+    without moving the mirror -- so the two averaging axes stay distinguishable in a mock
+    run. On a simulator whose only noise is per-read they are interchangeable and the
+    distinction costs nothing; on the bench they are not, which is why the shape is kept."""
+    acc = np.zeros((board.cfg.num_adc_raw, NMODE))
+    v = board._last_v
+    for _ in range(max(1, int(cycles))):
+        for k in range(NMODE):
+            if board.switch is not None:
+                board.switch.select(k)
+            acc[:, k] += np.mean([board.measure_raw(v)
+                                  for _ in range(max(1, int(reads)))], axis=0)
+    return acc / max(1, int(cycles))
+
+
 class MockPIC(PIC):
     """Hardware-free stand-in backed by a forward function ``f(v18) -> raw_pds``."""
 
@@ -168,7 +286,9 @@ class MockPIC(PIC):
         super().__init__(config, **kw)
         self.forward = twin_forward(switch=switch) if forward is None else forward
         self.noise = noise
+        self.switch = switch
         self._rng = np.random.default_rng(0)
+        self._last_v = np.zeros(self.cfg.num_dac)
 
     def open(self):
         self.ser = "mock"
@@ -177,8 +297,15 @@ class MockPIC(PIC):
     def close(self):
         self.ser = None
 
+    def capabilities(self, refresh: bool = False) -> dict:
+        return dict(MOCK_CAPS)
+
+    def sweep_raw(self, cycles: int = 1, reads: int = 1, timeout_s=None) -> np.ndarray:
+        return emulate_sweep(self, cycles, reads)
+
     def measure_raw(self, voltages, retries: int = 3) -> np.ndarray:
         v = self._prep_dac(voltages)
+        self._last_v = v                  # the DACs hold a state; the sweep reads it back
         y = np.asarray(self.forward(v), float).ravel()
         if self.noise:
             y = y + self._rng.normal(0.0, self.noise, y.shape)

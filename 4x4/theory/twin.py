@@ -15,7 +15,7 @@ set it to zero and `U^H U = I` holds to 1e-6 in complex64.
     U = twin.matrix(phases)               # phases: (16,) or (B, 16) -> (4,4) or (B,4,4)
     twin = Twin(MeshError.sample(seed=0)) # a plausible fabricated instance
 
-The 18-vector is in heater order (`theory.layout`): theta heaters carry the *internal*
+The 16-vector is in DAC-channel order (`theory.layout`): theta heaters carry the *internal*
 arm phase, not the Clements angle. `theory.program` owns that conversion; get it wrong
 and everything downstream is quietly off by pi - 2t.
 """

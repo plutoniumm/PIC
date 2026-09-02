@@ -8,7 +8,7 @@ Two paths, and the difference between them is the whole story of a real chip:
 
   `refine(U, twin)` the correction for a fabricated one. Coupler error makes the physical
                    mesh differ from the ideal one, so the exact phases land near the
-                   target rather than on it. Eighteen parameters warm-started from the
+                   target rather than on it. Sixteen parameters warm-started from the
                    exact answer close that gap by gradient descent in well under a second.
 
 On the 6x6 only the second path existed, it started from nothing, and it ran through a
@@ -26,7 +26,7 @@ from .layout import pack, unpack
 
 
 def phases_for(U) -> np.ndarray:
-    """Target 4x4 unitary -> the 18-long phase vector, exactly. Ideal mesh.
+    """Target 4x4 unitary -> the 16-long phase vector, exactly. Ideal mesh.
 
     The decomposition's global phase is dropped: no heater makes it and no detector sees
     it, so the realised matrix equals the target up to that factor, which is what
@@ -42,7 +42,7 @@ def unitary_for(phases) -> np.ndarray:
 
 
 def volts_for(U, calib, vmax: float = VOLTAGE_MAX):
-    """Target unitary -> (18 DAC volts, reachable mask), through a calibration."""
+    """Target unitary -> (16 DAC volts, reachable mask), through a calibration."""
     return calib.volts(phases_for(U), vmax=vmax)
 
 
@@ -113,4 +113,4 @@ if __name__ == "__main__":
     e, r, f = _selftest()
     print(f"exact decomposition on the ideal mesh : fidelity {e:.6f} (worst of 20)")
     print(f"same phases on a 2% coupler-error mesh: fidelity {r:.4f} (mean)")
-    print(f"after 18-parameter refinement         : fidelity {f:.4f} (mean)")
+    print(f"after 16-parameter refinement         : fidelity {f:.4f} (mean)")

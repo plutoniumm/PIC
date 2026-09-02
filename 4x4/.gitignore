@@ -1,3 +1,10 @@
 
 # local notifier: carries a private WhatsApp JID and only works inside the tailnet
 update
+
+# presentation build products and drafts
+talk/
+
+# calibration backups taken before a risky write; the live file is the record
+pic_data/*.json.pre*
+pic_data/*.json.bak

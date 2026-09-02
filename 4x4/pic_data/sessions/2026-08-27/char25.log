@@ -1,0 +1,9 @@
+characterizing 16 heaters x 96 levels x 3 base biases x 4 input port(s); session 479 min
+hw 1: powering on
+  [OK] connected, key ON, interlocks closed
+  ceilings clamped to 250 mA
+  TEC OFF (open-loop; room temp-controlled)
+  LASER ON at floor setpoint 5 (~0.2 mW). Use `set <dBm>` to ramp.
+  ramp setpoint 5.0 -> 19.4  (0.2s @ 60/s)
+  +8.0 dBm -> setpoint 19.4  (~6.3 mW; measured I 18 mA)
+  read noise per detector (mV): PD0:18.4  PD1:1.3  PD2:2.3  PD3:14.6

@@ -1,0 +1,35 @@
+########## 1. fresh 150-state transfer table at 25 C  05:25:43
+wrote pic_data/sessions/2026-08-27/raw_transfers_fresh.json (155 states x 4 ports x 3 reads)
+########## 2. rank rail pairs against the MEASURED table  05:34:56
+heater box: 8 steerable channels, widest span 1.51 pi (measured calibration)
+transfer table: 155 measured states from /Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic_data/sessions/2026-08-27/raw_transfers_fresh.json
+
+measured rail ranking for a 2x2 block over 155 states, best hosting first:
+  out      in        host err   cond   ill   |det|   steer  bright
+  (1, 2)   (1, 2)       0.074    1.9    1%   0.937   0.843   1.585
+  (1, 2)   (0, 2)       0.099    2.2    1%   0.896   0.809   1.508
+  (1, 3)   (0, 3)       0.126    1.7    0%   0.511   0.529   1.140
+  (0, 1)   (0, 1)       0.134    4.4    4%   0.811   0.953   1.565
+  (0, 2)   (0, 1)       0.148   15.9   23%   0.397   0.819   0.811
+  (0, 2)   (0, 3)       0.154   14.4   23%   0.271   0.525   0.860
+
+  chosen rails: 1,2:1,2
+########## 3. 2x2, every optimisation on  05:35:18
+session budget 1.4 min (one 2x2 block x 4 vectors, 1 term(s) -> 6 heater programs at 8.9 s per four-port sweep)
+  retie: table moved 0.0140, inside the 0.0179 repeat floor for m=5 -- left alone
+transfer table: 155 measured states from /Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic_data/sessions/2026-08-27/raw_transfers_fresh.json
+hosted residual 0.0211 (picked off the measured table)   twin predicts 0.0296 vs target
+MEASURED matrix vs target 0.1211   (shape 0.0444, brightness x1.111, cond 5.2)
+mean vector error 0.0333 (uncorrected 0.1287; the measured scale x1.111 is divided out), sign accuracy 100%
+cost: 1 heater writes, 24 switch moves, 24 reads for the matrix and 4 vectors -- the vectors are arithmetic on the held sweep, so their error is a function of the measured matrix, not a second opinion on it
+the mesh does not host this target: the 0.1211 above is MEASURED, and it is in the MATRIX, not the readout. Try --scan for better rails, or a smaller block.
+########## 4. 8x8, every optimisation on  05:35:58
+session budget 32.1 min (8x8 in 16 2x2 tiles x 4 columns, 1 term(s) -> 165 heater programs at 8.9 s per four-port sweep)
+  retie: table moved 0.0169, inside the 0.0179 repeat floor for m=5 -- left alone
+transfer table: 155 measured states from /Users/gojira/Documents/GitHub.nosync/PIC/4x4/pic_data/sessions/2026-08-27/raw_transfers_fresh.json
+refined 16 tiles on-chip, 8 trials each: mean hosted residual 0.0541 -> 0.0406
+hosted residual 0.1018 (picked off the measured table)   twin predicts 0.0781 vs target
+MEASURED matrix vs target 0.0717
+Y error 0.0640, sign accuracy 97% (the sum over tiles is done in software; the chip did every multiply)
+the mesh does not host this target: the 0.0717 above is MEASURED, and it is in the MATRIX, not the readout. Try --scan for better rails, or a smaller block.
+########## done 05:49:42

@@ -1,0 +1,8 @@
+session budget 33.0 min (8x8 in 16 2x2 tiles x 4 columns, 1 term(s) -> 170 heater programs at 8.9 s per four-port sweep)
+hw 1: powering on
+  [OK] connected, key ON, interlocks closed
+  ceilings clamped to 250 mA
+  TEC OFF (open-loop; room temp-controlled)
+  LASER ON at floor setpoint 5 (~0.2 mW). Use `set <dBm>` to ramp.
+  ramp setpoint 5.0 -> 51.7  (0.8s @ 60/s)
+  +13.0 dBm -> setpoint 51.7  (~20.0 mW; measured I 69 mA)

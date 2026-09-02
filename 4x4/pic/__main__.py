@@ -21,11 +21,12 @@ import time
 
 import numpy as np
 
-from .config import FIRMWARE_VMAX, VOLTAGE_MAX
+from .config import VOLTAGE_MAX
 from theory.clements import NMODE
 from .config import TEC_TOLERANCE_C, VOLTAGE_MAX_CH
 from .layout import LABEL_OF_DAC, N_HEATERS
 from .rig import Rig
+from .session import WatchdogTripped
 
 
 def _rig(a, model=None):
@@ -121,7 +122,9 @@ def cmd_selftest(a):
     print(f"measured power table to {s['table_max_db']:.3f} dB, "
           f"read noise {s['sd_mV'][0]:.1f}-{s['sd_mV'][1]:.1f} mV, "
           f"Vpi recovered to {max(s['vpi_err'].values()):.2f} V "
-          f"({s['n_ok_at_clamp']}/6 at the {FIRMWARE_VMAX:.0f} V clamp)")
+          # not "the 3 V clamp": the firmware's clamp has been per channel since the 40 mA
+          # limit, 1.50 to 4.75 V, and no single number describes it
+          f"({s['n_ok_at_clamp']}/6 at the per-channel clamp)")
     return 0
 
 
@@ -194,6 +197,246 @@ def cmd_measure(a):
         print("\nper-detector range over the run:")
         for k in range(NMODE):
             print(f"  PD{k}  min {lo[k]:7.4f}  max {hi[k]:7.4f}  swing {hi[k] - lo[k]:7.4f} V")
+    return 0
+
+
+def cmd_calibrate(a):
+    """Agree every constant the bench needs agreed, and write what can be measured.
+
+    Each check here is a failure that actually happened on 2026-08-27/28, and every one of
+    them was silent -- the run completed and printed a plausible number:
+
+      * the host and the firmware kept independent copies of the per-channel voltage clamp,
+        and three channels sat at 0.00 V in firmware while the host believed they were open;
+      * `calib.json` was fitted at 25 C while the chip ran at 27 C, putting a uniform
+        thermo-optic offset under every result for hours;
+      * `pd_offset` carried 31.5 mV on PD0 against a true 0.14 mV, so a third of the median
+        signal was being subtracted away on the live-probe path;
+      * `BEST_RAILS` is a stored constant that its own docstring says to re-derive after any
+        change to the ceilings, and it was fed to an 8x8 by a ranking on MEDIAN hosting, which
+        chose a pair whose worst tile was 0.66 and returned Y error 0.5581;
+      * the laser diode's own TEC settles wherever it likes -- 27.4, 34.3, 39.9, 42.3 and
+        47.6 C were all seen in one session -- and wavelength follows it, so two tables taken
+        at different hold points describe different chips.
+
+    Dry run by default: it says what disagrees and what it would write. `--write` persists.
+    """
+    import json
+    import numpy as np
+    from .config import (ADC_REF_V, HEATER_OHMS, TEC_SETPOINT_C, VOLTAGE_MAX_CH,
+                         N_HEATERS)
+    from .matvec import bench_box, load_transfers, plan_block_from_table
+    from .rig import assert_calib_temperature
+
+    ok, todo, writes = [], [], {}
+
+    def say(good, label, detail):
+        (ok if good else todo).append(f"  [{'ok' if good else '--'}] {label:<26} {detail}")
+
+    with _rig(a) as rig:
+        calib = rig.calib
+        meta = dict(calib.meta or {})
+
+        # 1. the two copies of the voltage clamp
+        try:
+            fw = rig.board.clamp_table() if hasattr(rig.board, "clamp_table") else None
+        except Exception:
+            fw = None
+        if fw is None:
+            say(True, "firmware clamp", "checked by Rig.open (assert_firmware_vmax)")
+        else:
+            bad = [(i, h, f) for i, (h, f) in enumerate(zip(VOLTAGE_MAX_CH, fw))
+                   if abs(h - f) > 0.011]
+            say(not bad, "firmware clamp",
+                "host and board agree on all 16" if not bad else f"MISMATCH on {[b[0] for b in bad]}")
+
+        # 2. the calibration's temperature against the one the chip is held at
+        try:
+            assert_calib_temperature(calib, rig.tec.target)
+            say(True, "calib vs chip temp",
+                f"both {meta.get('chip_c', TEC_SETPOINT_C)} C")
+        except Exception as e:
+            say(False, "calib vs chip temp", str(e).split(" -- ")[0])
+
+        # 3. channels nothing can characterize, because no resistance means a clamp at
+        #    V_UNMEASURED and a clamp there means the sweep never sees them
+        # NOT "never swept" -- they are swept. An unmeasured channel is clamped at
+        # V_UNMEASURED = 1.5 V, which draws 26.6 mA even against the smallest resistance on
+        # the board and is therefore safe under every hypothesis, and `REACHABLE_DACS`
+        # includes them. What the resistance buys is the HIGHER ceiling: 4.55 V needs to know
+        # R, because a secretly-57-ohm channel would draw 80 mA there. Whether 1.5 V is enough
+        # span to fit is an open question and `--deep` is what answers it -- 0.08 to 0.25 pi
+        # at a plausible Vpi, against 0.18 pi for DAC 10, which IS fitted.
+        miss = [i for i, r in enumerate(HEATER_OHMS) if r is None]
+        say(not miss, "heater resistances",
+            "all 16 measured" if not miss
+            else f"DAC {miss} unmeasured -> staged at 1.5 V (safe at any R), swept but "
+                 f"possibly too little span to fit. An ohmmeter unlocks their real ceiling; "
+                 f"pic.resistance cannot (0.147 mV/mW against a 3.3 mV floor)")
+
+        # 4. the one absolute quantity in `to_transfer`; everything else cancels in the
+        #    per-column normalisation, this does not
+        if getattr(a, "dark", True):
+            with rig.session(duration_s=180, power_dbm=a.dbm):
+                # through the switch object, not the board: a mock or sim board has no serial
+                # port to send `P0` down, and this command has to run with --mock
+                try:
+                    rig.switch.dark()
+                except Exception:
+                    pass
+                time.sleep(0.8)
+                dark = np.mean([rig.board.measure_raw(np.zeros(N_HEATERS))
+                                for _ in range(40)], axis=0)
+            old = np.asarray(calib.pd_offset, float)
+            moved = float(np.abs(dark - old).max())
+            say(moved < 0.002, "pd_offset",
+                f"{np.round(dark, 5).tolist()}"
+                + ("" if moved < 0.002 else f"  (was {np.round(old, 5).tolist()})"))
+            writes["pd_offset"] = dark.round(6).tolist()
+
+        # 5. stamp the laser diode: it cannot be commanded on this unit, so record it and
+        #    refuse to compare tables taken at different hold points
+        try:
+            dc = float(rig.laser.dev.measure("diode_temperature"))
+            writes["diode_c"] = dc
+            prev = meta.get("diode_c")
+            say(prev is None or abs(dc - prev) < 1.0, "laser diode temp",
+                f"{dc:.2f} C" + ("" if prev is None else f"  (calibration stamped at {prev:.2f})"))
+        except Exception as e:
+            say(False, "laser diode temp", f"unreadable: {type(e).__name__}")
+
+    # 6. rails, ranked on what a BLOCK run needs: sixteen tiles are SUMMED, so the worst tile
+    #    dominates and the median that `scan_rails` reports hides it
+    tab = load_transfers(calib=calib)
+    if tab is None:
+        say(False, "block rails", "no measured transfer table on file; capture one first")
+    else:
+        import itertools
+        box = bench_box(calib)
+        B = np.random.default_rng(0).normal(size=(8, 8))
+        rows = []
+        for out in itertools.combinations(range(4), 2):
+            for inp in itertools.combinations(range(4), 2):
+                try:
+                    pl = plan_block_from_table(B, tab, box, k=2, rails=(out, inp))
+                    e = [t.terms[0].prog.err for t in pl.tiles.values()]
+                    rows.append((max(e), float(np.mean(e)), out, inp))
+                except Exception:
+                    pass
+        rows.sort()
+        w, m, out, inp = rows[0]
+        writes["best_rails"] = [list(out), list(inp)]
+        say(True, "block rails",
+            f"out{out} in{inp}  worst tile {w:.4f}, mean {m:.4f}  "
+            f"({len(tab)} states)")
+
+    print("\n".join(ok + todo))
+
+    # `--deep` is the only path that gives a never-swept channel a Vpi, and a Vpi is what
+    # `HeaterBox.from_calibration` gates `trainable` on. DAC 8 and 11 are reachable now --
+    # they sit at the staged 1.5 V ceiling and `REACHABLE_DACS` includes them -- so a deep
+    # pass is what actually tests whether 1.5 V is enough span to fit. It may not be: at a
+    # plausible Vpi that is 0.08 to 0.25 pi, against 0.18 pi for DAC 10, which IS fitted.
+    if getattr(a, "deep", False):
+        print("\n--deep: sweeping every reachable heater\n")
+        rc = cmd_char(a)
+        if rc:
+            return rc
+
+    if not writes:
+        return 0
+    print("\nwould write to pic_data/calib.json:")
+    for k, v in writes.items():
+        print(f"  {k:<12} {v}")
+    if not a.write:
+        print("\n(dry run -- pass --write to persist)")
+        return 0
+    _refuse_mock_write(a, "a calibration")
+    path = ROOT / "pic_data/calib.json"
+    d = json.loads(path.read_text())
+    if "pd_offset" in writes:
+        d["pd_offset"] = writes["pd_offset"]
+        d.setdefault("meta", {}).setdefault("normalisation", {})["dark_v"] = writes["pd_offset"]
+    for k in ("diode_c", "best_rails"):
+        if k in writes:
+            d.setdefault("meta", {})[k] = writes[k]
+    d.setdefault("meta", {})["calibrated_at"] = time.strftime("%Y-%m-%d %H:%M")
+    path.write_text(json.dumps(d, indent=1))
+    print(f"\nwrote {path.relative_to(ROOT)}")
+    return 0
+
+
+def _refuse_mock_write(a, what):
+    """A mock run must never write into real data. It is a physical model, not the chip.
+
+    `--mock --write` on `sync` fitted a mixing against simulated transfers and stored it in a
+    real capture, where `load_transfers` would have applied it to every subsequent plan --
+    silently, because a mixing is exactly the kind of correction that looks plausible whatever
+    it contains. The mock exists so the logic can be exercised without hardware; the moment it
+    can persist, it stops being a test and becomes a source of fiction."""
+    if getattr(a, "mock", False) or getattr(a, "sim", False):
+        raise SystemExit(
+            f"refusing to write {what} from a --mock/--sim run: the numbers come from a "
+            f"simulated chip and would be indistinguishable from measurements once stored.")
+
+
+def cmd_sync(a):
+    """Re-measure a few of the stored table's states and carry the whole table onto today.
+
+    A transfer table is perishable. Seventy-five minutes old it differs from the chip by
+    0.100 per entry against a 0.0145 seconds-apart repeat, and that staleness swamps every
+    other term: driving the planning residual to exactly zero moved the measured error by
+    0.0001. Recapturing costs 400 s, which is longer than the drift time constant, so a fresh
+    capture is stale before it finishes.
+
+    It does not have to be recaptured. The drift is a 15-parameter mixing on the OUTPUT side,
+    `T_now = colnorm(M T_then)`, and nothing on the input side, because `to_transfer` divides
+    each column by its own sum and that removes launch power, fibre coupling and the switch's
+    per-position loss as they were at that heater state. Fitting M needs `m` states, not a
+    hundred: each supplies 4 columns x 3 independent entries, so 12m observations against 15
+    parameters. Twenty seconds of bench time buys hosting 0.073 against 0.079 for the full
+    recapture.
+
+    The gate is not optional and it is derived, not tuned. Below m = 2 the fit is
+    underdetermined outright; when the measured motion sits under the repeatability floor
+    there is nothing to fit but noise, and correcting there made a fresh table 15% WORSE. On a
+    genuinely stale pair it is worth about -29%.
+    """
+    import numpy as np
+    from .matvec import BEST_RAILS, load_transfers, reanchor
+
+    with _rig(a) as rig:
+        calib = rig.calib
+        tab = load_transfers(calib=calib)
+        if tab is None:
+            print("no measured transfer table on file; capture one before syncing")
+            return 3
+        print(f"table: {len(tab)} states from {tab.path.name}")
+        rig.tec.wait_stable()
+        with rig.session(duration_s=a.duration, power_dbm=a.dbm):
+            out = reanchor(rig, tab, m=a.anchors, calib=calib, rails=BEST_RAILS, dbm=a.dbm,
+                           return_mixing=True)
+            out, M = out if isinstance(out, tuple) else (out, None)
+
+    moved = float(np.abs(np.asarray(out.T) - np.asarray(tab.T)).mean())
+    if moved < 1e-12:
+        print("declined -- nothing written")
+        return 0
+    print(f"correction moved the table by {moved:.4f} per entry")
+    if not a.write:
+        print("(--dry-run: the mixing was fitted and discarded)")
+        return 0
+    _refuse_mock_write(a, "a sync mixing")
+    import json
+    # The file holds RAW port-major reads and those are real measurements, so the correction
+    # is stored BESIDE them and applied by `load_transfers` rather than rewritten into them.
+    # One copy of the data, one of the correction, and the sync can be inspected or dropped.
+    d = json.loads(tab.path.read_text())
+    d.setdefault("meta", {})["sync_mixing"] = np.asarray(M).tolist()
+    d["meta"]["synced"] = {"at": time.strftime("%Y-%m-%d %H:%M"),
+                           "anchors": int(a.anchors), "moved_per_entry": moved}
+    tab.path.write_text(json.dumps(d, indent=1))
+    print(f"wrote the mixing into {tab.path.name}; every load now applies it")
     return 0
 
 
@@ -379,8 +622,15 @@ def cmd_char(a):
         print(f"characterizing {N_HEATERS} heaters x {levels.size} levels x {len(bases)} "
               f"base biases x {n_ports} input port(s); session {dur / 60:.0f} min")
         with rig.session(duration_s=dur, power_dbm=a.dbm) as s:
-            if not s.emitted:
-                print("WARNING: no emission detected -- every fit below will be noise.")
+            if not s.emitted and not a.allow_dark:
+                # Was a warning, and a warning on a `--write` run is how a calibration
+                # fitted to 18 noise traces reaches disk looking exactly like a measured
+                # one. `cmd_dataset` already refuses on the same condition; this matches it.
+                print("no emission detected: neither the beam monitor nor the chip "
+                      "detectors saw the laser turn on, so every fit would be noise. "
+                      "Check coupling and the front panel; pass --allow-dark to sweep "
+                      "anyway.")
+                return 2
             chans = None
             if a.channels:
                 chans = []
@@ -444,12 +694,26 @@ def cmd_program(a):
 
 def cmd_matvec(a):
     """Signed matvec from intensity alone. `--scan` is a fit, so it needs no rig at all."""
-    from .matvec import main as matvec_main
+    from .matvec import job_seconds, main as matvec_main
 
     if a.scan:
         return matvec_main(None, a)
+    # The watchdog is sized from the job, not from a constant, and the estimate is printed
+    # before the beam is lit: a run that states up front how long it thinks it needs is one
+    # whose author can see it is wrong. The flat 120 s this replaced silenced nothing and
+    # cost a night -- an 8x8 outran it, was hard-offed mid-run, and reported dark current.
+    #
+    # Sized after the board is open, because a firmware that sweeps all four ports in one
+    # round trip is 5-6x cheaper per state and only the board can say whether this one does.
     with _rig(a) as rig:
-        with rig.session(duration_s=a.duration, power_dbm=a.dbm):
+        dur, why = job_seconds(a, batched=rig.batched)
+        if a.duration is None:
+            print(f"session budget {dur / 60:.1f} min ({why})")
+        else:
+            given, dur = float(a.duration), float(a.duration)
+            print(f"session budget {given / 60:.1f} min (given); the job estimates "
+                  f"{job_seconds(a, batched=rig.batched)[0] / 60:.1f} min ({why})")
+        with rig.session(duration_s=dur, power_dbm=a.dbm):
             return matvec_main(rig, a)
 
 
@@ -554,6 +818,41 @@ def main(argv=None):
                         "light from stray light on the detector array")
     p.set_defaults(fn=cmd_measure)
 
+    p = sub.add_parser("calibrate", help="agree every rig constant and write what is "
+                                        "measurable", parents=[common])
+    p.add_argument("--write", action="store_true",
+                   help="persist to pic_data/calib.json; without it this is a dry run")
+    p.add_argument("--no-dark", dest="dark", action="store_false",
+                   help="skip the pd_offset measurement (it needs the laser)")
+    p.add_argument("--deep", action="store_true",
+                   help="also sweep every reachable heater and refit its fringe. Hours, not "
+                        "minutes, and the only way a channel that has never been swept gets "
+                        "a Vpi -- which is what puts it in play")
+    p.add_argument("--levels", type=int, default=None)
+    p.add_argument("--bases", type=int, default=3)
+    p.add_argument("--settle", type=float, default=0.2)
+    p.add_argument("--repeats", type=int, default=5)
+    p.add_argument("--ports", default=None)
+    p.add_argument("--no-switch", action="store_true")
+    p.add_argument("--allow-dark", action="store_true")
+    p.add_argument("--channels", default=None)
+    p.add_argument("--pd", type=int, default=None)
+    p.add_argument("--no-normalise", dest="no_normalise", action="store_true")
+    p.set_defaults(fn=cmd_calibrate)
+
+    p = sub.add_parser("sync", help="re-measure a few stored states and carry the table "
+                                    "onto today's chip", parents=[common])
+    p.add_argument("--anchors", type=int, default=10, metavar="M",
+                   help="states to re-measure. 12M observations fit 15 parameters, so M<2 is "
+                        "underdetermined and M=3 is measurably worse than doing nothing")
+    p.add_argument("--duration", type=float, default=300.0)
+    p.add_argument("--dry-run", dest="write", action="store_false",
+                   help="fit and report the correction without storing it. Syncing writes by "
+                        "default: a table you have decided to keep using is one you have "
+                        "decided to correct, and a correction that is computed and discarded "
+                        "is bench time spent on nothing")
+    p.set_defaults(fn=cmd_sync, write=True)
+
     p = sub.add_parser("recal", help="fast phi0 re-anchor on characterized channels",
                        parents=[common])
     p.add_argument("--levels", type=int, default=5)
@@ -592,6 +891,9 @@ def main(argv=None):
     p.add_argument("--write", action="store_true", help="save to pic_data/calib.json")
     p.add_argument("--no-normalise", action="store_true",
                    help="skip the PD full-scale pass (blocked = 0, transparent = 1)")
+    p.add_argument("--allow-dark", action="store_true",
+                   help="sweep even though no emission was detected. Only for measuring "
+                        "the dark instrument on purpose -- the fits will be noise")
     p.set_defaults(fn=cmd_char)
 
     p = sub.add_parser("program", help="put a target unitary on the chip", parents=[common])
@@ -642,10 +944,45 @@ def main(argv=None):
                         "settle per vector")
     p.add_argument("--repeats", type=int, default=1,
                    help="photodiode reads averaged per port; error falls as 1/sqrt(N)")
+    p.add_argument("--reanchor", type=int, default=0, metavar="M",
+                   help="re-measure M stored states and transport the whole table onto "
+                        "today's chip through a 15-parameter output mixing. M=5 costs 20 s "
+                        "and beats a 400 s recapture; M<5 cannot determine 15 parameters "
+                        "and makes the table worse")
+    p.add_argument("--terms", type=int, default=1, metavar="K",
+                   help="host each block as a weighted sum of K measured states instead of "
+                        "the single nearest. K=4 drives the PLANNING residual to zero and "
+                        "makes the ANSWER worse: measured A/B on the 8x8, hosted residual "
+                        "0.0195 -> 0.0000, measured matrix 0.1875 -> 0.1876 (unmoved), "
+                        "vector error 0.0419 -> 0.0701. Leave it at 1 unless you are "
+                        "measuring the effect itself")
+    p.add_argument("--refine", type=int, default=0, metavar="N",
+                   help="after picking each tile off the table, hill-climb it on the chip "
+                        "for N trials. The table is quantised, not noisy: on the 8x8 the "
+                        "hosted residual is four fifths of the measured error because "
+                        "sixteen tiles share the hundred states one block gets alone")
+    p.add_argument("--budget", type=int, default=0, metavar="T",
+                   help="spend T refinement trials in TOTAL, allocated across tiles by the "
+                        "square of their hosted residual, worst first, instead of --refine "
+                        "N on every tile. Measured offline (pic.matvec.refine_ablation): "
+                        "half the uniform trials keeps two thirds to three quarters of the "
+                        "benefit and a quarter keeps a fifth to a third, because the "
+                        "residual is heavy tailed and a well-hosted tile has nothing to "
+                        "win. --refine then caps any one tile")
+    p.add_argument("--sweep-cycles", type=int, default=None, metavar="C",
+                   help="how the batched firmware sweep spends its averaging: C complete "
+                        "visits to the four ports, repeats/C frames averaged at each. "
+                        "Default 1 -- column normalisation divides out anything that is "
+                        "constant across a column, which switch repeatability is. Raise it "
+                        "to put the frames seconds apart instead of milliseconds")
     p.add_argument("--restarts", type=int, default=16)
     p.add_argument("--steps", type=int, default=400)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--duration", type=float, default=120.0)
+    p.add_argument("--duration", type=float, default=None,
+                   help="laser session seconds. Default: estimated from the job by "
+                        "pic.matvec.job_seconds and printed before the run starts. A flat "
+                        "default cannot cover both a 2x2 and an 8x8, and the one that was "
+                        "here (120 s) fired mid-run on the 8x8")
     p.set_defaults(fn=cmd_matvec)
 
     p = sub.add_parser("dataset", help="combos x all 4 ports -> CSV of transfer matrices",
@@ -658,7 +995,14 @@ def main(argv=None):
     p.set_defaults(fn=cmd_dataset)
 
     a = ap.parse_args(argv)
-    return a.fn(a)
+    try:
+        return a.fn(a)
+    except WatchdogTripped as e:
+        # Loud and non-zero, not a traceback and not a partial result: any command that did
+        # not catch this itself has no data worth keeping, because the beam was off for an
+        # unknown part of it.
+        print(f"\nABORTED: {e}", file=sys.stderr)
+        return 3
 
 
 if __name__ == "__main__":

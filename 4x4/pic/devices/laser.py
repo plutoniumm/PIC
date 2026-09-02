@@ -55,9 +55,31 @@ class Laser:
     ENABLE_TRIES = 15  # never disable between attempts (see _latch_master)
     LATCH_POLLS = 8
 
-    # TEC uncalibrated on this unit (TECSlope=0, empty cal table); room is ~25 C, so run
-    # open-loop with it OFF. Flip True only once the TEC is calibrated.
-    USE_TEC = False
+    # ON since 2026-08-28, and deliberately, despite the calibration still being absent.
+    # TECSlope is 0 and the cal table empty, so the setpoint does NOT mean degrees: asked for
+    # 25.0 the loop settles at 27.40. That makes it useless as a thermometer and valuable as a
+    # stabiliser, which is the property that matters here -- it holds 27.399 C at sd 0.0096
+    # instead of letting the diode float with its own dissipation as drive current goes 17 mA
+    # at +8 dBm to 113 mA at +13. Wavelength follows diode temperature and every MZI phase
+    # follows wavelength, which is the mechanism that made a 13 dBm table fail to reproduce
+    # itself: re-measuring ten of its own states a minute later found them 0.0492 out, against
+    # 0.0140 for the same check at 8 dBm.
+    #
+    # ON, plain: write tec_status once and let the loop settle wherever it settles. No
+    # servo, no PID. Both were tried and both fail for the same reason -- the setpoint runs
+    # backwards (gain -0.8 to -1.4 C/C), saturates, and the saturation point itself moved 8 C
+    # in ninety minutes, so there is nothing to steer with. `pic.devices.diode_temp` keeps the
+    # attempt and the measurements; the plant is the problem, not the controller.
+    #
+    # What the plain loop buys is stability WITHIN a session, and that is what a capture and
+    # the run planned off it need: table motion fell 0.0140 -> 0.0013 and the 2x2 measured
+    # matrix 0.1211 -> 0.0381, the best of the night. What it does not buy is the SAME
+    # temperature between sessions -- 27.40, 34.32, 39.91, 42.32 and 47.65 C were all observed
+    # in one night, because TECSlope is 0 and the cal table empty. Wavelength follows diode
+    # temperature and the mesh's reachable set follows wavelength, so tables from different
+    # sessions are not interchangeable. `raw_capture` stamps `diode_c` so that is visible
+    # rather than silent.
+    USE_TEC = True
 
     # optical cal 2026-08-27 (external meter, 9 points sp 8..70): P[mW] = CAL_A*sp + CAL_B.
     # rms residual 0.067 mW, max 0.107 mW. Supersedes the 2026-07-08 fit (0.3437/-1.44),

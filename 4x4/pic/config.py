@@ -44,19 +44,36 @@ HEATER_OHMS = (114.1, 62.3, 118.8, 114.1, 57.8, 113.5, None, 57.2,
 HEATER_MAX_MA = 40.0
 
 # Per-channel ceiling, not a global one. The heaters come in two resistance groups and a
-# single 3 V clamp puts 52 mA through the 60R group -- 1.7x its rating. `None` resistance
-# means no confirmed value, so that channel stays at 0 V.
+# single 3 V clamp puts 52 mA through the 60R group -- 1.7x its rating.
 # Per channel from its own measured resistance, not a two-group approximation: V = I*R, so
 # a 118.8 ohm heater may take more than a 113.5 ohm one at the same current. Rounded down to
 # 0.05 V so a rounding error cannot push a channel over the limit.
-VOLTAGE_MAX_CH = tuple(0.0 if r is None
+#
+# An unmeasured channel is STAGED, not held dark and not opened to its group's ceiling.
+# Holding it dark was self-defeating: no resistance clamped it to 0 V, so no characterization
+# ever swept it, so its Vpi stayed nominal and `HeaterBox.from_calibration` dropped it for
+# being unfitted -- three heaters locked out by a measurement nobody could take because they
+# were locked out.
+#
+# Stage one is 1.5 V, which draws 26.6 mA even against the smallest resistance on the board
+# (56.4 ohm) and is therefore safe under every hypothesis. That is enough to weigh the
+# channel: `pic.resistance` balances it against a known heater using the TEC's drive as a
+# calorimeter and returns R to a few percent. Stage two is the channel's own I*R ceiling,
+# and it is unlocked by putting the measured value in HEATER_OHMS -- not by editing this.
+#
+# 3 V is NOT safe before that measurement: at 56.4 ohm it draws 53 mA against a 40 mA rating.
+# The MZI pairing (theta and phi share a resistance group in all three interferometers where
+# both are known: DAC4/7 at 58/57, DAC2/9 at 119/115, DAC1/10 at 62/56) says these three are
+# ~114 ohm and could take 4.55 V, but an inference does not set a current limit.
+V_UNMEASURED = 1.5
+VOLTAGE_MAX_CH = tuple(V_UNMEASURED if r is None
                        else float(int(1e-3 * HEATER_MAX_MA * r / 0.05) * 0.05)
                        for r in HEATER_OHMS)
-WIRED_DACS = tuple(i for i, v in enumerate(VOLTAGE_MAX_CH) if v > 0)   # 13 channels
+WIRED_DACS = tuple(i for i, v in enumerate(VOLTAGE_MAX_CH) if v > 0)   # all 16 channels
 
 # One command scale for every channel. Callers work in "drive volts" 0..DRIVE_MAX_V and the
 # scale opens each channel up to its own real ceiling, so nothing above has to carry a
-# per-channel limit around. The 3 V channels get x2, the 1.5 V channels x1, the dark ones 0.
+# per-channel limit around. The 4.5 V channels get x3, the 2.25 V channels x1.5.
 #
 # Quantisation survives it: the DAC is 16 bits over 5 V, so an LSB is 76 uV and doubling it
 # still leaves 39,300 steps across a 3 V channel. Phase goes as V^2, so the coarsest phase
@@ -85,20 +102,51 @@ def volts_to_drive(volts):
     return np.clip(np.asarray(volts, float) / np.where(live, s, 1.0), 0.0, DRIVE_MAX_V) * live
 
 VOLTAGE_MIN = 0.0
-FIRMWARE_VMAX = 3.0  # clamp in pic4x4.ino; must match, or host volts vanish at the DAC
+# The firmware clamp is per channel (`VMAX[]` in pic4x4.ino) and equals VOLTAGE_MAX_CH
+# element for element -- `pic.rig.assert_firmware_vmax` checks that over the wire on every
+# open, using the board's `V` query, because a scalar copy of a per-channel table is exactly
+# what let three channels sit at 0 V in firmware while the host thought they were open.
+# This is the widest of them, for callers that need one number to size an axis. It is NOT a
+# per-channel limit and must never be used as one.
+FIRMWARE_VMAX = max(VOLTAGE_MAX_CH)
 DAC_REF_V = 5.0
 DAC_BITS = 16
-ADC_REF_V = 5.0
+# Must match ADC_REF_V in Arduino/pic4x4/pic4x4.ino, which moved from AVCC to the 1.1 V
+# bandgap: against 5 V the photodiodes used 9.4% of full scale and 6.6 of 10 bits, and at the
+# MEDIAN table entry quantisation was 0.0063 relative against a 0.0035 noise floor -- 64% of
+# entries were quantisation-limited. The bandgap is +-10% part to part, so this is a nominal
+# scale and not a calibrated one; every quantity here is a ratio within one sweep
+# (`to_transfer` divides each column by its own sum), so a scale error cancels. Clipping does
+# not cancel, which is what ADC_SAT_V and `pic.rig.SaturatedRead` are for.
+ADC_REF_V = 2.56
+ADC_SAT_V = 0.99 * ADC_REF_V
 ADC_BITS = 10
 
 ADC_AVG_N = 16       # full ADC sweeps averaged per firmware reply; must match pic4x4.ino AVG_N
+
+# The measured 0.12 s per read, split into the two halves that scale differently. That split
+# is the whole case for the firmware's batched sweep: `ADC_FRAME_S` is real work and buys
+# noise, `SERIAL_RTT_S` is pure latency and buys nothing, and until the sweep moved into the
+# firmware every averaged frame paid one of each. AVG_N*NUM_ADC_RAW conversions at the
+# ATmega2560's default prescaler (13 ADC clocks at 125 kHz = 104 us) is 6.7 ms of the 120,
+# so 94 percent of a read was the host waiting on USB.
+ADC_FRAME_S = ADC_AVG_N * NUM_ADC_RAW * 104e-6
+SERIAL_RTT_S = 0.113   # 0.12 measured, less the conversions above
 DEFAULT_TIMEOUT_S = 3.0
 DEFAULT_SETTLE_S = 0.5  # thermo-optic settle before a read (mrunal/Setup.ino HEATER_DELAY_MS)
 
 # 1x4 optical input switch (Sercalo) in front of U_IN1..4, on its own serial line. It selects
 # one input port at a time, which is what makes a per-port characterization automatable.
 SWITCH_BAUD = 9600
-SWITCH_SETTLE_S = 1.0  # mrunal/Setup.ino SWITCH_DELAY_MS
+# Must match SWITCH_SETTLE_MS in Arduino/pic4x4/pic4x4.ino, which is where the wait actually
+# happens: `BoardSwitch` drives the mirror through the firmware and sleeps nothing itself, so
+# this reaches the bench only through the cost estimator and through the standalone
+# host-driven `OpticalSwitch`. It sat at 1.0 -- mrunal/Setup.ino's SWITCH_DELAY_MS, the same
+# unjustified second the firmware was carrying -- which made every duration estimate 7x
+# pessimistic, and those estimates now size the laser watchdog. 0.18 and not 0.15 because a
+# 100-state capture measured 4.8 s per state at repeats=3, which backs out to 0.24 s per move
+# including the serial round trip.
+SWITCH_SETTLE_S = 0.18
 
 # Chip TEC. Unlike the 6x6 rig this one has a calibrated cooler, so the substrate sits at
 # a fixed temperature instead of wandering -- which is what made drift the dominant error
@@ -118,19 +166,23 @@ SWITCH_SETTLE_S = 1.0  # mrunal/Setup.ino SWITCH_DELAY_MS
 # 27 C is where this bench actually lives. Measured: 27.00 C, error -0.00, sd 0.012 -- twice
 # as steady as 25 C ever was -- at drive -0.02 V, which is to say the chip's own equilibrium
 # with the loop holding rather than fighting. Near-zero drive leaves full authority in both
-# directions for the ~2 W the heaters dissipate, and that is worth more than a lower number
-# the TEC has to strain for. It also refutes the tidy story that 30 C was noisy because its
-# drive sat near the bipolar driver's zero crossing: drive is nearer zero here and the hold
-# is five times steadier.
+# directions for the ~2 W the heaters dissipate.
 #
-# Changing it costs more than it looks: every thermal excursion re-anchors the transfer
-# table, and the chip was cycled 25->30->25->30->25->20 over one session chasing this.
-TEC_SETPOINT_C = 27.0
+# 25 C and nothing else. `pic_data/calib.json` was fitted at 25 C, so every heater's phi0 is
+# anchored there; operating anywhere else applies a uniform thermo-optic offset to the whole
+# mesh that no downstream correction models. This constant and the calibration's `chip_c`
+# have to agree, and moving one without retaking the other is what put a 2 C offset under
+# every hardware number taken after 2026-08-27 22:30. If the cooler cannot hold 25, that is a
+# hardware fault to report, not a constant to edit.
+TEC_SETPOINT_C = 25.0
+# Measured hold once settled is sd 0.012, so 0.05 is a ~4 sigma gate. Opening the TEC port
+# resets its Arduino and kicks the loop, so a run may begin inside a transient; that is what
+# TEC_SETTLE_S is for. Widening this gate instead hides the transient in the data.
 TEC_TOLERANCE_C = 0.05
-# A reset lands the chip near ambient, and pulling ~7 C back down runs at ~0.5 C/min. The
-# old 60 s gate was sized for holding a setpoint, not for reaching one from cold, and it
-# failed a capture that was merely still on its way.
-TEC_SETTLE_S = 600.0
+# A reset lands the chip near ambient, and pulling back down runs at ~0.5 C/min. The old
+# 60 s gate was sized for holding a setpoint, not for reaching one from cold, and it failed a
+# capture that was merely still on its way.
+TEC_SETTLE_S = 300.0
 
 
 @dataclass

@@ -1,0 +1,27 @@
+hw 1: powering on
+  [OK] connected, key ON, interlocks closed
+  ceilings clamped to 250 mA
+  TEC on
+  LASER ON at floor setpoint 5 (~0.2 mW). Use `set <dBm>` to ramp.
+  ramp setpoint 5.0 -> 28.2  (0.4s @ 60/s)
+  +10.0 dBm -> setpoint 28.2  (~10.0 mW; measured I 25 mA)
+  diode 47.404 C, chip 24.980 C
+  state  0: raw row sums [0.428 0.373 0.331 0.344]  col sums [0.473 0.444 0.337 0.222]
+  state  1: raw row sums [0.589 0.461 0.376 0.305]  col sums [0.565 0.524 0.392 0.25 ]
+  state  2: raw row sums [0.75  0.489 0.396 0.288]  col sums [0.696 0.519 0.422 0.286]
+  state  3: raw row sums [0.857 0.5   0.446 0.337]  col sums [0.838 0.514 0.47  0.319]
+  state  4: raw row sums [0.866 0.528 0.477 0.377]  col sums [0.89  0.518 0.511 0.33 ]
+  state  5: raw row sums [0.978 0.485 0.486 0.416]  col sums [0.969 0.56  0.508 0.328]
+  state  6: raw row sums [0.859 0.612 0.521 0.409]  col sums [0.853 0.677 0.526 0.345]
+  state  7: raw row sums [0.876 0.614 0.522 0.427]  col sums [0.739 0.782 0.548 0.369]
+  state  8: raw row sums [1.059 0.564 0.526 0.395]  col sums [0.96  0.664 0.544 0.377]
+  state  9: raw row sums [0.856 0.611 0.574 0.497]  col sums [0.773 0.852 0.557 0.355]
+  state 10: raw row sums [1.134 0.583 0.533 0.412]  col sums [1.078 0.635 0.564 0.385]
+  state 11: raw row sums [1.041 0.677 0.531 0.395]  col sums [0.951 0.754 0.558 0.382]
+  state 12: raw row sums [1.007 0.71  0.567 0.384]  col sums [0.992 0.713 0.582 0.382]
+  state 13: raw row sums [0.898 0.674 0.514 0.562]  col sums [0.878 0.846 0.563 0.36 ]
+  state 14: raw row sums [1.068 0.688 0.549 0.428]  col sums [1.088 0.658 0.597 0.389]
+  state 15: raw row sums [1.072 0.678 0.46  0.528]  col sums [1.056 0.743 0.583 0.357]
+  state 16: raw row sums [1.073 0.676 0.57  0.402]  col sums [1.065 0.688 0.575 0.392]
+  state 17: raw row sums [0.827 0.681 0.664 0.531]  col sums [0.975 0.77  0.575 0.383]
+  state 18: raw row sums [1.1   0.672 0.577 0.394]  col sums [1.013 0.747 0.586 0.397]
