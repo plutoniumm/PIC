@@ -92,6 +92,17 @@ def drive_to_volts(drive):
     return d * np.asarray(DRIVE_SCALE, float)
 
 
+def drive_volts_raw(drive):
+    """The drive -> volts map with no ceiling applied, for reading stored data.
+
+    `drive_to_volts` clips because it is on the way to the board, where the clamp is what
+    keeps a 60-ohm heater off its current limit. A capture taken under a wider clamp table
+    holds points above today's ceiling, and clipping those on the way into a model reports
+    a voltage the chip never saw. Model features are what happened; the clamp is what is
+    allowed. Nothing that commands hardware may use this."""
+    return np.asarray(drive, float) * np.asarray(DRIVE_SCALE, float)
+
+
 def volts_to_drive(volts):
     """Real per-channel volts -> the uniform command, for code that has to cross back.
 

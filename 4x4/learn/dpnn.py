@@ -53,6 +53,7 @@ import torch
 
 from pic.config import (
     DRIVE_MAX_V, DRIVE_SCALE, NUM_OUT, OUT_PDS, TEC_SETPOINT_C, drive_to_volts,
+    drive_volts_raw,
 )
 from theory.clements import NMODE
 # theory.layout, not pic.layout: theory.layout is already indexed by DAC channel (its own
@@ -148,7 +149,9 @@ def make_features(D, ports, tel, channels=None) -> np.ndarray:
         raise ValueError(f"drive must have {N_HEATERS} columns, got {D.shape[1]}")
     if tel.shape[1] != len(TELEMETRY):
         raise ValueError(f"telemetry must have {len(TELEMETRY)} columns {TELEMETRY}")
-    V = drive_to_volts(D)
+    # drive_volts_raw, not drive_to_volts: see its docstring. Identical for any buffer
+    # collected through the board, which cannot exceed the ceiling in the first place.
+    V = drive_volts_raw(D)
     return np.hstack([V[:, channels] ** 2, port_features(ports, len(D)), tel])
 
 
@@ -262,8 +265,15 @@ def load_ckpt(path=CKPT, act="relu", min_neurons=8):
     model = build_model(ck["din"], ck["dout"], tuple(ck["widths"]), act, min_neurons)
     model.load_state_dict(ck["state_dict"])
     norm = [np.array(x, float) for x in ck["norm"]]
-    b = np.load(os.path.join(path, "buffer.npz"))
-    return model, norm, {k: b[k] for k in ("D", "ports", "tel", "Y")}, ck["meta"]
+    # The buffer is the training data, not the model. It is what `--resume` needs and what
+    # a refit needs; inference does not, and a checkpoint distributed beside the capture it
+    # was fitted from has no reason to carry a second copy of it.
+    bp = os.path.join(path, "buffer.npz")
+    buf = None
+    if os.path.exists(bp):
+        b = np.load(bp)
+        buf = {k: b[k] for k in ("D", "ports", "tel", "Y")}
+    return model, norm, buf, ck["meta"]
 
 
 def fit(D, ports, tel, Y, *, channels=None, epochs: int = 200, hidden=HIDDEN, seed: int = 0,

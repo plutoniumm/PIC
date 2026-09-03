@@ -1,0 +1,25 @@
+{
+  "rounds_done": 1,
+  "source": "pic_data/sessions/2026-08-27/raw_transfers_fresh.json",
+  "n_samples": 540,
+  "r2_physics": NaN,
+  "r2_dpnn": 0.8895693005210331,
+  "n_params_physics": 0,
+  "n_params_dpnn": 3295,
+  "dpnn_channels": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    9,
+    10
+  ],
+  "ports": [
+    0,
+    1,
+    2,
+    3
+  ]
+}

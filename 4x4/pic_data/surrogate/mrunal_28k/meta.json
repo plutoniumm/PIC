@@ -1,0 +1,23 @@
+{
+  "rounds_done": 1,
+  "source": "mrunal/28k_Data_points .xlsx",
+  "n_samples": 28000,
+  "r2_physics": NaN,
+  "r2_dpnn": 0.9756106556151101,
+  "n_params_physics": 0,
+  "n_params_dpnn": 2753,
+  "dpnn_channels": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "ports": [
+    0,
+    1,
+    2,
+    3
+  ]
+}

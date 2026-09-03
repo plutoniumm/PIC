@@ -47,7 +47,7 @@ from pic import Rig
 from pic.acquisition import estimate_seconds, random_vectors, settled_read
 from pic.config import (
     DRIVE_MAX_V, DRIVE_SCALE, NUM_OUT, OUT_PDS, SWITCH_SETTLE_S, TEC_SETPOINT_C,
-    drive_to_volts,
+    drive_to_volts, drive_volts_raw,
 )
 from pic.session import WatchdogTripped
 from theory.calib import Calibration
@@ -163,6 +163,46 @@ def table_buffer(paths):
     return np.asarray(Ds), np.asarray(Ps, int), np.asarray(Ts), np.asarray(Ys)
 
 
+def sheet_buffer(paths):
+    """A bench spreadsheet of (port, DAC volts -> photodiode volts), in the same shape.
+
+    `mrunal/28k_Data_points .xlsx` is 7000 heater combinations read through all four ports
+    on 2026-08-26, which is fifty times the 25 C capture. Three things about it are traps.
+    The photodiode columns are stored out of order (PD_1, PD_0, PD_3, PD_2), so they are
+    selected by name. Ports are numbered from one. And it was swept to a uniform 3.0 V,
+    above this tree's present ceiling on the 60-ohm channels -- every row is kept and the
+    drive variable carries the volts the chip actually saw, which is why the feature path
+    goes through `drive_volts_raw` and not `drive_to_volts`. Those points are real
+    measurements of the chip; only the clamp has since moved.
+
+    Nothing about the session was recorded -- no power, no chip temperature -- so the whole
+    telemetry block sits at the centre of its fixed scale and normalises to zero. Note the
+    date: this predates the 25 C capture and the present clamp table, so it describes the
+    chip before that characterization, and a model fitted on it is only as current as the
+    drift between the two."""
+    import pandas as pd
+    hi = np.asarray(DRIVE_SCALE, float) * DRIVE_MAX_V
+    tel = [dpnn._SCALES[k][0] for k in dpnn.TELEMETRY]
+    Ds, Ps, Ts, Ys = [], [], [], []
+    for path in paths:
+        df = pd.concat(pd.read_excel(path, sheet_name=None).values(), ignore_index=True)
+        dac = [c for c in df.columns if c.startswith("DAC_")]
+        chan = np.array([int(c.split("_")[1]) for c in dac], int)
+        V = np.zeros((len(df), N_HEATERS))
+        V[:, chan] = df[dac].to_numpy(float)
+        port = df["port"].to_numpy(int)
+        Ds.append(V / np.where(hi > 0, hi, 1.0) * DRIVE_MAX_V)
+        Ps.append(port - port.min())          # the sheet numbers ports from one
+        Ts.append(np.tile(tel, (len(df), 1)))
+        Ys.append(df[[f"PD_{i}" for i in OUT_PDS]].to_numpy(float))
+        hot = (V > hi + 1e-9)
+        over = sorted({int(c) for c in np.flatnonzero(hot.any(0))})
+        print(f"    {path}: {len(df)} rows x {NMODE} ports"
+              + (f"; {int(hot.any(1).sum())} sit above this tree's ceiling on DAC {over} "
+                 f"-- kept, and carried as the volts the chip actually saw" if over else ""))
+    return (np.vstack(Ds), np.concatenate(Ps), np.vstack(Ts), np.vstack(Ys))
+
+
 def varying_channels(D, tol: float = 1e-6):
     """The channels a buffer actually moved.
 
@@ -188,17 +228,18 @@ def main(argv=None):
     ap.add_argument("--settle", type=float, default=0.2)
     ap.add_argument("--repeats", type=int, default=5)
     ap.add_argument("--from-table", default=None,
-                    help="fit a stored capture instead of lighting the chip: one or more "
-                         "raw-transfer JSON paths, comma separated. No hardware, one "
-                         "round, and the network gets a feature per channel the capture "
-                         "actually moved.")
+                    help="fit stored data instead of lighting the chip: raw-transfer "
+                         "JSON captures and/or bench .xlsx sweeps, comma separated. No "
+                         "hardware, one round, and the network gets a feature per channel "
+                         "the data actually moved.")
     ap.add_argument("--out", default=None,
                     help=f"checkpoint directory (default {CKPT}, or {TABLE_CKPT} with "
                          f"--from-table -- a stored capture carries no laser telemetry, so "
                          f"its buffer must not be resumed into a lit one)")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--epochs", type=int, default=200, help="DPNN epochs per round")
-    ap.add_argument("--steps", type=int, default=3000, help="physics-fit steps per round")
+    ap.add_argument("--steps", type=int, default=3000,
+                    help="physics-fit steps per round; 0 fits the network only")
     ap.add_argument("--restarts", type=int, default=8,
                     help="physics-fit restarts; only the first round needs many")
     ap.add_argument("--calib", default=None,
@@ -218,7 +259,10 @@ def main(argv=None):
     offline = net_channels = None
     if a.from_table:
         print(f"fitting stored captures -- no hardware:")
-        offline = table_buffer([p for p in a.from_table.split(",") if p])
+        paths = [p for p in a.from_table.split(",") if p]
+        parts = [(sheet_buffer if p.lower().endswith((".xlsx", ".xls")) else table_buffer)([p])
+                 for p in paths]
+        offline = tuple(np.concatenate(x) for x in zip(*parts))
         net_channels = varying_channels(offline[0])
         a.rounds, a.resume = 1, False
 
@@ -270,16 +314,23 @@ def main(argv=None):
                    "tel": np.vstack([buf["tel"], T]), "Y": np.vstack([buf["Y"], Y])}
             print(f"    {len(D)} points in {time.time() - t0:.0f}s; buffer {len(buf['D'])}")
 
-            X = np.eye(NMODE, dtype=complex)[buf["ports"]]
-            phys, calib, err, r2p = unitary_fit.fit(
-                drive_to_volts(buf["D"]), buf["Y"], X, calib0=calib, steps=a.steps,
-                restarts=1 if r > r0 else a.restarts, seed=a.seed)
-            np_phys = phys.n_params()   # 52 at 16 heaters; it was 56 when there were 18
+            # The physics fit is minutes where the network is seconds -- restarts x steps
+            # of gradient descent through the twin, against one pass of backprop on a
+            # couple of thousand weights. `--steps 0` skips it when the network is what
+            # you came for, and leaves the bootstrap calibration untouched.
+            np_phys, r2p = 0, float("nan")
+            if a.steps > 0:
+                X = np.eye(NMODE, dtype=complex)[buf["ports"]]
+                phys, calib, err, r2p = unitary_fit.fit(
+                    drive_volts_raw(buf["D"]), buf["Y"], X, calib0=calib, steps=a.steps,
+                    restarts=1 if r > r0 else a.restarts, seed=a.seed)
+                np_phys = phys.n_params()   # 52 at 16 heaters; 56 when there were 18
             model, norm, r2d, dmeta = dpnn.fit(buf["D"], buf["ports"], buf["tel"], buf["Y"],
                                                channels=net_channels, epochs=a.epochs,
                                                seed=a.seed)
 
-            calib.save(os.path.join(a.out, "calib.json"))
+            if calib is not None:
+                calib.save(os.path.join(a.out, "calib.json"))
             dpnn.save_ckpt(a.out, model, norm, buf, dmeta)
             np.savez(bpath, **buf)
             meta.update(source=a.from_table or ("sim" if a.sim else kind),
