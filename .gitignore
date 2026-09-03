@@ -23,6 +23,12 @@ runs/
 #     deliberately out of git history. ---
 Anagha/
 
+# --- Vendor source material for the 6x6 (NUS): the whole-chip GDS, the Altium
+#     daughter-board, picpin.drawio and the design decks. 30 MB of binaries that
+#     nothing imports and that only ever get read by a human. Kept on disk, cited
+#     from 6x6/Readme.md and 6x6/pic/wiring.py, deliberately out of git history. ---
+6x6/NUS/
+
 # --- Jupyter ---
 .ipynb_checkpoints/
 */.ipynb_checkpoints/

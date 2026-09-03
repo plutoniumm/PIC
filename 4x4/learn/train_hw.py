@@ -46,7 +46,8 @@ import numpy as np
 from pic import Rig
 from pic.acquisition import estimate_seconds, random_vectors, settled_read
 from pic.config import (
-    DRIVE_MAX_V, DRIVE_SCALE, NUM_OUT, OUT_PDS, SWITCH_SETTLE_S, drive_to_volts,
+    DRIVE_MAX_V, DRIVE_SCALE, NUM_OUT, OUT_PDS, SWITCH_SETTLE_S, TEC_SETPOINT_C,
+    drive_to_volts,
 )
 from pic.session import WatchdogTripped
 from theory.calib import Calibration
@@ -56,6 +57,7 @@ from theory.layout import HEATERS, N_HEATERS
 from . import dpnn, unitary_fit
 
 CKPT = "runs/hw"
+TABLE_CKPT = "runs/table"
 
 # Every channel the board can drive that the mesh model uses. Aux is outside the model and a
 # dark channel reaches the chip as 0 V whatever it is commanded, so neither is worth a
@@ -119,6 +121,60 @@ def collect_round(rig, n, *, dbm, settle_s, repeats, rng, ports, channels=None):
     return np.asarray(Ds), np.asarray(Ps, int), np.asarray(Ts), np.asarray(Ys)
 
 
+def table_buffer(paths):
+    """A stored four-port capture, in the shape `collect_round` returns.
+
+    A capture holds one `raw[port][pd]` block per heater state, so every state is four
+    samples of the same mesh read through four different launches -- exactly what a round
+    that visits all four ports produces, and the encoding `learn.dpnn.port_features` and
+    `learn.unitary_fit`'s `X` both already take. Targets stay un-dark-subtracted because
+    `InstrumentModel` fits a per-detector offset; handing it a floor already removed would
+    make that parameter absorb the error twice.
+
+    `bfm` and `mA` are laser telemetry a capture does not record. They are filled with the
+    centre of their fixed scale in `dpnn._SCALES`, so they normalise to exactly 0 and
+    contribute nothing past the bias -- an absent input, not an invented one. A capture is
+    a single power in a single session, so the three that ARE recorded are constant across
+    the buffer anyway and the whole telemetry block is inert here by construction."""
+    from pic.config import volts_to_drive
+    Ds, Ps, Ts, Ys = [], [], [], []
+    for path in paths:
+        d = json.loads(open(path).read())
+        vmax = np.asarray(d["vmax"], float)
+        # The drive variable is volts/ceiling, so a capture taken under a different clamp
+        # table would silently rescale every feature. Refuse rather than rescale.
+        if not np.allclose(vmax, np.asarray(DRIVE_SCALE, float) * DRIVE_MAX_V, atol=1e-6):
+            raise ValueError(f"{path} was taken at ceilings {vmax.tolist()}, but this tree "
+                             f"is configured for "
+                             f"{(np.asarray(DRIVE_SCALE) * DRIVE_MAX_V).tolist()}. The drive "
+                             f"variable is per-channel, so the two are not comparable.")
+        tel = [d["dbm"], dpnn._SCALES["bfm"][0], d.get("diode_c", dpnn._SCALES["diode_temp"][0]),
+               dpnn._SCALES["mA"][0], d.get("chip_c", TEC_SETPOINT_C)]
+        for st in d["states"]:
+            raw = np.asarray(st["raw"], float)          # (port, pd)
+            drive = volts_to_drive(np.asarray(st["volts"], float))
+            for port in range(NMODE):
+                Ds.append(drive)
+                Ps.append(port)
+                Ts.append(tel)
+                Ys.append(raw[port][list(OUT_PDS)])
+        print(f"    {path}: {len(d['states'])} states x {NMODE} ports at "
+              f"+{d['dbm']:g} dBm, chip {d.get('chip_c', float('nan')):.2f} C")
+    return np.asarray(Ds), np.asarray(Ps, int), np.asarray(Ts), np.asarray(Ys)
+
+
+def varying_channels(D, tol: float = 1e-6):
+    """The channels a buffer actually moved.
+
+    The online default is `dpnn.MODEL_DACS`, the six theta the bench had shown modulate a
+    detector when that list was written. A stored capture may have swept more -- the 25 C
+    table moved eight -- and a channel that moved the chip but has no feature column lands
+    in the network's residual as unexplained variance. Reading it off the data keeps the
+    two in step without either list having to be maintained."""
+    D = np.atleast_2d(np.asarray(D, float))
+    return np.flatnonzero((D.max(0) - D.min(0) > tol) & (np.asarray(DRIVE_SCALE) > 0))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="learn.train_hw", description=__doc__.splitlines()[0])
     ap.add_argument("--rounds", type=int, default=4)
@@ -131,7 +187,15 @@ def main(argv=None):
     ap.add_argument("--dbm", type=float, default=8.0)
     ap.add_argument("--settle", type=float, default=0.2)
     ap.add_argument("--repeats", type=int, default=5)
-    ap.add_argument("--out", default=CKPT)
+    ap.add_argument("--from-table", default=None,
+                    help="fit a stored capture instead of lighting the chip: one or more "
+                         "raw-transfer JSON paths, comma separated. No hardware, one "
+                         "round, and the network gets a feature per channel the capture "
+                         "actually moved.")
+    ap.add_argument("--out", default=None,
+                    help=f"checkpoint directory (default {CKPT}, or {TABLE_CKPT} with "
+                         f"--from-table -- a stored capture carries no laser telemetry, so "
+                         f"its buffer must not be resumed into a lit one)")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--epochs", type=int, default=200, help="DPNN epochs per round")
     ap.add_argument("--steps", type=int, default=3000, help="physics-fit steps per round")
@@ -149,6 +213,14 @@ def main(argv=None):
     ap.add_argument("--laser-port", default=None)
     ap.add_argument("--pic-port", default=None)
     a = ap.parse_args(argv)
+
+    a.out = a.out or (TABLE_CKPT if a.from_table else CKPT)
+    offline = net_channels = None
+    if a.from_table:
+        print(f"fitting stored captures -- no hardware:")
+        offline = table_buffer([p for p in a.from_table.split(",") if p])
+        net_channels = varying_channels(offline[0])
+        a.rounds, a.resume = 1, False
 
     ports = [int(x) for x in a.ports.split(",")]
     channels = pick_channels(a.channels)
@@ -177,18 +249,22 @@ def main(argv=None):
               f"(learn.dpnn.MODEL_DACS); whatever they do lands in the physics fit's "
               f"phases and in the network's residual, so read the two R^2 accordingly.")
     kind = "mock" if (a.mock or a.sim) else "hw"
-    rig = Rig(laser=kind, board="sim" if a.sim else kind, switch=kind,
-              tec="mock" if (a.mock or a.sim) else a.tec,
-              laser_port=a.laser_port, pic_port=a.pic_port).open()
+    rig = None if offline else Rig(
+        laser=kind, board="sim" if a.sim else kind, switch=kind,
+        tec="mock" if (a.mock or a.sim) else a.tec,
+        laser_port=a.laser_port, pic_port=a.pic_port).open()
     r0 = meta["rounds_done"]
     try:
         for r in range(r0, r0 + a.rounds):
-            print(f"\n[round {r + 1}] collecting {a.n_per_round} points over ports "
-                  f"{ports} ...")
             t0 = time.time()
-            D, P, T, Y = collect_round(rig, a.n_per_round, dbm=a.dbm, settle_s=a.settle,
-                                       repeats=a.repeats, rng=rng, ports=ports,
-                                       channels=channels)
+            if offline:
+                D, P, T, Y = offline
+            else:
+                print(f"\n[round {r + 1}] collecting {a.n_per_round} points over ports "
+                      f"{ports} ...")
+                D, P, T, Y = collect_round(rig, a.n_per_round, dbm=a.dbm, settle_s=a.settle,
+                                           repeats=a.repeats, rng=rng, ports=ports,
+                                           channels=channels)
             buf = {"D": np.vstack([buf["D"], D]),
                    "ports": np.concatenate([buf["ports"], P]),
                    "tel": np.vstack([buf["tel"], T]), "Y": np.vstack([buf["Y"], Y])}
@@ -200,12 +276,14 @@ def main(argv=None):
                 restarts=1 if r > r0 else a.restarts, seed=a.seed)
             np_phys = phys.n_params()   # 52 at 16 heaters; it was 56 when there were 18
             model, norm, r2d, dmeta = dpnn.fit(buf["D"], buf["ports"], buf["tel"], buf["Y"],
-                                               epochs=a.epochs, seed=a.seed)
+                                               channels=net_channels, epochs=a.epochs,
+                                               seed=a.seed)
 
             calib.save(os.path.join(a.out, "calib.json"))
             dpnn.save_ckpt(a.out, model, norm, buf, dmeta)
             np.savez(bpath, **buf)
-            meta.update(rounds_done=r + 1, n_samples=int(len(buf["D"])),
+            meta.update(source=a.from_table or ("sim" if a.sim else kind),
+                        rounds_done=r + 1, n_samples=int(len(buf["D"])),
                         r2_physics=float(r2p), r2_dpnn=float(np.mean(r2d)),
                         n_params_physics=int(np_phys), n_params_dpnn=int(dmeta["n_params"]),
                         dpnn_channels=dmeta["channels"],
@@ -216,7 +294,8 @@ def main(argv=None):
     except KeyboardInterrupt:
         print("\ninterrupted -- last checkpoint is saved.")
     finally:
-        rig.close()
+        if rig is not None:
+            rig.close()
 
     if len(meta.get("ports", [])) < 2:
         print("\nNOTE: all data came through one input port. Some phase combinations are "
