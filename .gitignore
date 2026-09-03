@@ -31,12 +31,29 @@ Anagha/
 
 # --- AeroDiode vendor software: the Windows control-software installer (30 MB) and
 #     the root-level driver it was reverse-engineered into. `pic/devices/pdmv5.py`
-#     replaced both. Kept on disk, out of git history. ---
-laser/
+#     replaced both. Kept on disk, out of git history. Anchored: 6x6/laser/ is
+#     the driver package and is tracked. ---
+/laser/
 
 # --- 6x6 manuscript, source and build products. The chip is archived and the paper
 #     is written; it lives on disk, not in the tree. ---
 6x6/paper/
+
+# --- Mrunal's 4x4 bench material: datasheets, measurement reports and design decks.
+#     23 MB of binaries nothing imports; read README.md, not the raw tree. Three
+#     exceptions stay tracked -- the digest, the firmware, and the 28k sweep, which is
+#     the training input for pic_data/surrogate/mrunal_28k. ---
+4x4/mrunal/*
+!4x4/mrunal/README.md
+!4x4/mrunal/Setup.ino
+!4x4/mrunal/tec_pid_1.ino
+!4x4/mrunal/28k_Data_points .xlsx
+
+# --- Ananya's PIC-A predecessor reports: 7 MB of PDFs, all narrative. ---
+4x4/ananya/
+
+# --- The source spreadsheet the 100k CSVs above were derived from. ---
+100k_data_original.xlsx
 
 # --- Jupyter ---
 .ipynb_checkpoints/
