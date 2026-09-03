@@ -29,6 +29,15 @@ Anagha/
 #     from 6x6/Readme.md and 6x6/pic/wiring.py, deliberately out of git history. ---
 6x6/NUS/
 
+# --- AeroDiode vendor software: the Windows control-software installer (30 MB) and
+#     the root-level driver it was reverse-engineered into. `pic/devices/pdmv5.py`
+#     replaced both. Kept on disk, out of git history. ---
+laser/
+
+# --- 6x6 manuscript, source and build products. The chip is archived and the paper
+#     is written; it lives on disk, not in the tree. ---
+6x6/paper/
+
 # --- Jupyter ---
 .ipynb_checkpoints/
 */.ipynb_checkpoints/
