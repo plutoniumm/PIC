@@ -55,6 +55,16 @@ Anagha/
 # --- The source spreadsheet the 100k CSVs above were derived from. ---
 100k_data_original.xlsx
 
+# --- Generated figures. `./do figs` redraws the 4x4 set from the layout modules and
+#     the live calibration, and 6x6/scripts/{pic_clean_schematic,pic_state_diagram}.py
+#     redraw the schematics, so a copy in the tree is only ever a stale copy. ---
+4x4/figs/
+6x6/pic_structure*.png
+
+# --- 6x6/Images: heatmaps and overview slides from the PIC-A era. Nothing in the
+#     tree references them and the chip is archived. ---
+6x6/Images/
+
 # --- Jupyter ---
 .ipynb_checkpoints/
 */.ipynb_checkpoints/
