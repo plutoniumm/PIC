@@ -32,7 +32,7 @@
 | `r²` median | 0.933, 54 % >0.9 | **0.998**, 100 % >0.95 |
 | `score` | 0.148 | **0.010** |
 | `C` | 1.93 | 1.78 |
-| `R`, `P_π = Vπ²/R` | **never measured** | **13 / 16**: 56–62 Ω ×4, 114–119 Ω ×9 → **182 mW** median (67–301) |
+| `R`, `P_π = Vπ²/R` | **never measured** | **13 / 16**: 56–62 Ω ×4, 114–119 Ω ×9 → **182 mW** median (119–301) |
 | phase / DAC code @`Vπ` | 0.0096° | **0.0069°** |
 | settling | τ 0.7–1.2 s, t99 3–5 s | **0.5 s**; TEC 300 s |
 | stationarity | cross-session R² ≤ 0, −20–60 %/wk, no cooler | **25.032 ± 0.089 °C**, 0 % railed |
@@ -63,6 +63,7 @@ PIC A, same die: 60 / 120 nets, 63 / 128 fits, Vπ 2.68–4.47 median 2.90 sd 0.
 rejected to 48.9 V. Stricter selection than PIC B's 38 %, but same process — most of that 38 % is
 fit uncertainty, not silicon.
 
+Per-channel 4x4 heater census (R, Vπ ± sd, P_π, swing): `4x4/README.md`.
 
 ## 2. Photodiodes
 
