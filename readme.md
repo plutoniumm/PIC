@@ -2,10 +2,9 @@
 
 1. [Heaters](#1-heaters)
 2. [Photodiodes](#2-photodiodes)
-3. [Phase reach — the limit they share](#3-phase-reach--the-limit-they-share)
-4. [Stationarity — the axis that decides everything](#4-stationarity--the-axis-that-decides-everything)
-5. [Model quality](#5-model-quality)
-6. [Cheapest upgrades, by measured leverage](#6-cheapest-upgrades-by-measured-leverage)
+3. [Phase reach](#3-phase-reach)
+4. [Model quality](#4-model-quality)
+5. [Cheapest upgrades, by measured leverage](#5-cheapest-upgrades-by-measured-leverage)
 
 ## 1. Heaters
 
@@ -33,11 +32,9 @@
 | `r²` median | 0.933, 54 % >0.9 | **0.998**, 100 % >0.95 |
 | `score` | 0.148 | **0.010** |
 | `C` | 1.93 | 1.78 |
-| `R` | **never measured** | **13 / 16**: 56–62 Ω ×4, 114–119 Ω ×9 |
-| `P_π = Vπ²/R` | — | **182 mW** (67–301) |
+| `R`, `P_π = Vπ²/R` | **never measured** | **13 / 16**: 56–62 Ω ×4, 114–119 Ω ×9 → **182 mW** median (67–301) |
 | phase / DAC code @`Vπ` | 0.0096° | **0.0069°** |
 | settling | τ 0.7–1.2 s, t99 3–5 s | **0.5 s**; TEC 300 s |
-| sweep grid | uniform in **V**, 0–4 V ×0.5 | uniform in **V²** |
 | stationarity | cross-session R² ≤ 0, −20–60 %/wk, no cooler | **25.032 ± 0.089 °C**, 0 % railed |
 
 6x6 wins yield and reach; 4x4 wins every quality metric. `ASNR` p10 1.7 = the weakest tenth of 6x6
@@ -48,7 +45,6 @@ heaters move their best PD by under 2× the chip's own drift.
 | driving | 112 / 128 | 11 dead (39, 51, 62, 98, 100, 111, 118, 120, 124–126); 4 shorted @1.25 V (112–115); 1 weak (99) |
 | optically responsive | 95 | 44 / 112 move no PD at 0 V; `V0`-hold recovers most, Σ 1123 → 1964 mV |
 | reliable fringe | 96 | 93 ok, 3 weak, 13 extrapolated |
-| whole-chip faults | 0 | only one ever: firmware chip-select off by one pin |
 
 | 4x4 gate | n | lost to |
 |---|---|---|
@@ -93,7 +89,6 @@ Absolute mV do not compare (TIA gain, ADC ref, launch power). All normalised. **
 |---|---|---|
 | `σ/LSB` med | 0.27 | **0.060** |
 | `%FS` med | 0.53 % | **0.02 %** |
-| `CV` med | 1.03 % | — |
 | `ENOB` med | 7.5 | **12.1** |
 | σ med | 1.32 mV | **0.15 mV** |
 | `σ/q` | 3.0× | **0.83×** |
@@ -110,10 +105,8 @@ Absolute mV do not compare (TIA gain, ADC ref, launch power). All normalised. **
 |---|---|---|
 | PDs / dead | 14 / **0** (PIC A: 4, {0,2,7,11}) | 4 / **0** |
 | ADC | 10-bit / 5.0 V, 10 sweeps | 10-bit / 2.56 V int, 16 sweeps |
-| front end | on-chip monitor taps | InGaAs PIN + TIA, 4.4 kΩ, 37 kHz, 3.9e4 V/W |
 | max @+5 / +10 / +15 dBm | — / — / 378 mV (per-PD 82–378) | **336** / **1128** / not run above +13 |
 | ADC span used | 7.6 %, capped by +15 dBm PD damage | **44 %**, no clipped read |
-| dark | not measured | 0.0–1.7 mV laser-off, 0.0–0.8 switch-off |
 
 - 4x4 quieter on every per-detector measure: 1.7× `CV`, 12× `σ/swing`, +1.6 bits. Per-read
   resolution is a wash (ENOB 5.4 vs 7.0) — the edge is 12× more signal per heater, not the PDs.
@@ -134,53 +127,33 @@ Absolute mV do not compare (TIA gain, ADC ref, launch power). All normalised. **
 - 4x4 PD0 usable but **rank by SNR, never amplitude** — amplitude ranking gave eight false heater
   identifications in one afternoon.
 
-## 3. Phase reach — the limit they share
+## 3. Phase reach
 
 | | 6x6 PIC B | 4x4 |
 |---|---|---|
 | Vπ | median **2.86 V** (0.78–6.13) | **3.0–5.9 V** on fitted channels |
 | Ceiling | **5.0 V** firmware clamp (`pic128.ino:52`); the census swept to 4.0 V | 2.25–4.75 V, per channel from its own I·R at 40 mA |
 | Span reached | swept: median **1.96 π**, 91 % reach π, 41 % reach 2π. At the 5 V clamp: median **3.06 π**, 90 % reach 2π | 0.39–1.51 π; **3 of 10 exceed π; none reaches 2π** |
-| Vπ confidence | fit-limited — a sign-swap bug had V0/Vnull inverted on **34 of 96** channels before it was caught | **±12 %, irreducible**: every fringe is a *fragment* of a cosine, inside which amplitude, offset and period trade off. One trace → 24 % error; all eight jointly → 12 % |
-
-On reach the 6x6 wins. On *knowing* the phase neither is good, and the 4x4's uncertainty is
-structural: reaching π needs ~4.5 V on a 120 Ω heater, so the information is not in the measurement.
-
-An aliased fringe fit is indistinguishable by residual — one 4x4 heater with a true 11 π span fitted
-an 84 π alias at r² = 1.0000 with a *better* residual than the honest fits. Both rigs gate on sample
-count (`characterize.resolvable_span`, `src.census.robust_fit`); do not remove those gates.
-
-
-## 4. Stationarity — the axis that decides everything
-
-| | 6x6 | 4x4 |
-|---|---|---|
-| die cooler | none | LT8722 + PID, **25.032 ± 0.089 °C**, drive −1.06…+1.91, railed 0 % |
-| cooling authority | — | ≈ the full 856 mW heater load, reversible |
-| char validity | one thermal session | 30 min: table moves 0.0044 vs a 0.0179 repeat floor (m=10) |
+| Vπ confidence | sign-swap bug inverted V0/Vnull on **34 of 96** | **±12 %** irreducible; 24 % one trace, 12 % eight jointly |
 | per-config drift correction | **0 % recovered** | **75 %** of 12 h drift, mean abs ΔT 0.0227 → 0.0056 |
-| apply gate | 24 / 24 line-search proposals rejected | `√(1 − rank/16)`, derived not tuned |
 
-6x6 negative (`6x6/hw.md`): 15 experiments, injected drift **4.5×** the repeat-noise floor, target
-reachable, **0 %** recovered. Causes: twin↔chip r ≈ 0.10; 8× thermal ordering dependence, not an
-EWMA of applied power; gauge-unobservable mesh phase. Observability limit, not modelling.
+- 6x6 wins reach; neither knows its phase. The 4x4's ±12 % is structural — π needs ~4.5 V on a
+  120 Ω heater, so the information is not in the measurement.
+- Aliased fits are indistinguishable by residual: a true 11 π span fitted an **84 π** alias at
+  r² = 1.0000 with a *better* residual. Gates `characterize.resolvable_span` and
+  `src.census.robust_fit` exist for this — do not remove them.
 
 
-## 5. Model quality
+## 4. Model quality
 
 | | 6x6 PIC B | 4x4 |
 |---|---|---|
 | best HW R² | 0.576 mean, 0.625 good PDs | **0.976** (28k) / **0.890** (540 fresh, 8 ch) |
 | params | 25,063 | 2,753 |
 | samples | 2,072 | 28,000 / 540 |
-| shape | ~96 heaters → 14 PDs | 6–8 → 4 |
-| like-for-like | 0.576 | **0.890** |
-| ceiling source | the **data**: tree, MLP, cos-net, neurophox all 0.55–0.78 on 100k rows | — |
-| not readout | dark-PD floor ~5.8 mV would permit R² ≈ 0.95 | — |
-| TEC evidence | R² **0.70 → 0.86** on PIC A; never re-tested on this rig | — |
 
 
-## 6. Cheapest upgrades, by measured leverage
+## 5. Cheapest upgrades, by measured leverage
 
 | Chip | Change | Effect |
 |---|---|---|
