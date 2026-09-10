@@ -172,9 +172,11 @@ NO_FIT = {"visibility": 0.0, "amplitude": 0.0, "rmse": float("nan"), "r2": float
 # outputs sit near a null at under 1 mV -- port 3's PD2 averages 0.4 mV. On a trace like
 # that B/A is a ratio of noise to noise and comes back at 0.5, so a run against the bench
 # simulator reported all twelve *unwired* channels as characterized, with fitted Vpi between
-# 0.7 and 4.9 V. Three times the worst measured read noise rejects every one of them and
-# keeps all six real channels.
-MIN_AMPLITUDE_V = 0.017
+# 0.7 and 4.9 V. 2-sigma of the worst per-PD read noise rejects every one of them and keeps
+# all six real channels: PD0's 8.0 mV repeat rms is a difference of two reads, so per-read
+# sigma is 5.7 mV and 2-sigma is 11 mV. The accept set is unchanged for any margin from
+# 1.5-sigma to 3-sigma, so the exact multiplier is not load-bearing.
+MIN_AMPLITUDE_V = 0.011
 
 
 MIN_SNR = 6.0   # a fringe must stand this far above its own detector's read noise
@@ -207,7 +209,7 @@ def read_noise(pic, n: int = 16, settle_s: float = 1.0) -> np.ndarray:
 STRONG_SNR, STRONG_R2 = 12.0, 0.95
 
 
-def passes(f, min_visibility: float = 0.05, min_amplitude: float = MIN_AMPLITUDE_V,
+def passes(f, min_visibility: float = 0.10, min_amplitude: float = MIN_AMPLITUDE_V,
            min_r2: float = 0.5) -> bool:
     """Is this fit trustworthy? The single definition -- `better` ranks with it and
     `characterize` records with it, so a channel accepted while sweeping cannot come out of
@@ -220,13 +222,15 @@ def passes(f, min_visibility: float = 0.05, min_amplitude: float = MIN_AMPLITUDE
     # DC pedestal -- which is what a heater modulating a bright output looks like. It cost
     # H13 a 38 mV fringe at r2 0.986 and SNR 50. Measured against each detector's own noise,
     # SNR says the same thing without the blind spot, so a clearly strong and clearly
-    # sinusoidal fit overrides it.
+    # sinusoidal fit overrides it. The 0.10 floor is the same constant on both devices:
+    # the highest that keeps every heater this chip confirms real (H13 itself reaches
+    # visibility 0.10), and on the 6x6 the lowest whose wrong-fit rate matches its old 0.15.
     if snr >= STRONG_SNR and r2 >= STRONG_R2:
         return True
     return f.get("visibility", 0) >= min_visibility
 
 
-def better(a, b, min_visibility: float = 0.05, min_amplitude: float = MIN_AMPLITUDE_V,
+def better(a, b, min_visibility: float = 0.10, min_amplitude: float = MIN_AMPLITUDE_V,
            min_r2: float = 0.5) -> dict:
     """Pick the more trustworthy of two fringe fits.
 
@@ -253,7 +257,7 @@ def better(a, b, min_visibility: float = 0.05, min_amplitude: float = MIN_AMPLIT
     return a if a.get("snr", 0) >= b.get("snr", 0) else b
 
 
-def best_fringe(levels, curves, pds=None, min_visibility: float = 0.05,
+def best_fringe(levels, curves, pds=None, min_visibility: float = 0.10,
                 min_amplitude: float = MIN_AMPLITUDE_V, min_r2: float = 0.5,
                 noise=None, vmax: float = None) -> dict:
     """Fit one heater's sweep against every detector it was recorded on, keep the best.
@@ -437,7 +441,7 @@ def transparent_base(dac, calib, vmax=None):
 
 def characterize(pic, session, *, pd=None, levels=None, channels=None, bases=None,
                  switch=None, ports=None, settle_s: float = 0.5, repeats: int = 5,
-                 min_visibility: float = 0.05, min_amplitude: float = MIN_AMPLITUDE_V,
+                 min_visibility: float = 0.10, min_amplitude: float = MIN_AMPLITUDE_V,
                  min_r2: float = 0.5, verbose: bool = True):
     """Sweep every active heater and fit its fringe.
 

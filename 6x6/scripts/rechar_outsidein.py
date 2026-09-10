@@ -1,6 +1,6 @@
 """Outside-in, depth-ordered heater re-characterization with a transparent frontier.
 
-Deep "meat" heaters read dark (fringe swing < 5 mV) because the MZIs upstream of them
+Deep "meat" heaters read dark (fringe swing < 6 mV) because the MZIs upstream of them
 are not set to pass light, so the light never reaches them. This orchestrator fixes that
 by characterizing with a TRANSPARENT FRONTIER that grows from the input inward:
 
@@ -259,7 +259,7 @@ def fit_one(rows, tmp_csv, vmax=4.0):
         tw = csv.writer(tf)
         tw.writerow(CENSUS_HEADER)
         tw.writerows(rows)
-    recs = analyze(tmp_csv, vmax=vmax, min_vis=0.005, min_swing=5.0)
+    recs = analyze(tmp_csv, vmax=vmax, min_vis=0.005, min_swing=6.0)
     return recs[0] if recs else None
 
 

@@ -143,13 +143,13 @@ well-fit, and turns over in range. All three bounds must hold:
 
 | bound | condition | why |
 |---|---|---|
-| visibility | `0.15 ≤ |B|/A ≤ 1.05` | real contrast, not noise; not >100% (a fit artifact) |
+| visibility | `0.10 ≤ |B|/A ≤ 1.05` | real contrast, not noise; one floor on both devices (the 4x4's weakest real heater reaches 0.103); not >100% (a fit artifact) |
 | fit error | `rmse ≤ 0.2·swing + 1 mV` | the cosine tracks the data, not noise |
 | Vπ range | `0.5 ≤ √(π/φ₂) ≤ vmax + 1` | fringe turns over near the swept band; rejects Vπ extrapolated to nonsense |
 
-The digest additionally gates on **swing ≥ 5 mV** (a channel has to move a PD before there
-is anything to fit). The `Vπ ≤ vmax + 1` term is the one that couples the filter to the
-sweep range — see §8.
+The digest additionally gates on **swing ≥ 6 mV** (2σ of the 3.1 mV slow read noise, the
+same 2σ margin as the 4x4 — a channel has to move a PD before there is anything to fit).
+The `Vπ ≤ vmax + 1` term is the one that couples the filter to the sweep range — see §8.
 
 
 ## 8. The 0–4 V extension (`--vmax`)

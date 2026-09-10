@@ -30,9 +30,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("census")
     ap.add_argument("--vmax", type=float, default=2.0, help="drive ceiling for reachability flags")
-    ap.add_argument("--min-vis", type=float, default=0.15,
+    ap.add_argument("--min-vis", type=float, default=0.10,
                     help="visibility floor; lower (~0.02) for light-routed bright-baseline runs")
-    ap.add_argument("--min-swing", type=float, default=5.0, help="absolute swing floor [mV]")
+    ap.add_argument("--min-swing", type=float, default=6.0,
+                    help="absolute swing floor [mV] (6 mV = 2σ of the 3.1 mV slow read noise)")
     ap.add_argument("--write", action="store_true", help="write fringes_<name>.csv beside it")
     a = ap.parse_args()
     recs = analyze(a.census, vmax=a.vmax, min_vis=a.min_vis, min_swing=a.min_swing)

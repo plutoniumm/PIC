@@ -62,8 +62,8 @@
       2,
       3
     ],
-    "min_visibility": 0.05,
-    "min_amplitude": 0.017,
+    "min_visibility": 0.10,
+    "min_amplitude": 0.011,
     "min_r2": 0.5,
     "n_ok": 11,
     "n_swept": 15,

@@ -10,6 +10,7 @@ dist/
 .mypy_cache/
 .ruff_cache/
 slides/
+report/
 
 # --- Virtual envs (project uses the `pic` conda env, outside the repo) ---
 .venv/

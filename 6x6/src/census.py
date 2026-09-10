@@ -71,7 +71,7 @@ def load_census(path):
     return out
 
 
-def analyze(path, vmax=2.0, min_vis=0.15, min_swing=5.0):
+def analyze(path, vmax=2.0, min_vis=0.10, min_swing=6.0):
     """Per channel: fit its most-responsive PD's fringe and read off V0/Vnull/Vpi, flagging
     ``reliable`` when the fit is physical, well-fit, and turns over inside the swept band."""
     data = load_census(path)
@@ -91,8 +91,13 @@ def analyze(path, vmax=2.0, min_vis=0.15, min_swing=5.0):
         # Trust is SNR-based, not contrast-based: a light-routed baseline (many heaters held
         # at V0) floods every PD with DC, so a real strong fringe can still show tiny
         # visibility. So gate on absolute swing (signal), rmse small vs swing (well fit), and
-        # a Vpi that actually turns over in range (rejects monotonic/degenerate fits). min_vis
-        # only screens sign-degenerate fits (negative visibility); default 0.15 for dark-baseline runs.
+        # a Vpi that actually turns over in range (rejects monotonic/degenerate fits). The
+        # swing gate is 2σ of the measured slow read noise (3.1 mV → 6 mV), the same 2σ
+        # margin as the $\FOUR$ amplitude gate; the accept set is unchanged for any margin
+        # 1.5σ–3σ because real fringes sit ≥3σ up. min_vis
+        # only screens sign-degenerate fits (negative visibility); 0.10 is one floor on both
+        # devices: the highest that keeps every heater the $\FOUR$ confirms real, and on the
+        # dark-baseline runs the lowest whose wrong-fit rate matches the old 0.15.
         reliable = (min_vis <= vis <= 1.05 and rmse_mV <= 0.2 * swing + 1
                     and 0.5 <= vpi <= vmax + 1 and swing >= min_swing)
         rec.update(
@@ -113,9 +118,9 @@ def analyze(path, vmax=2.0, min_vis=0.15, min_swing=5.0):
 
 def digest(recs, vmax=2.0):
     """Terse scannable digest of ``analyze`` records to stdout."""
-    good = [r for r in recs if r.get("ok") and r["swing_mV"] >= 5]
+    good = [r for r in recs if r.get("ok") and r["swing_mV"] >= 6]
     rel = [r for r in good if r["reliable"]]
-    print(f"channels fit: {len(recs)}   usable swing (>=5 mV): {len(good)}   "
+    print(f"channels fit: {len(recs)}   usable swing (>=6 mV): {len(good)}   "
           f"RELIABLE fringe: {len(rel)}\n")
     print(f"{'ch':>3} {'pd':>3} {'swing':>6} {'Vpi':>5} {'V0':>5} {'Vnull':>6} "
           f"{'reach':>7} {'vis':>5} {'rmse':>5}")

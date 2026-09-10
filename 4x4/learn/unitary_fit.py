@@ -259,7 +259,7 @@ def fit_staged(V, Y, X=None, *, calib0, steps: int = 600, lr: float = 0.05,
     return model, calib, err, val_r2(model)
 
 
-def bootstrap(V_sweeps, Y_sweeps, calib0=None, min_visibility: float = 0.05):
+def bootstrap(V_sweeps, Y_sweeps, calib0=None, min_visibility: float = 0.10):
     """Per-heater fringe fits -> a Calibration carrying the Vpi the joint fit needs.
 
     `V_sweeps[h]` are the voltages swept on heater h with the rest held at a reference,
