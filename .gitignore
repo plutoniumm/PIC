@@ -120,6 +120,7 @@ PIC_flipped.png
 **/theory/results/*.log
 
 # --- Agent config: kept on disk, deliberately out of git history ---
+LEFT_OUT.md
 CLAUDE.md
 **/CLAUDE.md
 AGENTS.md
