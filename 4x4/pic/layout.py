@@ -4,15 +4,10 @@ The chip side of this -- what each heater does -- is `theory.layout`, and it is 
 here so callers have one import. What lives here is the board: 18 DAC channels, one per
 heater, currently the identity map.
 
-Only 6 of the 18 heaters are wired today: the bring-up board (`mrunal/Setup.ino`) drives
-one DAC chip on CS 10 with `NUM_DAC_CH = 6`. That map is documented, not guessed --
-`mrunal/Setup_Analysis.pdf` Table 1 and `mrunal/Drift_Report.pdf` Table 1 agree on it --
-and it is the only part of this file that is not a hypothesis.
-
-The remaining 12 channels are the identity map, which is a placeholder. On the 6x6 the
-DAC-to-heater map was decoded from a schematic, never confirmed electrically, and two of its
-rows contradicted the measured data for months; treat anything outside `WIRED` the same way
-until a per-channel sweep has confirmed it, then set `VERIFIED = True`.
+All 16 DAC channels are wired today, on the DAC81416 (`pic.config.NUM_DAC = 16`); this
+superseded the original 6-channel bring-up board (`mrunal/Setup.ino`, one DAC chip on CS 10,
+`NUM_DAC_CH = 6`), and `WIRED_DACS` in `pic.config` reflects the current board, not that
+one. Only H16 and H17, of the 18 pads, have no driver at all.
 
 Two loose ends, both about pads rather than channels.
 

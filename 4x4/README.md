@@ -63,6 +63,7 @@ resolve.
 | `learn/train_hw.py` | Online trainer: fits both on the same buffer, every round. |
 | `Arduino/pic4x4/` | Firmware. 18 DAC channels, 4 ADC pins, switch passthrough. |
 | `figs.py` → `figs/` | The three rig diagrams, drawn from the layout modules and the current calibration. `./do figs`. |
+| `twin_vs_hardware.py` | How well the twin predicts the real chip over the 135-state four-port table: Pearson and `||P-M||/||M||` for the characterized calibration, and for `learn.transfer_fit` refitted on a held-out split. Same definitions as `../6x6/scripts/twin_vs_hardware.py`, so the two chips compare. |
 
 ## The chip
 
@@ -79,8 +80,11 @@ characterization.
 
 Six interferometers, two heaters each (an internal arm phase `theta` and an external input
 phase `phi`) = 12, plus a three-rail output phase screen = 15. The fourth output phase is a
-global phase, which no detector sees and no heater needs to make, so three of the eighteen
-heaters are redundant degrees of freedom -- a claim a full characterization should check.
+global phase, which no detector sees and no heater needs to make. The die carries 18 physical
+pads for that 15-phase mesh, 3 more than it needs; the DAC81416 drives only 16 of the 18, and
+of the 4 output-screen pads only 2 have a driver, so the mesh can realise a target unitary
+only up to one uncharacterised phase on the undriven, non-reference output rail
+(`theory/layout.py UNREACHABLE_RAIL`).
 
 ### Heater census
 
@@ -159,11 +163,14 @@ fit reaches 1.0000.
 
 ## Still open
 
-- **Which UH is which.** The heater assignment in `theory/layout.py` is a reading of the
-  standard rectangular layout, not the GDS. Three of the eighteen are marked `aux` because
-  the mesh needs only fifteen phases and nothing says which three are spare.
-- **Twelve channels are not wired.** `pic/layout.py` has the six that are, from the bench
-  reports; the rest is a placeholder permutation.
+- ~~**Which UH is which.**~~ Closed for all 16. `theory/layout.py` reads the role off
+  `ananya/4X4MZI_REPORT.pdf`'s labelled mesh diagram, cross-checked against its resistance
+  table, the vendor pinout and the wiring notebook; the old placeholder predicted the bench
+  data at r = -0.04 held out, the corrected map predicts it (DAC 12, 13 are mid-mesh phi, not
+  trimmers, exactly as their clean fringes require). The last two, DAC 7 and 11, are placed
+  in column 1's pass-through gap and are exactly redundant with phases the model already
+  commands -- not unidentified, and not worth driving. What is still open is the *undriven*
+  pad on output rail 3, which nothing on the part can reach.
 - **Vpi is unknown on nitride.** The 1.5 V default comes from the 6x6 silicon chip. With the
   board capped at 3 V a heater only reaches a full 2 pi if Vpi <= 2.12 V, which is the first
   thing a sweep has to confirm.

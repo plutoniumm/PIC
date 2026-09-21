@@ -40,10 +40,14 @@ def _rig(a, model=None):
 
 
 def cmd_selftest(a):
-    from theory import calib, clements, program, twin
+    from theory import calib, clements, layout, program, twin
 
     print("clements  ", end="", flush=True)
     print(f"round trip {clements._selftest():.1e}")
+    print("layout    ", end="", flush=True)
+    w, rk = layout._selftest()
+    print(f"spares redundant to {w:.0e}; rank {rk['physical']} of 18 physical phases, "
+          f"{rk['driven']} driven, {rk['model']} modelled")
     print("twin      ", end="", flush=True)
     print("ideal {:.1e}  unitary {:.1e}  batched {:.1e}".format(*twin._selftest()[:3]))
     print("calib     ", end="", flush=True)

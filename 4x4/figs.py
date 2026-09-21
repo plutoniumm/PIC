@@ -14,8 +14,9 @@ hardcoded here is the dark-noise spread, which no committed file carries yet.
 each MZI, every heater a small state-coloured square drawn where it physically sits, live
 counts in a one-row legend at the bottom. Each square also carries a symmetric whisker whose
 length is how badly its fringe fit closed -- a long bar is a heater you should not trust.
-Nothing floats in a detached panel -- if a heater has no place on the chip it goes in the
-off-mesh bank and says so.
+Nothing floats in a detached panel: all 16 channels sit on the rail segment they heat,
+including the two whose role in the mesh is unidentified -- those have a physical place on
+the die even though the model has no parameter for them.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ from pic.config import (
     NUM_ADC_RAW, SWITCH_BAUD, TEC_SETPOINT_C, TEC_TOLERANCE_C, VOLTAGE_MAX_CH,
 )
 from theory.clements import COLUMN, MESH, NCOL, NMODE, NMZI
-from theory.layout import HEATERS, N_HEATERS, REF_RAIL, THETA_DAC
+from theory.layout import AUX_GAP_COLUMN, AUX_RAIL, HEATERS, N_HEATERS, REF_RAIL, THETA_DAC
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUTDIR = os.path.join(HERE, "figs")
@@ -74,12 +75,6 @@ PD_OK, PD_BAD = GREEN, ORANGE
 ERR_FULL, ERR_MIN, ERR_CAP = 0.34, 0.012, 0.055
 
 ROLE_NAME = {"theta": "θ", "phi": "φ", "out_phase": "α", "aux": "—"}
-
-# Dark-run scatter, 2026-08-27, per PD. Only PD0's was recorded -- it is a different detector
-# from the other three in every way that matters, which is why the firmware averages
-# ADC_AVG_N sweeps and why no fit is ever accepted on PD0 alone. Which PD gets flagged is
-# read off the measured dark offsets, not remembered here.
-PD_DARK_SIGMA_MV = {0: 26.0}
 
 
 def _load():
@@ -260,11 +255,7 @@ def fig_mesh(calib, chars, date):
     ax.set_xlim(-1.55, x_pd + 3.25)
     ax.set_ylim(-0.62, y_top)
 
-    nrm = calib["meta"]["normalisation"]
-    port_v = nrm["port_full_v"]                     # per INPUT port, drawn on the input rails
-    port_db = [10 * math.log10(p / max(port_v)) for p in port_v]
-    worst = port_db.index(min(port_db))
-    dark_v, full_v = nrm["dark_v"], nrm["full_v"]   # per PD, drawn at the detectors
+    dark_v = calib["meta"]["normalisation"]["dark_v"]   # per PD; who's noisiest, not a text label
     # which detector gets flagged is the measured dark floor, not a remembered channel number
     noisy_pd = max(range(NMODE), key=lambda r: dark_v[r])
 
@@ -292,11 +283,8 @@ def fig_mesh(calib, chars, date):
         rail(ax, x, x_pd - 0.28, Y[r])
         ax.text(X_RAIL0 + 0.06, Y[r] + 0.11, f"IN{r}", ha="left", va="bottom", fontsize=8.4,
                 color=INK2)
-        ax.text(X_RAIL0 + 0.06, Y[r] - 0.11, f"{port_db[r]:+.1f} dB", ha="left", va="top",
-                fontsize=7.4, color=RED if r == worst else MUT)
 
     counts = {k: 0 for k in STATES}
-    best_vpi = min((r["vpi"] for r in chars.values() if r["ok"]), default=None)
     for c in range(ncol):
         ks = [k for k in range(NMZI) if COLUMN[k] == c]
         for k in ks:
@@ -308,50 +296,28 @@ def fig_mesh(calib, chars, date):
             ph = by_role["phi"][k]
             counts[heater(ax, x - X_PHI, Y[m], ph.h, chars, up=False)] += 1
 
-            st = state_of(th.h, chars)
-            if st == "char":
-                note = (f"Vπ {calib['vpi'][th.h]:.2f} V   "
-                        f"span {ceiling_span(calib, th.h):.2f}π")
-            elif st == "weak":
-                note = f"fit rejected   r² {chars[th.h]['r2']:.3f}"
-            elif st == "capped":
-                # even at the most favourable Vπ this rig has measured, span goes as (V/Vπ)².
-                reach = (VOLTAGE_MAX_CH[th.h] / best_vpi) ** 2
-                note = (f"{HEATER_OHMS[th.h]:.0f} Ω → {VOLTAGE_MAX_CH[th.h]:.2f} V cap   "
-                        f"span ≤ {reach:.2f}π")
-            else:
-                note = "not swept"
             # every MZI labels above its own upper rail, so the placement rule is one rule.
             ax.text(x + MW / 2, Y[m] + 0.52, f"MZI{k + 1}  rails ({m},{n})", ha="center",
                     va="bottom", fontsize=8.6, color=INK, fontweight="bold", zorder=9)
-            ax.text(x + MW / 2, Y[m] + 0.30, note, ha="center", va="bottom", fontsize=7.2,
-                    color=STATES[st][1], zorder=9)
 
     for r in range(NMODE):
-        if r == REF_RAIL:
-            ax.text(x_alpha, Y[r] + 0.13, "no trimmer — global phase", ha="center",
-                    va="bottom", fontsize=7.2, color=MUT, zorder=9)
-            continue
-        counts[heater(ax, x_alpha, Y[r], by_role["out_phase"][r].h, chars, up=True)] += 1
+        if r in by_role["out_phase"]:
+            counts[heater(ax, x_alpha, Y[r], by_role["out_phase"][r].h, chars, up=True)] += 1
 
     for r in range(NMODE):
-        ok = r != noisy_pd
-        col = pd_glyph(ax, x_pd, Y[r], r, ok)
-        sig = PD_DARK_SIGMA_MV.get(r)
-        tail = f"   σ ≈ {sig:.0f} mV" if not ok and sig is not None else ""
-        ax.text(x_pd + 0.36, Y[r] - 0.09,
-                f"full {1000 * full_v[r]:.0f} mV · dark {1000 * dark_v[r]:.1f} mV{tail}",
-                ha="left", va="top", fontsize=7.2, color=col if not ok else MUT, zorder=9)
+        pd_glyph(ax, x_pd, Y[r], r, r != noisy_pd)
 
-    aux = [h for h in HEATERS if h.role == "aux"]
-    if aux:
-        ax.text(-1.45, y_top - 0.10, "off-mesh", ha="left", va="top", fontsize=8.4,
-                color=MUT, fontweight="bold")
-        for j, h in enumerate(aux):
-            yy = y_top - 0.56 - 0.44 * j
-            counts[heater(ax, -1.32, yy, h.h, chars, tag=False)] += 1
-            ax.text(-1.13, yy, f"DAC{h.h}·{h.pad}\nno role assigned", ha="left", va="center",
-                    fontsize=6.8, color=MUT, linespacing=1.45)
+    # The two spare channels are not off-mesh: `ananya/4X4MZI_REPORT.pdf` p.2 Fig. 2 draws
+    # both on straight pass-through rails in the column-1 gap, which column 1 leaves free
+    # because MZI3 takes rails 1 and 2 only. Which rail each sits on, and why neither is an
+    # independent phase, is `theory.layout`; drawing them is all that happens here.
+    assert set(AUX_RAIL) == {h.h for h in HEATERS if h.role == "aux"}
+    x_aux = XC[AUX_GAP_COLUMN] + MW / 2
+    for h in (x for x in HEATERS if x.role == "aux"):
+        r = AUX_RAIL[h.h]
+        assert not any(a <= x_aux <= b for a, b in occupied[r]), \
+            f"aux DAC{h.h} lands inside an MZI on rail {r}"
+        counts[heater(ax, x_aux, Y[r], h.h, chars)] += 1
     assert sum(counts.values()) == N_HEATERS, "every channel must be drawn exactly once"
 
     # a state nobody is in is not information; drawing it would only invite a stale claim.
@@ -377,14 +343,6 @@ def fig_mesh(calib, chars, date):
               frameon=False, fontsize=8.4, handlelength=1.6, columnspacing=2.2,
               labelspacing=0.5)
 
-    n_tun = sum(state_of(THETA_DAC[k], chars) == "char" for k in range(NMZI))
-    ax.set_title(
-        f"4x4 Clements mesh, Quanfluence PIC1A (Ligentec AN800 SiN) — "
-        f"{n_tun} of {NMZI} MZI internal phases characterized   ({date})\n"
-        f"heater colour = state; θ sits between the couplers, φ on the upper input arm, "
-        f"α on the output rails. DAC k drives θ of MZI {NMZI}−k (measured); "
-        f"the φ/α assignment is PROVISIONAL.",
-        fontsize=12.5, linespacing=1.5)
     fig.tight_layout()
     save(fig, "mesh.png")
 

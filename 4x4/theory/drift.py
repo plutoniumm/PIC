@@ -256,7 +256,7 @@ def infer_drift(twin, phases0, T_meas, T_ref=None, *, rcond: float = RCOND,
 
 
 def _selftest(seed: int = 0):
-    from .layout import pack
+    from .layout import ALPHA_IDX, pack
     from .twin import MeshError, Twin
 
     rng = np.random.default_rng(seed)
@@ -267,7 +267,7 @@ def _selftest(seed: int = 0):
             return transfer(twin.matrix(torch.as_tensor(p, dtype=torch.float64))).numpy()
 
     ph0 = pack(rng.uniform(0, np.pi, 6), rng.uniform(0, 2 * np.pi, 6),
-               rng.uniform(0, 2 * np.pi, 3))
+               rng.uniform(0, 2 * np.pi, ALPHA_IDX.size))
 
     obs_all, gauge, sv = observable_split(twin, ph0, rcond=0.0)
     rank_alg, gdim = obs_all.shape[1], gauge.shape[1]
@@ -305,7 +305,11 @@ def _selftest(seed: int = 0):
     with torch.no_grad():
         T_lossy = transfer(lossy.matrix(torch.as_tensor(ph0, dtype=torch.float64))).numpy()
 
-    assert (rank_alg, gdim) == (9, 6), (rank_alg, gdim)
+    # was (9, 6) when the model exposed 3 output-screen phases; the corrected wiring
+    # (layout.py) drives only 2, so the probed parameter space is 14-dimensional, not 15,
+    # and the gauge/unobservable count drops by exactly the one parameter that is no longer
+    # part of the model at all (not newly observable -- simply absent).
+    assert (rank_alg, gdim) == (9, 5), (rank_alg, gdim)
     assert gauge_move < 1e-9, gauge_move
     assert gain_err < 1e-9, gain_err
     assert est.ok, str(est)

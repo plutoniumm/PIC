@@ -62,9 +62,12 @@ HEATER_MAX_MA = 40.0
 # and it is unlocked by putting the measured value in HEATER_OHMS -- not by editing this.
 #
 # 3 V is NOT safe before that measurement: at 56.4 ohm it draws 53 mA against a 40 mA rating.
-# The MZI pairing (theta and phi share a resistance group in all three interferometers where
-# both are known: DAC4/7 at 58/57, DAC2/9 at 119/115, DAC1/10 at 62/56) says these three are
-# ~114 ohm and could take 4.55 V, but an inference does not set a current limit.
+# All three sit in a 114-119 ohm neighbourhood and could probably take 4.55 V -- H14 and H18
+# share the TP26 ground cluster with H13 (114.9) and H15 (114.1), and H6 shares rail 0 with
+# H7 (116.1) -- but an inference does not set a current limit. (The earlier version of this
+# argument paired theta with phi by resistance group and cited DAC4/7 and DAC2/9 as pairs;
+# under the confirmed map in theory.layout neither is a pair, DAC 7 is not any MZI's phi, and
+# all twelve mesh channels have a measured resistance anyway.)
 V_UNMEASURED = 1.5
 VOLTAGE_MAX_CH = tuple(V_UNMEASURED if r is None
                        else float(int(1e-3 * HEATER_MAX_MA * r / 0.05) * 0.05)

@@ -146,9 +146,16 @@ class Twin:
 
 
 def _selftest(seed: int = 0):
-    """The ideal twin must equal the exact decomposition, and stay unitary."""
+    """The ideal twin must equal the exact decomposition on what the chip can actually
+    realise, and stay unitary.
+
+    Only 2 of the output screen's 4 rails have a driver (`layout.ALPHA_RAIL`); the other two
+    (`REF_RAIL`, `UNREACHABLE_RAIL`) come back at whatever `unpack` reports for them, not at
+    `decompose`'s own arbitrary alpha[0] = 0 gauge. So the round-trip target is `reconstruct`
+    on the *achieved* (theta, phi, alpha) -- what `pack` then `unpack` actually keeps -- not
+    on `decompose`'s raw output, which needs all 4 rails to reproduce exactly."""
     from .clements import decompose, random_unitary, reconstruct
-    from .layout import pack
+    from .layout import pack, unpack
 
     rng = np.random.default_rng(seed)
     twin = Twin(dtype=torch.complex128)
@@ -157,8 +164,10 @@ def _selftest(seed: int = 0):
         U = random_unitary(rng)
         t, p, a, _g = decompose(U)
         ph = pack(np.pi - 2 * t, p, a)  # theta heaters carry the internal arm phase
+        theta_int, p_ach, a_ach = unpack(ph)
+        t_ach = (np.pi - theta_int) / 2  # back to the Clements angle `reconstruct` expects
         M = twin.matrix(torch.as_tensor(ph)).numpy()
-        worst_ideal = max(worst_ideal, float(np.abs(M - reconstruct(t, p, a)).max()))
+        worst_ideal = max(worst_ideal, float(np.abs(M - reconstruct(t_ach, p_ach, a_ach)).max()))
         worst_unitary = max(worst_unitary, float(np.abs(M.conj().T @ M - np.eye(NMODE)).max()))
 
     # batching must agree with the loop, and a fabricated instance must stay unitary
