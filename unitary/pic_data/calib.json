@@ -1,0 +1,153 @@
+{
+ "vpi": [
+  3.6874633860770447,
+  11.999956636781485,
+  11.999999999999977,
+  11.999999999999998,
+  1.5,
+  1.5,
+  5.279686116462449,
+  5.21806798872428,
+  6.754317681821945,
+  11.999999999999998,
+  4.070302353610487,
+  5.673438719750678,
+  5.009820324270617,
+  6.6749541767624,
+  5.627745127395651,
+  5.297344389997352
+ ],
+ "phi0": [
+  3.8318629303033958,
+  1.733328550130528,
+  5.8417268956906865,
+  2.6962904794090328,
+  0.0,
+  0.0,
+  6.19855834678995,
+  6.156669587250729,
+  1.0193629397898496,
+  5.840476281925227,
+  5.851820143188689,
+  1.6591932779311065,
+  3.7574204121297914,
+  2.229423529932628,
+  1.4736475864198226,
+  0.5655830177831564
+ ],
+ "pd_gain": [
+  0.31310499999999997,
+  0.31967999999999996,
+  0.32289,
+  0.32075
+ ],
+ "pd_offset": [
+  0.01631,
+  0.002205,
+  8.5e-05,
+  2.7e-05
+ ],
+ "meta": {
+  "source": "pic.fastchar.run",
+  "pds": [
+   0,
+   1,
+   2,
+   3
+  ],
+  "n_bases": 2,
+  "ports": [
+   0,
+   1,
+   2,
+   3
+  ],
+  "min_visibility": 0.1,
+  "min_amplitude": 0.011,
+  "min_r2": 0.5,
+  "n_ok": 10,
+  "n_swept": 15,
+  "chip_c": 25.0,
+  "normalisation": {
+   "dark_v": [
+    0.01631,
+    0.002205,
+    8.5e-05,
+    2.7e-05
+   ],
+   "full_v": [
+    0.34457,
+    0.32075,
+    0.32289,
+    0.32075
+   ],
+   "port_full_v": [
+    0.77622,
+    0.40048,
+    0.48694,
+    0.30853
+   ],
+   "contrast_db": [
+    30.11,
+    16.31,
+    23.24,
+    30.21
+   ],
+   "input_scale": [
+    1.0,
+    0.5159,
+    0.6273,
+    0.3975
+   ],
+   "ports_surveyed": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "dead_pds": [],
+   "full_port": {
+    "0": 0,
+    "1": 2,
+    "2": 2,
+    "3": 0
+   }
+  },
+  "gate_note": "visibility overridden by SNR>=12 and r2>=0.95; recovered dac9",
+  "fitted_this_run": [
+   0,
+   2,
+   6,
+   8,
+   9,
+   10,
+   11,
+   12,
+   13,
+   14,
+   15
+  ],
+  "dark_note": "pd_offset re-measured 2026-08-28 at 13 dBm with the switch dumped (P0), after the ADC reference moved from AVCC to INTERNAL2V56. It is the one absolute quantity in to_transfer: pd_gain and every optical scale cancel in the per-column normalisation, this does not.",
+  "dbm_of_normalisation": 13.0,
+  "remap_note": "2026-09-22 rewire: vpi/phi0 carried per HEATER onto its new DAC channel(s); bonded pairs share one heater's values. H18/H14/H6 lost their driver and their fits are dropped. pd_gain/pd_offset are per detector and did not move. Pre-rewire file kept as calib.pre-rewire.json. Source: mrunal/board_firmware_v2.md",
+  "provenance": "vpi/phi0 kept only for channels fitted AFTER the DAC chip-select fix (CS 10 -> 7, 2026-09-22). Earlier runs fitted thermal drift, not fringes, because the DAC was never selected and no heater drew current; those values were accepted at the time and are cleared here.",
+  "extrapolated": [
+   2,
+   3,
+   9
+  ],
+  "extrapolated_note": "H10 and H13 fit to the Vpi bound: their fringe never turns over in range, so 12.00 V is a LOWER BOUND and the fitted amplitude is the extrapolated full fringe, not an observed swing. The local phase slope is real; the half-wave point is not.",
+  "diode_c": 17.445280075073242,
+  "best_rails": [
+   [
+    1,
+    3
+   ],
+   [
+    2,
+    3
+   ]
+  ],
+  "calibrated_at": "2026-09-23 16:36"
+ }
+}

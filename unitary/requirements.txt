@@ -1,0 +1,5 @@
+numpy>=2.0
+scipy>=1.13
+pyserial>=3.5
+psutil>=5.9
+torch>=2.4

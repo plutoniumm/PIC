@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <title>PIC1A 4x4</title>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&display=swap"
+    />
+    <link rel="stylesheet" href="/global.css" />
+  </head>
+  <body data-page="{{page}}">
+    <header>
+      <div class="hrow">
+        <h1>PIC1A&nbsp;<em id="tect" title="die temperature, mean of 5 TEC readings">-- °C</em></h1>
+        <div class="tabs">
+          <a id="t-mv" href="/"><i class="ico" style="--i: url(/icons/matvec.svg)"></i>Matvec</a>
+          <a id="t-cal" href="/calibration"
+            ><i class="ico" style="--i: url(/icons/calib.svg)"></i>Calibration</a
+          >
+          <a id="t-diag" href="/diagnostics"
+            ><i class="ico" style="--i: url(/icons/diag.svg)"></i>Diagnostics</a
+          >
+        </div>
+        <span class="grow"></span>
+        <div class="seg" id="mk" title="applies to every page">
+          <label><input type="radio" name="m" value="hw" /><span>Bench</span></label>
+          <label><input type="radio" name="m" value="mock" checked /><span>Mock</span></label>
+        </div>
+      </div>
+    </header>
+    <div class="wrap">
+      <div id="tab-mv" class="{{hide_mv}}">
+        <div class="card">
+          <div class="eyebrow hd">
+            <span><i class="ico" style="--i: url(/icons/laser.svg)"></i>Laser</span>
+            <span
+              ><i class="ico key" id="lzkey" style="--i: url(/icons/key.svg)"></i
+              ><span class="lzs" id="lzs"></span
+              ><input
+                id="lzdbm"
+                type="number"
+                value="5"
+                min="0"
+                max="12"
+                step="0.5"
+                title="setpoint, dBm (12 max)"
+              />dBm
+              <button id="lzon" class="mini" title="laser on / off">
+                <i class="ico" style="--i: url(/icons/power.svg)"></i><b>off</b>
+              </button></span
+            >
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="eyebrow hd">
+            <span><i class="ico" style="--i: url(/icons/matvec.svg)"></i>Target U</span>
+            <span
+              ><button id="rand" class="mini" title="random unitary">
+                <i class="ico" style="--i: url(/icons/dice.svg)"></i>random
+              </button>
+              <button id="eye" class="mini" title="identity">
+                <i class="ico" style="--i: url(/icons/identity.svg)"></i>I
+              </button></span
+            >
+          </div>
+          <div class="grid u" id="U"></div>
+          <div class="note tight" id="orth"></div>
+        </div>
+
+        <div class="card">
+          <div class="eyebrow hd">
+            <span><i class="ico" style="--i: url(/icons/vector.svg)"></i>Input x</span>
+            <span
+              ><span class="note" style="margin: 0" id="xnote"></span>
+              <button id="addx" class="mini" title="add an input vector">
+                <i class="ico" style="--i: url(/icons/plus.svg)"></i>
+              </button>
+              <button id="randx" class="mini" title="randomise every x">
+                <i class="ico" style="--i: url(/icons/dice.svg)"></i>random
+              </button></span
+            >
+          </div>
+          <div class="xscroll"><div class="cols" id="X"></div></div>
+        </div>
+
+        <div class="card hide" id="oops">
+          <div class="eyebrow">Refused</div>
+          <div class="err" id="msg"></div>
+        </div>
+
+        <div class="card">
+          <div class="eyebrow hd">
+            <span><i class="ico" style="--i: url(/icons/runs.svg)"></i>Runs</span>
+            <span
+              ><span class="note" style="margin: 0" id="stat"></span>
+              <span class="note" style="margin: 0" id="hcount"></span>
+              <span class="bars" id="bars" title="show or hide a series in every run">
+                <label><input type="checkbox" value="full" checked />full</label>
+                <label><input type="checkbox" value="tiled" checked />tiled</label>
+                <label><input type="checkbox" value="cpu" checked />cpu</label>
+                <label><input type="checkbox" value="dpnn" checked />dpnn</label>
+              </span>
+              <button id="run" class="go mini" title="run normal and tiled on the same U and x">
+                <i class="ico" style="--i: url(/icons/play.svg)"></i>Run
+              </button>
+              <button id="clr" class="mini" title="forget every stored run">
+                <i class="ico" style="--i: url(/icons/trash.svg)"></i>clear
+              </button></span
+            >
+          </div>
+          <div id="hist"></div>
+        </div>
+      </div>
+
+      <div id="tab-cal" class="{{hide_cal}}">
+        <div class="card">
+          <div class="eyebrow hd">
+            <span><i class="ico" style="--i: url(/icons/switch.svg)"></i>Mesh</span>
+            <span class="note" style="margin: 0" id="cstamp"></span>
+          </div>
+          <div class="scroll" id="mesh"></div>
+          <div class="note tight err" id="cwarn"></div>
+        </div>
+
+        <div class="card">
+          <div class="eyebrow hd">
+            <span><i class="ico" style="--i: url(/icons/calib.svg)"></i>Predictors</span>
+            <button
+              class="go mini"
+              data-level="all"
+              title="heater sweep, PD sweep, DPNN, table sync; each only after the last succeeded"
+            >
+              <i class="ico" style="--i: url(/icons/play.svg)"></i>refresh all
+            </button>
+          </div>
+          <div class="dgrid" id="preds"></div>
+          <div id="recal"></div>
+          <pre class="joblog hide" id="joblog"></pre>
+        </div>
+
+        <div class="card">
+          <div class="eyebrow"><i class="ico" style="--i: url(/icons/heater.svg)"></i>Heaters</div>
+          <div class="scroll"><table id="htab"></table></div>
+          <div class="eyebrow" style="margin-top: 18px">
+            <i class="ico" style="--i: url(/icons/pds.svg)"></i>Photodiodes
+          </div>
+          <div class="scroll"><table id="ptab"></table></div>
+        </div>
+      </div>
+
+      <div id="tab-diag" class="{{hide_diag}}">
+        <div class="card">
+          <div class="eyebrow hd">
+            <span><i class="ico" style="--i: url(/icons/diag.svg)"></i>Checks</span
+            ><span class="grow"></span>
+            <button
+              id="dall"
+              class="go mini"
+              title="run every check except the rail test, which puts every heater at its clamp"
+            >
+              <i class="ico" style="--i: url(/icons/play.svg)"></i>run all
+            </button>
+          </div>
+          <div class="dgrid" id="dgrid"></div>
+          <div id="dnote"></div>
+        </div>
+        <div class="card">
+          <div class="eyebrow hd">
+            <span><i class="ico" style="--i: url(/icons/rail.svg)"></i>Power test</span
+            ><span class="grow"></span>
+            <button id="drail" class="mini" title="every heater at its clamp for 30 s">
+              <i class="ico" style="--i: url(/icons/play.svg)"></i>run
+            </button>
+          </div>
+
+          <div id="drailv"></div>
+        </div>
+      </div>
+    </div>
+    <div class="jobpill hide" id="job">
+      <span id="jobt"></span>
+      <button
+        class="mini"
+        id="jobstop"
+        title="stop the calibration job; the laser is then turned off"
+      >
+        stop
+      </button>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>

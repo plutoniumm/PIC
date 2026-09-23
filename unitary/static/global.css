@@ -1,0 +1,1095 @@
+/* One theme, dark. One implied light source, upper left: every lit edge, caustic and
+   shadow below agrees with it, which is the difference between glass and grey plastic.
+   Dispersion tokens are the COOL half of the ramp only, so a spectral edge can never be
+   mistaken for ok / weak / broken or for a chart series. */
+:root {
+  color-scheme: dark;
+  --bg: #050d0f;
+  --bg-2: #030809;
+  --glow-a: rgba(19, 160, 176, 0.2);
+  --glow-b: rgba(120, 110, 225, 0.13);
+  --pane: rgba(150, 200, 207, 0.055);
+  --pane-2: rgba(150, 200, 207, 0.028);
+  --well: rgba(0, 0, 0, 0.3);
+  --line: rgba(190, 228, 233, 0.11);
+  --lit: rgba(230, 250, 253, 0.34);
+  --unlit: rgba(190, 228, 233, 0.045);
+  --ink: #e9f4f5;
+  --ink-2: #a3b9bc;
+  --dim: #7d9296;
+  --accent: #2bc2d1;
+  --accent-fill: #12a2b3;
+  --on-accent: #04191c;
+  --s1: #19b3c4;
+  --s2: #9085e9;
+  --s3: #d36fc6;
+  --ref: var(--dim);
+  --ok: #35bd57;
+  --warn: #f0ab1b;
+  --bad: #ef6a6a;
+  --off: #7d8a89;
+  --ok-ink: #5cd179;
+  --warn-ink: #f5be51;
+  --bad-ink: #f79191;
+  --off-ink: #98a5a4;
+  --d1: rgba(125, 227, 255, 0.5);
+  --d2: rgba(118, 144, 255, 0.38);
+  --d3: rgba(176, 123, 255, 0.3);
+  --shadow: 0 20px 46px -20px rgba(0, 0, 0, 0.8), 0 4px 12px -5px rgba(0, 0, 0, 0.6);
+  --r: 16px;
+}
+/* laser lit: the whole page runs red so nobody works beside a live beam unaware */
+body.lasing {
+  --bg: #120506;
+  --bg-2: #0b0304;
+  --glow-a: rgba(220, 40, 40, 0.24);
+  --glow-b: rgba(230, 90, 60, 0.14);
+  --pane: rgba(230, 160, 160, 0.055);
+  --accent: #ef5a5a;
+  --accent-fill: #c23030;
+  --line: rgba(240, 190, 190, 0.12);
+}
+body {
+  transition: background-color 0.4s;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+}
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font:
+    18px/1.55 "IBM Plex Mono",
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  padding-block: 0 72px;
+  padding-left: 16px;
+  padding-right: 16px;
+}
+/* the source, upper left; a cool exit glow lower right where the light leaves the slab */
+body:before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(58% 44% at 4% -8%, var(--glow-a), transparent 68%),
+    radial-gradient(48% 40% at 30% -14%, rgba(230, 250, 253, 0.06), transparent 70%),
+    radial-gradient(62% 48% at 104% 112%, var(--glow-b), transparent 72%);
+}
+.wrap {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+h1,.eyebrow,.tabs a,
+/* The glass ring. A 1px gradient that follows the radius instead of a uniform stroke:
+   brightest where the source strikes it, dark across the shaded faces, and split into the
+   cool ramp at the far corner, which is where a real slab throws its edge colour. */
+.card,.run,.tabs,.seg,header {
+  position: relative;
+}
+.card:before,
+.run:before,
+header:after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    138deg,
+    var(--lit) 0%,
+    var(--line) 24%,
+    var(--unlit) 54%,
+    var(--d1) 80%,
+    var(--d2) 91%,
+    var(--d3) 100%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
+header {
+  z-index: 20;
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  margin: 0 -16px 20px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-top, 0px));
+  background: linear-gradient(180deg, rgba(150, 200, 207, 0.075), rgba(150, 200, 207, 0.035));
+  backdrop-filter: blur(26px) saturate(1.7);
+  -webkit-backdrop-filter: blur(26px) saturate(1.7);
+}
+header:after {
+  border-radius: 0;
+  padding: 0;
+  background: none;
+  border-bottom: 1px solid var(--line);
+  box-shadow:
+    inset 0 1px 0 var(--lit),
+    0 1px 0 rgba(125, 227, 255, 0.1);
+}
+/* diffraction at the one hard edge the header has: the light that gets past it splits */
+header:before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--d1) 16%,
+    var(--d2) 46%,
+    var(--d3) 74%,
+    transparent
+  );
+}
+.hrow {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+h1 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  margin: 0;
+  color: var(--ink);
+}
+h1 em {
+  font-style: normal;
+  color: var(--accent);
+}
+.grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 11px;
+  background: var(--well);
+  border: 1px solid var(--line);
+}
+.tabs a {
+  border: 0;
+  background: none;
+  color: var(--dim);
+  cursor: pointer;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.tabs a.on {
+  background: var(--pane);
+  color: var(--ink);
+  box-shadow:
+    inset 0 1px 0 var(--lit),
+    0 4px 12px -6px rgba(0, 0, 0, 0.8);
+}
+.i-green {
+  background: var(--ok);
+}
+.i-yellow {
+  background: var(--warn);
+}
+.i-red {
+  background: var(--bad);
+}
+.i-grey {
+  background: none;
+  border: 1.5px solid var(--off);
+}
+
+/* depth by blur, not by opacity: the header sits nearest the viewer at 26px, a panel at
+   14px, and a panel the viewer has opened gets less blur and more saturation, so the thing
+   in focus is the crisp one. */
+.card {
+  background: linear-gradient(
+    162deg,
+    rgba(150, 200, 207, 0.075),
+    rgba(150, 200, 207, 0.032) 58%,
+    rgba(150, 200, 207, 0.05)
+  );
+  border-radius: var(--r);
+  padding: 20px;
+  margin-bottom: 16px;
+  backdrop-filter: blur(14px) saturate(1.3);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  box-shadow: var(--shadow);
+}
+/* the caustic where the source lands, and the 1px chromatic split a real edge throws.
+   z-index -1 keeps both behind the text: glass may colour its own edges, never the data. */
+.card:after,
+.run:after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -1;
+  background: radial-gradient(120% 85% at 0% 0%, rgba(230, 250, 253, 0.075), transparent 48%);
+  box-shadow:
+    inset 1px 0 0 rgba(125, 227, 255, 0.07),
+    inset -1px 0 0 rgba(176, 123, 255, 0.08);
+}
+.eyebrow {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 12px;
+  text-shadow:
+    -0.5px 0 rgba(125, 227, 255, 0.2),
+    0.5px 0 rgba(176, 123, 255, 0.16);
+}
+.eyebrow.hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  flex-wrap: wrap;
+}
+.eyebrow.hd span {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.grid {
+  display: grid;
+  gap: 7px;
+}
+.u {
+  grid-template-columns: repeat(4, 1fr);
+}
+input[type="text"],
+input[type="number"] {
+  width: 100%;
+  height: 38px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--well);
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+input[type="text"]:focus,
+input[type="number"]:focus {
+  outline: 0;
+  border-color: var(--accent);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.45),
+    0 0 0 3px rgba(43, 194, 209, 0.22);
+}
+button {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 16px;
+  background: var(--pane-2);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 16px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 var(--unlit);
+}
+button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: inset 0 1px 0 var(--lit);
+}
+button:active {
+  transform: translateY(1px);
+}
+button[disabled] {
+  color: var(--dim);
+  cursor: default;
+  opacity: 0.55;
+  transform: none;
+}
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+button.go {
+  background: linear-gradient(180deg, #19b8c9, var(--accent-fill));
+  color: var(--on-accent);
+  border-color: transparent;
+  font-weight: 600;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    0 6px 18px -8px rgba(18, 162, 179, 0.9);
+}
+button.go:hover {
+  color: var(--on-accent);
+  filter: brightness(1.08);
+}
+.mini,
+.rl {
+  padding: 3px 8px;
+  font-size: 16px;
+  border-radius: 7px;
+  letter-spacing: 0.06em;
+}
+.seg {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--well);
+  border: 1px solid var(--line);
+}
+.seg label {
+  padding: 5px 12px;
+  border-radius: 7px;
+  font-size: 16px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  color: var(--dim);
+  font-family: "IBM Plex Sans Condensed", system-ui, sans-serif;
+  font-weight: 600;
+}
+.seg input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.seg input:checked + span {
+  color: var(--ink);
+}
+.seg label:has(input:checked) {
+  background: var(--pane);
+  box-shadow: inset 0 1px 0 var(--lit);
+}
+.seg label:has(input[value="hw"]:checked) {
+  background: var(--bad);
+  color: #2a0606;
+}
+.seg label:has(input[value="hw"]:checked) span {
+  color: #2a0606;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+th {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  text-align: right;
+  padding: 0 7px 7px;
+}
+th:first-child,
+td:first-child {
+  text-align: left;
+}
+td {
+  padding: 6px 7px;
+  text-align: right;
+  border-top: 1px solid var(--line);
+  white-space: nowrap;
+}
+tbody tr:hover td {
+  background: var(--pane-2);
+}
+.scroll {
+  overflow-x: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+.note {
+  color: var(--dim);
+  font-size: 16px;
+  margin-top: 12px;
+}
+.note.tight {
+  margin-top: 6px;
+}
+.err {
+  white-space: pre-wrap;
+  font-size: 16px;
+  color: var(--bad-ink);
+}
+.hide {
+  display: none;
+}
+
+.xscroll {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.cols {
+  display: flex;
+  gap: 8px;
+  min-width: min-content;
+}
+.col {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex: 1 1 84px;
+  min-width: 84px;
+  max-width: 130px;
+}
+.col.rails {
+  flex: 0 0 46px;
+  min-width: 46px;
+  max-width: 46px;
+}
+.rails .cell {
+  font-size: 16px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  height: 38px;
+  display: flex;
+  align-items: center;
+  font-family: "IBM Plex Sans Condensed", system-ui, sans-serif;
+  font-weight: 600;
+}
+.colhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  height: 20px;
+  font-size: 16px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.fig {
+  width: 100%;
+  height: auto;
+  display: block;
+  overflow: visible;
+}
+#mesh svg {
+  min-width: 600px;
+}
+.lg {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 16px;
+  color: var(--dim);
+  margin-top: 10px;
+  align-items: center;
+}
+.lg i {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  vertical-align: -1px;
+  margin-right: 6px;
+}
+.lg b {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.xg {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px 22px;
+}
+.xb {
+  min-width: 0;
+  overflow-x: auto;
+}
+.xb table {
+  font-size: 16px;
+}
+.xh {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-bottom: 5px;
+}
+.tag {
+  font-size: 16px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+  font-weight: 600;
+}
+.xh .q {
+  font-size: 16px;
+  color: var(--dim);
+}
+.xh .spacer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.flip {
+  font-size: 16px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--bad-ink);
+  padding: 1px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--bad);
+}
+
+/* One run, one slab. Discrete cards rather than rows of a list, and only the newest is
+   open -- an older run is a lens you have to pick up. */
+#hist {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.run {
+  border-radius: 13px;
+  background: var(--pane-2);
+  backdrop-filter: blur(8px) saturate(1.1);
+  -webkit-backdrop-filter: blur(8px) saturate(1.1);
+  box-shadow: 0 8px 22px -14px rgba(0, 0, 0, 0.8);
+}
+.run[open] {
+  background: linear-gradient(
+    160deg,
+    rgba(150, 200, 207, 0.085),
+    rgba(150, 200, 207, 0.035) 60%,
+    rgba(150, 200, 207, 0.055)
+  );
+  backdrop-filter: blur(4px) saturate(1.55);
+  -webkit-backdrop-filter: blur(4px) saturate(1.55);
+  box-shadow: var(--shadow);
+}
+.run:before {
+  opacity: 0.55;
+}
+.run[open]:before {
+  opacity: 1;
+}
+/* the focused slab disperses along its lit edge; the collapsed ones do not */
+.run[open] > summary:after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--d1) 14%,
+    var(--d2) 50%,
+    var(--d3) 78%,
+    transparent
+  );
+}
+.run > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 11px 14px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 16px;
+  position: relative;
+  border-radius: 13px;
+}
+.run > summary::-webkit-details-marker {
+  display: none;
+}
+.run > summary:before {
+  content: "+";
+  color: var(--accent);
+  width: 11px;
+  flex: 0 0 11px;
+}
+.run[open] > summary:before {
+  content: "\2212";
+}
+.run > summary:hover {
+  color: var(--accent);
+}
+.run > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+summary .when {
+  color: var(--dim);
+}
+summary .sp2 {
+  flex: 1 1 auto;
+}
+.state {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+}
+.state.bench {
+  color: #2a0606;
+  background: var(--bad);
+  border-color: transparent;
+}
+.hb {
+  padding: 2px 14px 16px;
+}
+.umini {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+  max-width: 330px;
+  font-size: 16px;
+}
+.umini div {
+  padding: 3px 6px;
+  text-align: right;
+  border-radius: 5px;
+  background: var(--well);
+  border: 1px solid var(--line);
+}
+.two {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px 22px;
+}
+/* eight vectors is wider than a phone: the grid scrolls in its own cell, the page does not */
+.two > div {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  vertical-align: 0;
+}
+.s-green {
+  background: var(--ok);
+}
+.s-yellow {
+  background: var(--warn);
+}
+.s-red {
+  background: var(--bad);
+}
+.s-grey {
+  background: none;
+  border: 1.5px solid var(--off);
+}
+td.st {
+  text-align: left;
+}
+.st .state {
+  border: 0;
+  padding: 0 0 0 6px;
+}
+.st .s-green + .state {
+  color: var(--ok-ink);
+}
+.st .s-yellow + .state {
+  color: var(--warn-ink);
+}
+.st .s-red + .state {
+  color: var(--bad-ink);
+}
+.st .s-grey + .state {
+  color: var(--off-ink);
+}
+tr.warnrow td:first-child:after {
+  content: "!";
+  color: var(--bad-ink);
+  font-weight: 600;
+  margin-left: 6px;
+}
+#recal {
+  white-space: pre-wrap;
+  font-size: 16px;
+  margin-top: 12px;
+  color: var(--bad-ink);
+}
+#cwarn {
+  white-space: pre-wrap;
+}
+
+/* Diagnostics: one card per check. The status shape carries the state as much as the
+   colour does, so a card still reads at a glance in grayscale. */
+.dgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+.dcard {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--well);
+}
+.dcard .dh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--ink);
+  font-weight: 600;
+}
+.dcard .dh svg {
+  width: 16px;
+  height: 16px;
+}
+.dhead {
+  font-size: 20px;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.dkv,
+.dtr {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 5px;
+  font-size: 16px;
+}
+.dkv {
+  justify-content: space-between;
+}
+.dkv > span:first-child,
+.dtr > span:first-child {
+  color: var(--dim);
+}
+.dtr > span {
+  flex: 1;
+  text-align: right;
+}
+.dtr > span:first-child {
+  flex: 1.3;
+  text-align: left;
+}
+.dkv i {
+  font-style: normal;
+  color: var(--dim);
+  margin: 0 5px;
+}
+.chip {
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--pane);
+}
+.dmsg {
+  margin-top: 5px;
+  font-size: 16px;
+}
+.v-pass {
+  color: var(--ok-ink);
+}
+.v-warn {
+  color: var(--warn-ink);
+}
+.v-fail {
+  color: var(--bad-ink);
+}
+.v-unknown,
+.v-manual {
+  color: var(--off-ink);
+}
+.dh {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 7px;
+}
+#dnote {
+  white-space: pre-wrap;
+  font-size: 16px;
+  margin-top: 12px;
+  color: var(--bad-ink);
+}
+
+@media (max-width: 620px) {
+  body {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .card {
+    padding: 16px;
+  }
+  h1 {
+    font-size: 16px;
+    letter-spacing: 0.16em;
+  }
+  .hrow {
+    gap: 8px;
+  }
+  .u input {
+    font-size: 16px;
+    padding: 8px 5px;
+  }
+  .col {
+    flex: 1 1 74px;
+    min-width: 74px;
+  }
+  .run > summary,
+  .hb {
+    padding-left: 11px;
+    padding-right: 11px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rail {
+    stroke-dasharray: 3 11;
+    animation: flow 3.4s linear infinite;
+  }
+  @keyframes flow {
+    to {
+      stroke-dashoffset: -28;
+    }
+  }
+}
+
+.tabs a {
+  text-decoration: none;
+  display: inline-block;
+}
+.ico {
+  display: inline-block;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-right: 8px;
+  vertical-align: -3px;
+  background: currentColor;
+  mask: var(--i) center/contain no-repeat;
+  -webkit-mask: var(--i) center/contain no-repeat;
+}
+#lzon.on {
+  color: var(--warn-ink);
+}
+#lzdbm {
+  width: 64px;
+}
+button:has(.ico) {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+button .ico {
+  margin: 0;
+}
+.lzs {
+  display: flex;
+  gap: 12px;
+  margin-right: 6px;
+  font-size: 16px;
+  color: var(--ink-2);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.calv {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+.hide-full .bar-full,
+.hide-tiled .bar-tiled,
+.hide-cpu .bar-cpu,
+.hide-dpnn .bar-dpnn {
+  display: none;
+}
+.bars {
+  display: flex;
+  gap: 10px;
+  font-size: 16px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.bars label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+/* reload buttons show on hover; always shown where there is no hover (touch) */
+@media (hover: hover) {
+  .dcard .dh .rl {
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .dcard:hover .rl,
+  .rl:focus-visible {
+    opacity: 1;
+  }
+}
+td.nm {
+  white-space: nowrap;
+}
+td.nm .dot {
+  margin-right: 8px;
+}
+td.nm .chip {
+  margin-left: 8px;
+  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+td.nm .chip .ico {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+}
+.dim {
+  color: var(--dim);
+}
+.jobpill {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 20;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-2);
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  color: var(--warn-ink);
+}
+.jobpill.hide {
+  display: none;
+}
+.joblog {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  max-height: 260px;
+  overflow: auto;
+  font-size: 16px;
+  white-space: pre-wrap;
+  border-radius: 9px;
+  background: var(--well);
+  color: var(--ink-2);
+}
+/* a job owns the ports it uses: these controls would only collide with it */
+.job .calv button,
+.job tr .rl,
+.jobhw.bench #run,
+.jobhw #dall,
+.jobhw #drail,
+.jobhw .dcard .rl,
+.jobhw #lzon,
+.jobhw #lzdbm {
+  pointer-events: none;
+  opacity: 0.4;
+}
+.sw {
+  display: inline-flex;
+  width: 26px;
+  justify-content: center;
+  margin-right: 6px;
+}
+td.nm .sw .dot {
+  margin: 0;
+}
+.sw .rl {
+  display: none;
+  padding: 1px 3px;
+}
+tr:hover .sw .dot {
+  display: none;
+}
+tr:hover .sw .rl {
+  display: inline-flex;
+}
+@media (hover: none) {
+  .sw {
+    width: auto;
+    gap: 6px;
+  }
+  .sw .rl {
+    display: inline-flex;
+  }
+}
+tr.q-queued td {
+  opacity: 0.4;
+}
+tr.q-running .sw .dot,
+tr.q-done .sw .dot {
+  display: none;
+}
+tr.q-running .sw::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--warn);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+tr.q-done .sw::before {
+  content: "✓";
+  color: var(--ok-ink);
+}
+tr.q-running td,
+tr.q-done td {
+  opacity: 1;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.job [data-level="all"] {
+  pointer-events: none;
+  opacity: 0.4;
+}

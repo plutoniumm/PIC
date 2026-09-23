@@ -1,0 +1,4 @@
+.venv/
+__pycache__/
+laser/*.exe
+pic_data/logs/
