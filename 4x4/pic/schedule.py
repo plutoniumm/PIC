@@ -23,7 +23,7 @@ import numpy as np
 from .config import VOLTAGE_MAX_CH
 from theory.layout import HEATERS, N_HEATERS
 
-MIN_READ_SNR = 4.0     # a detector is usable for a heater only above this
+MIN_READ_SNR = 4.0  # a detector is usable for a heater only above this
 FOOTPRINT_FRAC = 0.25  # PDs a heater moves by >this fraction of its best are "occupied"
 
 
@@ -38,11 +38,10 @@ def read_sets(fingerprint, noise, min_snr: float = MIN_READ_SNR):
     if fp.size == 0 or not np.isfinite(fp).any():
         return [], set()
     snr = fp / np.maximum(np.asarray(noise, float)[None, :], 1e-9)
-    best = np.nanmax(snr, axis=0)                     # over ports, per detector
+    best = np.nanmax(snr, axis=0)  # over ports, per detector
     usable = [int(p) for p in np.argsort(-best) if best[p] >= min_snr]
     peak = np.nanmax(fp)
-    footprint = {int(p) for p in range(fp.shape[1])
-                 if np.nanmax(fp[:, p]) >= FOOTPRINT_FRAC * peak}
+    footprint = {int(p) for p in range(fp.shape[1]) if np.nanmax(fp[:, p]) >= FOOTPRINT_FRAC * peak}
     return usable, footprint
 
 
@@ -59,8 +58,9 @@ def schedule(channels, fingerprints, noise, n_pd: int = 4):
         info[int(c)] = (u, f)
 
     solo = [c for c in channels if not info[int(c)][0]]
-    todo = sorted((c for c in channels if info[int(c)][0]),
-                  key=lambda c: (len(info[int(c)][0]), -int(c)))
+    todo = sorted(
+        (c for c in channels if info[int(c)][0]), key=lambda c: (len(info[int(c)][0]), -int(c))
+    )
 
     rounds = []
     for c in todo:
@@ -72,8 +72,12 @@ def schedule(channels, fingerprints, noise, n_pd: int = 4):
             if not free:
                 continue
             # nobody in the round may sit on a detector this heater disturbs, or vice versa
-            clash = any(rnd[o] in foot or o_pd in foot or info[o][1] & {free[0]}
-                        for o, o_pd in rnd.items() for rnd_pd in [o_pd] for o_pd in [rnd_pd])
+            clash = any(
+                rnd[o] in foot or o_pd in foot or info[o][1] & {free[0]}
+                for o, o_pd in rnd.items()
+                for rnd_pd in [o_pd]
+                for o_pd in [rnd_pd]
+            )
             if clash:
                 continue
             rnd[c] = free[0]
@@ -87,6 +91,8 @@ def schedule(channels, fingerprints, noise, n_pd: int = 4):
 def summary(rounds, solo, n_channels):
     n_par = sum(len(r) for r in rounds)
     cost = len(rounds) + len(solo)
-    return (f"{n_channels} channels -> {len(rounds)} parallel round(s) covering {n_par}, "
-            f"{len(solo)} solo; {cost} sweeps instead of {n_channels} "
-            f"({n_channels / max(cost, 1):.1f}x)")
+    return (
+        f"{n_channels} channels -> {len(rounds)} parallel round(s) covering {n_par}, "
+        f"{len(solo)} solo; {cost} sweeps instead of {n_channels} "
+        f"({n_channels / max(cost, 1):.1f}x)"
+    )

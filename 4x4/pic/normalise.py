@@ -53,18 +53,18 @@ from .layout import N_HEATERS, REACHABLE_DACS
 # The readout cannot resolve below one averaged ADC step, so a "perfect" null reads as this
 # and no better. Contrast measured against a null that landed on it would otherwise come
 # back as 100+ dB, which is a division artefact, not dynamic range.
-READ_FLOOR_V = ADC_REF_V / (2 ** ADC_BITS - 1) / ADC_AVG_N
+READ_FLOOR_V = ADC_REF_V / (2**ADC_BITS - 1) / ADC_AVG_N
 
 
 @dataclass
 class Normalisation:
-    dark: np.ndarray        # (4,) volts with the light blocked -- the electronic floor
-    full: np.ndarray        # (4,) volts at the brightest configuration found
-    port_full: np.ndarray   # (4,) total light reaching the PDs, per input port
-    best_volts: dict        # pd -> (heater vector, input port) that produced `full`
+    dark: np.ndarray  # (4,) volts with the light blocked -- the electronic floor
+    full: np.ndarray  # (4,) volts at the brightest configuration found
+    port_full: np.ndarray  # (4,) total light reaching the PDs, per input port
+    best_volts: dict  # pd -> (heater vector, input port) that produced `full`
     extinction: np.ndarray  # (4,) dimmest lit reading; the mesh's own floor, for reference
-    reads: int = 0          # how much hardware time this cost
-    ports: tuple = ()       # which input ports were actually surveyed
+    reads: int = 0  # how much hardware time this cost
+    ports: tuple = ()  # which input ports were actually surveyed
 
     @property
     def pd_offset(self) -> np.ndarray:
@@ -134,14 +134,21 @@ class Normalisation:
         return out / self.input_scale[None, :] if inputs else out
 
     def summary(self) -> str:
-        rows = [f"  PD{j}  dark {self.dark[j]*1e3:7.2f} mV   full {self.full[j]*1e3:7.2f} mV"
-                f"   contrast {self.contrast_db[j]:5.1f} dB"
-                f"{'   DEAD' if self.dead[j] else ''}" for j in range(len(self.dark))]
-        ports = "  ".join(f"port {k}: {v*1e3:.1f} mV" if k in self.ports
-                          else f"port {k}: not surveyed"
-                          for k, v in enumerate(self.port_full))
-        return ("\n".join(rows) + f"\n  input coupling at full scale -- {ports}"
-                + f"\n  {self.reads} reads")
+        rows = [
+            f"  PD{j}  dark {self.dark[j]*1e3:7.2f} mV   full {self.full[j]*1e3:7.2f} mV"
+            f"   contrast {self.contrast_db[j]:5.1f} dB"
+            f"{'   DEAD' if self.dead[j] else ''}"
+            for j in range(len(self.dark))
+        ]
+        ports = "  ".join(
+            f"port {k}: {v*1e3:.1f} mV" if k in self.ports else f"port {k}: not surveyed"
+            for k, v in enumerate(self.port_full)
+        )
+        return (
+            "\n".join(rows)
+            + f"\n  input coupling at full scale -- {ports}"
+            + f"\n  {self.reads} reads"
+        )
 
 
 SWEEP_CYCLES = 1
@@ -180,7 +187,7 @@ def sweep(rig, volts, repeats: int = 1, cycles: int | None = None) -> np.ndarray
     batch = getattr(rig, "sweep_ports", None)
     if batch is not None:
         c = min(n, max(1, int(SWEEP_CYCLES if cycles is None else cycles)))
-        got = batch(c, -(-n // c))     # ceil: never fewer frames than the caller asked for
+        got = batch(c, -(-n // c))  # ceil: never fewer frames than the caller asked for
         if got is not None:
             return got
     acc = np.zeros((NMODE, NMODE))
@@ -204,9 +211,18 @@ def row_gain(raws, calib, dark=None, iters: int = 800) -> np.ndarray:
     rows changes the column sums, so each has to be reapplied until they stop moving.
     Normalised to unit geometric mean, since the overall scale is already fixed by the
     columns."""
-    Ps = [np.clip((np.asarray(r, float) - (calib.pd_offset if dark is None
-                                           else np.asarray(dark, float))[:, None])
-                  / calib.pd_gain[:, None], 0.0, None) for r in raws]
+    Ps = [
+        np.clip(
+            (
+                np.asarray(r, float)
+                - (calib.pd_offset if dark is None else np.asarray(dark, float))[:, None]
+            )
+            / calib.pd_gain[:, None],
+            0.0,
+            None,
+        )
+        for r in raws
+    ]
 
     def cn(P):
         s = P.sum(0, keepdims=True)
@@ -219,8 +235,7 @@ def row_gain(raws, calib, dark=None, iters: int = 800) -> np.ndarray:
     return g
 
 
-def audit(raws, calib, dark=None, sinkhorn_iters: int = 2000,
-          splits: int = 20) -> dict:
+def audit(raws, calib, dark=None, sinkhorn_iters: int = 2000, splits: int = 20) -> dict:
     """Score a set of raw four-port sweeps against the one law a unitary cannot break.
 
     Three readouts of the same volts, so the comparison is arithmetic rather than another
@@ -247,8 +262,9 @@ def audit(raws, calib, dark=None, sinkhorn_iters: int = 2000,
     from theory.intensity_matvec import sinkhorn
 
     raws = [np.asarray(r, float) for r in raws]
-    scale = np.asarray(calib.meta.get("normalisation", {}).get("input_scale",
-                                                               np.ones(NMODE)), float)
+    scale = np.asarray(
+        calib.meta.get("normalisation", {}).get("input_scale", np.ones(NMODE)), float
+    )
     stored, column, gains = [], [], []
     for raw in raws:
         stored.append(ds_error(calib.to_intensity(raw.T).T / np.maximum(scale, 1e-9)[None, :]))
@@ -262,7 +278,7 @@ def audit(raws, calib, dark=None, sinkhorn_iters: int = 2000,
     base, held, fitted = [], [], []
     for _ in range(splits):
         p = rng.permutation(len(raws))
-        tr, te = p[:len(p) // 2], p[len(p) // 2:]
+        tr, te = p[: len(p) // 2], p[len(p) // 2 :]
         gg = row_gain([raws[i] for i in tr], calib, dark=dark)
         fitted.append(gg)
         # a row gain IS a photodiode gain, so it is applied by being one: folding it into
@@ -271,12 +287,16 @@ def audit(raws, calib, dark=None, sinkhorn_iters: int = 2000,
         base.append(np.mean([column[i] for i in te]))
         held.append(np.mean([ds_error(c2.to_transfer(raws[i], dark=dark)) for i in te]))
     fitted = np.array(fitted)
-    return {"stored": np.array(stored), "column": np.array(column), "sinkhorn_gain": g,
-            "gain_spread": g.max(0) / np.clip(g.min(0), 1e-30, None),
-            "held_out": (float(np.mean(base)), float(np.mean(held))),
-            "row_gain": row_gain(raws, calib, dark=dark),
-            "row_gain_spread": fitted.max(0) / np.clip(fitted.min(0), 1e-30, None),
-            "n": len(raws)}
+    return {
+        "stored": np.array(stored),
+        "column": np.array(column),
+        "sinkhorn_gain": g,
+        "gain_spread": g.max(0) / np.clip(g.min(0), 1e-30, None),
+        "held_out": (float(np.mean(base)), float(np.mean(held))),
+        "row_gain": row_gain(raws, calib, dark=dark),
+        "row_gain_spread": fitted.max(0) / np.clip(fitted.min(0), 1e-30, None),
+        "n": len(raws),
+    }
 
 
 def load_session(path) -> dict:
@@ -289,11 +309,14 @@ def load_session(path) -> dict:
     d = json.loads(Path(path).read_text())
     # stored port-major (raw[k][j]) because that is the order the switch visits; the rest of
     # the stack indexes T[pd, port], so transpose once here rather than everywhere else.
-    return {"raws": [np.asarray(s["raw"], float).T for s in d["states"]],
-            "volts": [np.asarray(s["volts"], float) for s in d["states"]],
-            "dark": np.asarray(d["dark_switch_off"], float),
-            "dark_laser_off": np.asarray(d["dark_laser_off"], float),
-            "dbm": d.get("dbm"), "repeats": d.get("repeats")}
+    return {
+        "raws": [np.asarray(s["raw"], float).T for s in d["states"]],
+        "volts": [np.asarray(s["volts"], float) for s in d["states"]],
+        "dark": np.asarray(d["dark_switch_off"], float),
+        "dark_laser_off": np.asarray(d["dark_laser_off"], float),
+        "dbm": d.get("dbm"),
+        "repeats": d.get("repeats"),
+    }
 
 
 class _Tracker:
@@ -335,7 +358,7 @@ def _ascend(rig, port, pd, levels, passes, track, v0=None, vmax=None):
     for _ in range(passes):
         for ch in REACHABLE_DACS:
             keep, hold = best, v[ch]
-            for frac in levels:                   # fraction of THIS channel's own ceiling
+            for frac in levels:  # fraction of THIS channel's own ceiling
                 lvl = float(frac) * vmax[ch]
                 v[ch] = lvl
                 got = track.see(rig.outputs(v), v, port)[pd]
@@ -345,8 +368,9 @@ def _ascend(rig, port, pd, levels, passes, track, v0=None, vmax=None):
     return v
 
 
-def measure(rig, *, ports=None, levels: int = 9, passes: int = 2,
-            repeats: int = 3) -> Normalisation:
+def measure(
+    rig, *, ports=None, levels: int = 9, passes: int = 2, repeats: int = 3
+) -> Normalisation:
     """Find the blocked and transparent references for every output photodiode.
 
     One ascent per photodiode, each run at the input port that photodiode responds to best,
@@ -359,7 +383,7 @@ def measure(rig, *, ports=None, levels: int = 9, passes: int = 2,
     # explored a range it never reached and picks `full` off a configuration that is not the
     # brightest available. Same defect as the one `fit_fringe` carried.
     vmax = np.asarray(VOLTAGE_MAX_CH, float)
-    grid = np.linspace(0.0, 1.0, levels)          # fraction of each channel's own ceiling
+    grid = np.linspace(0.0, 1.0, levels)  # fraction of each channel's own ceiling
 
     rig.switch.dark()
     dark = np.mean([rig.outputs(np.zeros(N_HEATERS)) for _ in range(repeats)], axis=0)
@@ -368,7 +392,7 @@ def measure(rig, *, ports=None, levels: int = 9, passes: int = 2,
     mid = np.zeros(N_HEATERS)
     mid[REACHABLE_DACS] = 0.5 * vmax[REACHABLE_DACS]
     survey, port_full = {}, np.zeros(NMODE)
-    for k in ports:                              # which port drives which PD hardest
+    for k in ports:  # which port drives which PD hardest
         rig.select_input(k)
         y0 = track.see(rig.outputs(np.zeros(N_HEATERS)), np.zeros(N_HEATERS), k)
         y1 = track.see(rig.outputs(mid), mid, k)
@@ -380,15 +404,20 @@ def measure(rig, *, ports=None, levels: int = 9, passes: int = 2,
         rig.select_input(best_port)
         _ascend(rig, best_port, j, grid, passes, track)
 
-    for k in ports:                              # input coupling at a bright setting
+    for k in ports:  # input coupling at a bright setting
         rig.select_input(k)
         v = track.arg.get(int(np.argmax(track.hi)), (mid, k))[0]
         port_full[k] = max(port_full[k], float(track.see(rig.outputs(v), v, k).sum()))
 
-    return Normalisation(dark=np.asarray(dark, float), full=track.hi.copy(),
-                         port_full=port_full, best_volts=track.arg,
-                         extinction=track.lo.copy(), reads=track.reads,
-                         ports=tuple(ports))
+    return Normalisation(
+        dark=np.asarray(dark, float),
+        full=track.hi.copy(),
+        port_full=port_full,
+        best_volts=track.arg,
+        extinction=track.lo.copy(),
+        reads=track.reads,
+        ports=tuple(ports),
+    )
 
 
 def apply_to(calib, norm: Normalisation):
@@ -397,7 +426,8 @@ def apply_to(calib, norm: Normalisation):
     calib.pd_gain = norm.pd_gain
     calib.meta = dict(calib.meta or {})
     calib.meta["normalisation"] = {
-        "dark_v": norm.dark.tolist(), "full_v": norm.full.tolist(),
+        "dark_v": norm.dark.tolist(),
+        "full_v": norm.full.tolist(),
         "port_full_v": norm.port_full.tolist(),
         "contrast_db": np.round(norm.contrast_db, 2).tolist(),
         "input_scale": np.round(norm.input_scale, 4).tolist(),
@@ -421,7 +451,7 @@ def _selftest(seed: int = 0):
 
         rng = np.random.default_rng(seed)
         raws = []
-        for _ in range(8):                      # one probe is too noisy to judge on
+        for _ in range(8):  # one probe is too noisy to judge on
             cols = []
             for k in range(NMODE):
                 rig.select_input(k)
@@ -434,7 +464,7 @@ def _selftest(seed: int = 0):
         peak = []
         for j in range(NMODE):
             v, port = norm.best_volts[j]
-            rig.select_input(port)            # the port is part of the measurement
+            rig.select_input(port)  # the port is part of the measurement
             got = max(float(calib.to_intensity(rig.outputs(v))[j]) for _ in range(3))
             peak.append(got)
 
@@ -456,11 +486,18 @@ def _selftest(seed: int = 0):
     # statistically, and the batched sweep can spend its frames inside one port visit.
     # Injected at 5 percent per port, ten times what `pic.sim` draws for a re-selection.
     srng = np.random.default_rng(0)
-    swing = max(float(np.abs(calib.to_transfer(T)
-                             - calib.to_transfer((T - calib.pd_offset[:, None])
-                                                 * np.exp(srng.normal(0, 0.05, NMODE))[None, :]
-                                                 + calib.pd_offset[:, None])).max())
-                for T in raws)
+    swing = max(
+        float(
+            np.abs(
+                calib.to_transfer(T)
+                - calib.to_transfer(
+                    (T - calib.pd_offset[:, None]) * np.exp(srng.normal(0, 0.05, NMODE))[None, :]
+                    + calib.pd_offset[:, None]
+                )
+            ).max()
+        )
+        for T in raws
+    )
 
     assert swing < 1e-12, swing
     assert np.all(norm.full > norm.dark), (norm.full, norm.dark)
@@ -481,15 +518,14 @@ def _selftest(seed: int = 0):
     # `out_row < raw_row` held only while the detectors were the larger term; it was a
     # coincidence of the numbers, not a property of the code, so it is not asserted.
     assert out_row == out_row and raw_row == raw_row  # both finite, no silent NaN
-    assert norm.input_scale.min() < 0.5, norm.input_scale     # the bad launch must show
+    assert norm.input_scale.min() < 0.5, norm.input_scale  # the bad launch must show
     assert np.all(norm.contrast_db < 60), norm.contrast_db
 
     # a subset-of-ports run must not leave a zero scale behind: dividing by it sends that
     # column to infinity, and a partial survey is a normal thing to run
     with Rig(laser="mock", board="sim", tec="mock", switch="mock") as rig2:
         part = measure(rig2, ports=[0, 1], levels=5, passes=1, repeats=1)
-    assert np.all(part.input_scale > 0) and np.all(np.isfinite(part.input_scale)), \
-        part.input_scale
+    assert np.all(part.input_scale > 0) and np.all(np.isfinite(part.input_scale)), part.input_scale
     assert np.all(np.isfinite(part.normalise(raws[0]))), part.input_scale
 
     # the real sweep primitive, at a state the mesh is actually holding. The exact-unitary
@@ -508,18 +544,28 @@ def _selftest(seed: int = 0):
         # error -- a transposed reply, a port off by one -- cannot hide inside it.
         assert rig3.batched
         batched = sweep(rig3, v, repeats=12)
-        rig3.board._caps = {}                     # force the fallback path on the same rig
+        rig3.board._caps = {}  # force the fallback path on the same rig
         looped = sweep(rig3, v, repeats=12)
         rig3.board._caps = None
-        batch_gap = float(np.abs(calib.to_transfer(batched)
-                                 - calib.to_transfer(looped)).max())
+        batch_gap = float(np.abs(calib.to_transfer(batched) - calib.to_transfer(looped)).max())
     assert sim_col < 0.6, sim_col
     assert batch_gap < 0.02, batch_gap
 
-    return dict(norm=norm, raw_row=raw_row, raw_col=raw_col, out_row=out_row,
-                switch_swing=swing, batch_gap=batch_gap,
-                both_col=both_col, peak=peak, reads=norm.reads, sim_col=sim_col,
-                lo=float(unit.min()), hi=float(unit.max()), bench=_selftest_bench())
+    return dict(
+        norm=norm,
+        raw_row=raw_row,
+        raw_col=raw_col,
+        out_row=out_row,
+        switch_swing=swing,
+        batch_gap=batch_gap,
+        both_col=both_col,
+        peak=peak,
+        reads=norm.reads,
+        sim_col=sim_col,
+        lo=float(unit.min()),
+        hi=float(unit.max()),
+        bench=_selftest_bench(),
+    )
 
 
 BENCH_SESSION = Path("pic_data/sessions/2026-08-27/raw_transfers.json")
@@ -547,8 +593,7 @@ def _selftest_bench(path=BENCH_SESSION, calib=None) -> dict | None:
 
     # the two dark references agreeing is what rules out a thermal pedestal; if they ever
     # part, the switch-off floor is no longer measuring only electronics
-    assert np.abs(s["dark"] - s["dark_laser_off"]).max() < 3e-3, (s["dark"],
-                                                                 s["dark_laser_off"])
+    assert np.abs(s["dark"] - s["dark_laser_off"]).max() < 3e-3, (s["dark"], s["dark_laser_off"])
     assert np.median(a["stored"]) > 2.0, np.median(a["stored"])
     assert np.median(a["column"]) < 0.45, np.median(a["column"])
     assert a["column"].max() < 0.80, a["column"].max()
@@ -562,9 +607,16 @@ def _selftest_bench(path=BENCH_SESSION, calib=None) -> dict | None:
     # mapping and not to `pd_gain`.
     assert a["held_out"][1] < a["held_out"][0], a["held_out"]
     assert a["row_gain"].max() / a["row_gain"].min() > 2.0, a["row_gain"]
-    return {"stored": a["stored"], "column": a["column"], "gain_spread": a["gain_spread"],
-            "held_out": a["held_out"], "row_gain": a["row_gain"],
-            "row_gain_spread": a["row_gain_spread"], "n": a["n"], "path": str(path)}
+    return {
+        "stored": a["stored"],
+        "column": a["column"],
+        "gain_spread": a["gain_spread"],
+        "held_out": a["held_out"],
+        "row_gain": a["row_gain"],
+        "row_gain_spread": a["row_gain_spread"],
+        "n": a["n"],
+        "path": str(path),
+    }
 
 
 if __name__ == "__main__":
@@ -572,16 +624,22 @@ if __name__ == "__main__":
     print(r["norm"].summary())
     print(f"\nnormalised outputs span {r['lo']:.3f} .. {r['hi']:.3f}")
     print(f"each PD's own peak normalises to {np.round(r['peak'], 3)}")
-    print(f"mean imbalance over 8 random probes: rows {r['raw_row']:.3f} -> {r['out_row']:.3f} "
-          f"(PD full scale), cols {r['raw_col']:.3f} -> {r['both_col']:.3f} (input coupling)")
+    print(
+        f"mean imbalance over 8 random probes: rows {r['raw_row']:.3f} -> {r['out_row']:.3f} "
+        f"(PD full scale), cols {r['raw_col']:.3f} -> {r['both_col']:.3f} (input coupling)"
+    )
     print(f"one held state through sweep + to_transfer: ds error {r['sim_col']:.3f}")
-    print(f"the batched firmware sweep and the host loop agree to {r['batch_gap']:.4f} per "
-          f"entry at 12 repeats, which is read noise: it is one round trip instead of 48, "
-          f"not a different measurement")
-    print(f"a 5 percent per-port switch-repeat scatter moves a column-normalised entry by "
-          f"{r['switch_swing']:.1e} -- it is a column scalar and the column sum divides it "
-          f"out exactly, which is why the batched sweep spends its frames inside one port "
-          f"visit instead of re-cycling the mirror")
+    print(
+        f"the batched firmware sweep and the host loop agree to {r['batch_gap']:.4f} per "
+        f"entry at 12 repeats, which is read noise: it is one round trip instead of 48, "
+        f"not a different measurement"
+    )
+    print(
+        f"a 5 percent per-port switch-repeat scatter moves a column-normalised entry by "
+        f"{r['switch_swing']:.1e} -- it is a column scalar and the column sum divides it "
+        f"out exactly, which is why the batched sweep spends its frames inside one port "
+        f"visit instead of re-cycling the mirror"
+    )
 
     b = r["bench"]
     if b is None:
@@ -592,10 +650,14 @@ if __name__ == "__main__":
         for i, (s, c) in enumerate(zip(b["stored"], b["column"])):
             print(f"  {i:>5}{s:>10.3f}{c:>10.3f}")
         print(f"  {'median':>5}{np.median(b['stored']):>10.3f}{np.median(b['column']):>10.3f}")
-        print(f"  Sinkhorn would close the rest by moving each PD's gain "
-              f"{b['gain_spread'].min():.1f}-{b['gain_spread'].max():.0f}x between states; "
-              f"the board's own spread is 3 percent, so it is refused")
-        print(f"  one shared per-PD gain {np.round(b['row_gain'], 2)} scores "
-              f"{b['held_out'][0]:.3f} -> {b['held_out'][1]:.3f} on held-out states; a "
-              f"{b['row_gain'].max()/b['row_gain'].min():.1f}x detector spread for 0.04, "
-              f"so the residual is the chip, not the readout")
+        print(
+            f"  Sinkhorn would close the rest by moving each PD's gain "
+            f"{b['gain_spread'].min():.1f}-{b['gain_spread'].max():.0f}x between states; "
+            f"the board's own spread is 3 percent, so it is refused"
+        )
+        print(
+            f"  one shared per-PD gain {np.round(b['row_gain'], 2)} scores "
+            f"{b['held_out'][0]:.3f} -> {b['held_out'][1]:.3f} on held-out states; a "
+            f"{b['row_gain'].max()/b['row_gain'].min():.1f}x detector spread for 0.04, "
+            f"so the residual is the chip, not the readout"
+        )

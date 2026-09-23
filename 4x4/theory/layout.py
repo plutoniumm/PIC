@@ -106,18 +106,37 @@ import numpy as np
 
 from .clements import COLUMN, MESH, NMODE, NMZI, T
 
-# 16, not 18: the packaged part exposes 18 heater pads but the DAC81416 has 16 channels,
-# so H16 and H17 have no driver at all. Index here is the DAC channel, which is what the
-# firmware addresses and what every measurement is keyed by.
+# Length of the DAC vector, which is what the firmware addresses and what every measurement
+# is keyed by -- so the index here is a CHANNEL, not a heater. The two have not been the same
+# thing since the 2026-09-22 rewire: sixteen channels now drive thirteen heaters, because
+# three heaters take a bonded pair. `N_PHYSICAL_HEATERS` below is the honest heater count.
+# The name is kept because every consumer sizes its vectors on it.
 N_HEATERS = 16
-# DAC channel -> the heater it drives, decoded from the wiring notebook
-# (Arduino/pin_check/pin_check.ino). Three of these were never resistance-checked and are
-# held dark; see pic.config.VOLTAGE_MAX_CH.
-DAC_HEATER = ("H15", "H12", "H11", "H8", "H4", "H3", "H18", "H9",
-              "H14", "H13", "H10", "H6", "H7", "H5", "H2", "H1")
-REF_RAIL = 1         # output rail with no driver, used as the phase reference (gauge choice)
+# DAC channel -> the heater it drives. Rewired 2026-09-22; see the module docstring and
+# `mrunal/board_firmware_v2.md`. Sixteen channels, thirteen heaters: three heaters take a
+# bonded pair, so three names appear twice.
+DAC_HEATER = (
+    "H1",
+    "H2",
+    "H10",
+    "H10",
+    "H9",
+    "H9",
+    "H4",
+    "H4",
+    "H15",
+    "H13",
+    "H12",
+    "H11",
+    "H7",
+    "H8",
+    "H5",
+    "H3",
+)
+N_PHYSICAL_HEATERS = len(set(DAC_HEATER))  # 13: distinct heaters behind the 16 channels
+REF_RAIL = 1  # output rail with no driver, used as the phase reference (gauge choice)
 UNREACHABLE_RAIL = 3  # output rail with no driver, NOT the reference: phase unmeasured
-AUX_GAP_COLUMN = 1   # column whose MZI leaves two rails free; both spare heaters sit there
+AUX_GAP_COLUMN = 1  # column whose MZI leaves two rails free; both spare heaters sit there
 
 
 @dataclass(frozen=True)
@@ -164,41 +183,61 @@ class Heater:
 #     IN4->OUT4: MZI2->MZI3->MZI5        IN4->OUT3: MZI2->MZI3->MZI5->MZI6
 # place report MZI k at mesh index k-1, which is the only assignment consistent with all
 # four (MZI6 cannot sit in column 0). Net result: DAC k drives theta of mesh index 5-k.
-THETA_DAC = {5 - k: k for k in range(NMZI)}     # mesh index -> DAC channel
+THETA_DAC = {0: 15, 1: 6, 2: 13, 3: 11, 4: 10, 5: 8}
 
 # CONFIRMED from ananya/4X4MZI_REPORT.pdf p.2 Figure 2 (see module docstring): mesh index
-# -> DAC channel driving that MZI's external (upper-arm) phase. MZI 5 (index 4, DAC 10) was
-# already correct in the old placeholder; the rest move.
-PHI_DAC = {0: 15, 1: 14, 2: 13, 3: 12, 4: 10, 5: 9}
+# -> DAC channel driving that MZI's external (upper-arm) phase.
+PHI_DAC = {0: 0, 1: 1, 2: 14, 3: 12, 4: 2, 5: 9}
 
-# CONFIRMED: the two output-screen pads with a driver, by rail. Rails 1 (REF_RAIL) and 3
-# (UNREACHABLE_RAIL) have no driver; see the module docstring for what that costs.
-ALPHA_DAC = {0: 8, 2: 6}
+# EMPTY since the rewire. Both output-screen pads that had a driver -- H14 on rail 0 and H18
+# on rail 2 -- lost it when their channels were bonded onto H4 and H9. Nothing is lost: a
+# diagonal phase screen at the output cannot change |Ux|^2, so under intensity readout these
+# were never observable and never usable. `pack` now drops the whole `alpha` argument, and
+# the mesh's twelve intensity-visible phases all still have a driver.
+ALPHA_DAC = {}
 
-# SETTLED (see module docstring): the two channels left over once theta, phi and the two
-# driven out_phase channels are assigned are not unidentified, they are exactly redundant.
-# DAC channel -> (the rail it sits on in column 1's gap, {DAC channel of a modelled phase:
-# how much of it a phase psi here is worth}). Written against PHI_DAC/ALPHA_DAC rather than
-# as bare channel numbers so it follows the map if the map ever moves.
+# Channels physically shorted onto a heater another channel already names. They carry no
+# phase of their own: the heater sees one voltage, so the pair is one degree of freedom, and
+# `pack` mirrors the primary onto the partner. Not to be confused with REDUNDANT, which is
+# about optical degeneracy rather than about copper.
+MIRROR_OF = {3: 2, 5: 4, 7: 6}
+MIRROR_DACS = tuple(sorted(MIRROR_OF))
+
+# SETTLED (see module docstring): H9 is not unidentified, it is exactly redundant. DAC
+# channel -> (the rail it sits on in column 1's gap, {DAC channel of a modelled phase: how
+# much of it a phase psi here is worth}). Written against PHI_DAC rather than as bare channel
+# numbers so it follows the map if the map moves again. The ALPHA term the old entry carried
+# is gone with the output drivers, which costs nothing -- it was invisible in intensity.
+# Third element is the output-screen part, keyed by RAIL and not by DAC channel, because
+# since the rewire no screen rail has a driver and a channel number would be a lie. The
+# identity is still exactly true of the chip; what changed is that one of the three phases
+# that compensate H9 can no longer be commanded. That costs nothing under intensity readout,
+# where a screen phase is invisible anyway -- so H9 remains redundant in everything this
+# bench can measure, and is redundant only up to an output diagonal in amplitude.
 REDUNDANT = {
-    11: (0, {PHI_DAC[3]: +1.0}),
-    7: (3, {PHI_DAC[4]: -1.0, PHI_DAC[5]: -1.0, ALPHA_DAC[0]: -1.0}),
+    4: (3, {PHI_DAC[4]: -1.0, PHI_DAC[5]: -1.0}, {0: -1.0}),
 }
 AUX_DACS = tuple(sorted(REDUNDANT))
-AUX_RAIL = {d: r for d, (r, _) in REDUNDANT.items()}
+AUX_RAIL = {d: r for d, (r, _, _) in REDUNDANT.items()}
 
-HEATERS = tuple(sorted(
-    [Heater(THETA_DAC[k], "theta", k) for k in range(NMZI)]
-    + [Heater(PHI_DAC[k], "phi", k) for k in range(NMZI)]
-    + [Heater(ALPHA_DAC[r], "out_phase", r) for r in ALPHA_DAC]
-    + [Heater(d, "aux", -1) for d in AUX_DACS],
-    key=lambda h: h.h,
-))
+HEATERS = tuple(
+    sorted(
+        [Heater(THETA_DAC[k], "theta", k) for k in range(NMZI)]
+        + [Heater(PHI_DAC[k], "phi", k) for k in range(NMZI)]
+        + [Heater(ALPHA_DAC[r], "out_phase", r) for r in ALPHA_DAC]
+        + [Heater(d, "aux", -1) for d in AUX_DACS]
+        + [Heater(d, "mirror", -1) for d in MIRROR_DACS],
+        key=lambda h: h.h,
+    )
+)
 
 assert len(HEATERS) == N_HEATERS
 assert [h.h for h in HEATERS] == list(range(N_HEATERS))
-assert set(THETA_DAC.values()) | set(PHI_DAC.values()) | set(ALPHA_DAC.values()) \
-    | set(AUX_DACS) == set(range(N_HEATERS))
+assert set(THETA_DAC.values()) | set(PHI_DAC.values()) | set(ALPHA_DAC.values()) | set(
+    AUX_DACS
+) | set(MIRROR_DACS) == set(range(N_HEATERS))
+# a partner must mirror a channel that actually carries a phase, never another mirror
+assert all(MIRROR_OF[d] not in MIRROR_OF for d in MIRROR_OF)
 
 # Per-heater column and mesh index, in DAC order. `fit_staged` needs them to fit phases
 # column by column: light crosses the columns in order, so column 0's phases are determined
@@ -206,6 +245,7 @@ assert set(THETA_DAC.values()) | set(PHI_DAC.values()) | set(ALPHA_DAC.values())
 # fitting them in sequence.
 COLUMN_OF_HEATER = np.array([h.column for h in HEATERS], int)
 MESH_IDX = np.array([h.index for h in HEATERS], int)
+
 
 def _by_index(role) -> np.ndarray:
     """Heater channels for `role`, ordered by the mesh element each one drives.
@@ -216,8 +256,9 @@ def _by_index(role) -> np.ndarray:
     `h.h` fed DAC k to MZI k, mirroring every theta in the mesh. On 100 measured four-port
     states the twin scored pearson -0.20 against the chip; ordering by `h.index` and refitting
     phi0 takes it to +0.94."""
-    return np.array([h.h for h in sorted((x for x in HEATERS if x.role == role),
-                                         key=lambda x: x.index)], int)
+    return np.array(
+        [h.h for h in sorted((x for x in HEATERS if x.role == role), key=lambda x: x.index)], int
+    )
 
 
 THETA_IDX = _by_index("theta")
@@ -225,14 +266,19 @@ PHI_IDX = _by_index("phi")
 ALPHA_IDX = _by_index("out_phase")
 ALPHA_RAIL = np.array(sorted(h.index for h in HEATERS if h.role == "out_phase"), int)
 AUX_IDX = np.array([h.h for h in HEATERS if h.role == "aux"], int)
+MIRROR_IDX = np.array([h.h for h in HEATERS if h.role == "mirror"], int)
 N_AUX = AUX_IDX.size
-# the heaters the mesh model actually uses; aux are driven to 0 and left out
-ACTIVE_IDX = np.array(sorted(set(range(N_HEATERS)) - set(AUX_IDX.tolist())), int)
+# the heaters the mesh model actually uses; aux are driven to 0 and left out, and a mirror is
+# not a heater at all -- it is the second wire onto one that is already counted
+ACTIVE_IDX = np.array(
+    sorted(set(range(N_HEATERS)) - set(AUX_IDX.tolist()) - set(MIRROR_IDX.tolist())), int
+)
 
 assert THETA_IDX.size == PHI_IDX.size == NMZI
 assert ALPHA_IDX.size == len(ALPHA_DAC)
 assert REF_RAIL not in ALPHA_RAIL and UNREACHABLE_RAIL not in ALPHA_RAIL
 assert AUX_IDX.size == len(AUX_DACS)
+assert MIRROR_IDX.size == len(MIRROR_DACS)
 
 
 def pack(theta, phi, alpha=None) -> np.ndarray:
@@ -257,6 +303,8 @@ def pack(theta, phi, alpha=None) -> np.ndarray:
             ph[ALPHA_IDX] = a[ALPHA_RAIL]
         else:
             ph[ALPHA_IDX] = a
+    for partner, primary in MIRROR_OF.items():
+        ph[partner] = ph[primary]  # one heater, one voltage: see MIRROR_OF
     return ph
 
 
@@ -291,8 +339,11 @@ def describe() -> str:
         rows.append(f"{h.h:>3}  {h.pad:<5} {h.role:<10} {h.index:>5}  {h.column:>3}  {h.label}")
     rows.append("")
     rows.append(f"mesh {MESH}  columns {COLUMN}")
-    rows.append(f"{N_HEATERS} heaters, {ACTIVE_IDX.size} in the model; output rail {REF_RAIL} "
-                f"is the phase reference, rail {UNREACHABLE_RAIL} has no driver at all")
+    rows.append(
+        f"{N_HEATERS} DAC channels drive {N_PHYSICAL_HEATERS} heaters "
+        f"({len(MIRROR_DACS)} bonded pairs), {ACTIVE_IDX.size} in the model; output "
+        f"rail {REF_RAIL} is the phase reference and no screen rail has a driver"
+    )
     return "\n".join(rows)
 
 
@@ -325,7 +376,6 @@ def _selftest(n: int = 200, seed: int = 0):
     that supplies the missing direction."""
     rng = np.random.default_rng(seed)
     phi_of_dac = {v: k for k, v in PHI_DAC.items()}
-    alpha_of_dac = {v: r for r, v in ALPHA_DAC.items()}
 
     worst = 0.0
     for _ in range(n):
@@ -333,26 +383,29 @@ def _selftest(n: int = 200, seed: int = 0):
         ph = rng.uniform(-np.pi, np.pi, NMZI)
         al = rng.uniform(-np.pi, np.pi, NMODE)
         psi = rng.uniform(-np.pi, np.pi)
-        for rail, coeffs in REDUNDANT.values():
+        for rail, coeffs, acoeffs in REDUNDANT.values():
             ph2, al2 = ph.copy(), al.copy()
             for d, c in coeffs.items():
-                if d in phi_of_dac:
-                    ph2[phi_of_dac[d]] += c * psi
-                else:
-                    al2[alpha_of_dac[d]] += c * psi
+                ph2[phi_of_dac[d]] += c * psi
+            for r, c in acoeffs.items():
+                al2[r] += c * psi
             A = _physical(th, ph, al, gap=[(rail, psi)])
             B = _physical(th, ph2, al2)
-            g = np.angle(np.vdot(B, A))   # the leftover global phase, which no detector sees
+            g = np.angle(np.vdot(B, A))  # the leftover global phase, which no detector sees
             worst = max(worst, float(np.abs(A - B * np.exp(1j * g)).max()))
     assert worst < 1e-10, f"REDUNDANT is wrong: residual {worst:.2e}"
 
     # 18 physical phases in one vector: theta, phi, the 4-rail screen, then the two spares.
     n_spare = len(REDUNDANT)
-    rails = [r for r, _ in REDUNDANT.values()]
+    rails = [r for r, _, _ in REDUNDANT.values()]
 
     def U_of(p):
-        return _physical(p[:NMZI], p[NMZI:2 * NMZI], p[2 * NMZI:2 * NMZI + NMODE],
-                         gap=list(zip(rails, p[-n_spare:])))
+        return _physical(
+            p[:NMZI],
+            p[NMZI : 2 * NMZI],
+            p[2 * NMZI : 2 * NMZI + NMODE],
+            gap=list(zip(rails, p[-n_spare:])),
+        )
 
     p0, eps = rng.uniform(-1, 1, 2 * NMZI + NMODE + n_spare), 1e-6
     U0, cols = U_of(p0), []
@@ -361,7 +414,7 @@ def _selftest(n: int = 200, seed: int = 0):
         a[i] += eps
         b[i] -= eps
         A = U0.conj().T @ ((U_of(a) - U_of(b)) / (2 * eps))
-        A -= np.trace(A) / NMODE * np.eye(NMODE)   # quotient out the invisible global phase
+        A -= np.trace(A) / NMODE * np.eye(NMODE)  # quotient out the invisible global phase
         cols.append(np.concatenate([A.real.ravel(), A.imag.ravel()]))
     J = np.array(cols).T
 
@@ -370,19 +423,36 @@ def _selftest(n: int = 200, seed: int = 0):
         s = np.linalg.svd(J[:, keep], compute_uv=False)
         return int((s > 1e-7 * s.max()).sum())
 
-    ref, unr = 2 * NMZI + REF_RAIL, 2 * NMZI + UNREACHABLE_RAIL
+    # Since the rewire NO screen rail has a driver, so the driven set is the twelve
+    # theta/phi plus the one spare. Drop the whole screen, not just the two rails that used
+    # to be undriven.
+    screen = tuple(2 * NMZI + r for r in range(NMODE))
     spare = tuple(range(p0.size - n_spare, p0.size))
-    ranks = dict(physical=rank(), driven=rank(ref, unr), model=rank(ref, unr, *spare),
-                 model_plus_rail3=rank(ref, *spare))
-    assert ranks["physical"] == 15, ranks           # the part could realise any 4x4 unitary
-    assert ranks["driven"] == ranks["model"] == 14, ranks   # the two spares cost nothing
-    assert ranks["model_plus_rail3"] == 15, ranks   # and rail 3's pad is what would close it
+    ranks = dict(
+        physical=rank(),
+        driven=rank(*screen),
+        model=rank(*screen, *spare),
+        model_plus_screen=rank(2 * NMZI + REF_RAIL, *spare),
+    )
+    assert ranks["physical"] == 15, ranks  # the part could realise any 4x4 unitary
+    assert ranks["model"] == 12, ranks  # twelve independent theta/phi
+    # H9 now ADDS a direction where it used to cost nothing, and the reason is worth keeping
+    # straight: the identity in REDUNDANT compensates it with phi4, phi5 and a screen phase
+    # on rail 0. Both screen drivers went away in the rewire, so the phi part is still
+    # reachable and the screen part is not, leaving H9 contributing exactly that leftover
+    # screen direction. A screen phase cannot change |Ux|^2, so this buys nothing any
+    # detector on this bench can see -- H9 stays out of the model.
+    assert ranks["driven"] == 13, ranks
+    # the three the mesh can no longer reach are screen phases, and PU(4) needs all of them
+    assert ranks["model_plus_screen"] == 15, ranks
     return worst, ranks
 
 
 if __name__ == "__main__":
     print(describe())
     w, r = _selftest()
-    print(f"\nredundancy residual {w:.1e}; Jacobian rank {r['physical']} over 18 physical "
-          f"phases, {r['driven']} over the 16 driven, {r['model']} over the {ACTIVE_IDX.size} "
-          f"modelled, {r['model_plus_rail3']} once rail {UNREACHABLE_RAIL} has a driver")
+    print(
+        f"\nredundancy residual {w:.1e}; Jacobian rank {r['physical']} over 18 physical "
+        f"phases, {r['driven']} over the 13 driven, {r['model']} over the {ACTIVE_IDX.size} "
+        f"modelled, {r['model_plus_screen']} once the output screen has drivers"
+    )

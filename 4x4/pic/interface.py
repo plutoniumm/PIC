@@ -15,9 +15,20 @@ import time
 import numpy as np
 
 from theory.clements import NMODE
+from theory.layout import MIRROR_OF
 
-from .config import (ADC_FRAME_S, NUM_ADC_RAW, NUM_DAC, OUT_PDS, SERIAL_RTT_S,
-                     SWITCH_SETTLE_S, VOLTAGE_MAX_CH, PICConfig, out_mask)
+from .config import (
+    ADC_FRAME_S,
+    NUM_ADC_RAW,
+    NUM_DAC,
+    OUT_PDS,
+    SERIAL_RTT_S,
+    SWITCH_SETTLE_S,
+    DAC_HEATER,
+    VOLTAGE_MAX_CH,
+    PICConfig,
+    out_mask,
+)
 
 
 class PICError(RuntimeError):
@@ -25,9 +36,13 @@ class PICError(RuntimeError):
 
 
 _PORT_PATTERNS = (
-    "/dev/cu.usbmodem*", "/dev/tty.usbmodem*",
-    "/dev/cu.usbserial*", "/dev/tty.usbserial*",
-    "/dev/cu.wchusbserial*", "/dev/ttyACM*", "/dev/ttyUSB*",
+    "/dev/cu.usbmodem*",
+    "/dev/tty.usbmodem*",
+    "/dev/cu.usbserial*",
+    "/dev/tty.usbserial*",
+    "/dev/cu.wchusbserial*",
+    "/dev/ttyACM*",
+    "/dev/ttyUSB*",
 )
 
 
@@ -64,7 +79,7 @@ class PIC:
     def open(self):
         import serial  # lazy so MockPIC needs no pyserial
 
-        self._caps = None                 # a different board may answer differently
+        self._caps = None  # a different board may answer differently
         port, cands = find_port(self.cfg.port)
         if port is None:
             raise PICError(f"no serial port found; candidates were {cands}")
@@ -99,7 +114,27 @@ class PIC:
         # protects the hardware -- but if the host clips at 3 V and the firmware clips a
         # 60R channel to 1.5 V, every fit on that channel is against volts that never
         # landed, and the Vpi it produces is wrong in a way nothing downstream can see.
-        return np.clip(v, self.cfg.voltage_min, np.asarray(VOLTAGE_MAX_CH, float))
+        v = np.clip(v, self.cfg.voltage_min, np.asarray(VOLTAGE_MAX_CH, float))
+        # Bonded channels are shorted on the board, so a pair is one heater at one
+        # voltage. The primary channel is that heater's address -- `REACHABLE_DACS` and
+        # `ACTIVE_IDX` contain only primaries, so no caller ever names a partner -- and the
+        # partner follows it here, at the last point before the wire. Mirroring rather than
+        # refusing because a caller that leaves a partner at 0 is not disagreeing with
+        # itself, it simply does not know about the bond, which is a board fact.
+        #
+        # A partner set to something else NONZERO is a different matter: that is a caller
+        # with an opinion about a channel it cannot address, and it is refused, because
+        # silently overwriting it would hide the bug. Two DAC81416 outputs tied together and
+        # held apart drive current into each other; the firmware mirrors too, as a backstop.
+        for partner, primary in MIRROR_OF.items():
+            if v[partner] and abs(v[partner] - v[primary]) > 1e-9:
+                raise PICError(
+                    f"ch{partner} is bonded to ch{primary} (heater {DAC_HEATER[primary]}) "
+                    f"but was given {v[partner]:.3f} V against {v[primary]:.3f} V; "
+                    f"address the pair through ch{primary} only"
+                )
+            v[partner] = v[primary]
+        return v
 
     def measure_raw(self, voltages, retries: int = 3) -> np.ndarray:
         """Apply the DAC voltages, return all `num_adc_raw` photodiode volts. Retries a
@@ -178,7 +213,7 @@ class PIC:
                         caps[k] = v
                 break
             if len(raw.split(",")) == self.cfg.num_adc_raw:
-                break                          # an ADC frame: firmware from before `C`
+                break  # an ADC frame: firmware from before `C`
         self._caps = caps
         return caps
 
@@ -186,8 +221,9 @@ class PIC:
     def batched(self) -> bool:
         return bool(self.capabilities().get("sweep"))
 
-    def sweep_raw(self, cycles: int = 1, reads: int = 1,
-                  timeout_s: float | None = None) -> np.ndarray:
+    def sweep_raw(
+        self, cycles: int = 1, reads: int = 1, timeout_s: float | None = None
+    ) -> np.ndarray:
         """A whole four-port sweep in ONE round trip -> raw volts `T[pd, port]`.
 
         The heaters are not written here and the settle is not paid here; the caller owns
@@ -201,22 +237,32 @@ class PIC:
         `repeats` loop used to. They are not interchangeable; see `pic.acquisition.
         batch_sweep_seconds` for what each costs."""
         if not self.batched:
-            raise PICError("this firmware has no batched sweep; reflash "
-                           "Arduino/pic4x4/pic4x4.ino or use pic.normalise.sweep")
+            raise PICError(
+                "this firmware has no batched sweep; reflash "
+                "Arduino/pic4x4/pic4x4.ino or use pic.normalise.sweep"
+            )
         cycles, reads = max(1, int(cycles)), max(1, int(reads))
         caps = self.capabilities()
-        lim = (caps.get("maxcycles", cycles), caps.get("maxreads", reads),
-               caps.get("maxframes", cycles * reads))
+        lim = (
+            caps.get("maxcycles", cycles),
+            caps.get("maxreads", reads),
+            caps.get("maxframes", cycles * reads),
+        )
         if cycles > lim[0] or reads > lim[1] or cycles * reads > lim[2]:
-            raise PICError(f"sweep {cycles}x{reads} exceeds the firmware's limits "
-                           f"(maxcycles {lim[0]}, maxreads {lim[1]}, maxframes {lim[2]})")
+            raise PICError(
+                f"sweep {cycles}x{reads} exceeds the firmware's limits "
+                f"(maxcycles {lim[0]}, maxreads {lim[1]}, maxframes {lim[2]})"
+            )
         n = NMODE * self.cfg.num_adc_raw
         # The board is busy for the whole sweep and answers nothing until it is done, so the
         # read deadline has to be the sweep's own duration and not `timeout_s`. A default
         # 3 s timeout silently truncates any sweep past ~8 frames.
         if timeout_s is None:
-            timeout_s = 3.0 * (cycles * NMODE * (SWITCH_SETTLE_S + 0.02)
-                               + cycles * reads * NMODE * ADC_FRAME_S) + self.cfg.timeout_s
+            timeout_s = (
+                3.0
+                * (cycles * NMODE * (SWITCH_SETTLE_S + 0.02) + cycles * reads * NMODE * ADC_FRAME_S)
+                + self.cfg.timeout_s
+            )
         self.ser.reset_input_buffer()
         self.ser.write(f"S{cycles},{reads}\n".encode())
         deadline = time.time() + timeout_s
@@ -232,8 +278,7 @@ class PIC:
             if len(parts) != n:
                 raise PICError(f"sweep returned {len(parts)} values, expected {n}")
             # port-major on the wire, as the mirror visits and as a session file stores it
-            return np.array([float(p) for p in parts]).reshape(NMODE,
-                                                               self.cfg.num_adc_raw).T
+            return np.array([float(p) for p in parts]).reshape(NMODE, self.cfg.num_adc_raw).T
         raise PICError(f"timeout waiting for a {cycles}x{reads} sweep from {self.cfg.port}")
 
     def set_zero(self):
@@ -256,8 +301,17 @@ class PIC:
 
 # What a firmware carrying the batched sweep reports, mirrored here so a `--mock` run walks
 # the same branch the bench does. Must match Arduino/pic4x4/pic4x4.ino.
-MOCK_CAPS = {"sweep": 1, "ports": NMODE, "pins": NUM_ADC_RAW, "dac": NUM_DAC,
-             "avg": 16, "maxcycles": 16, "maxreads": 64, "maxframes": 64, "switchms": 150}
+MOCK_CAPS = {
+    "sweep": 1,
+    "ports": NMODE,
+    "pins": NUM_ADC_RAW,
+    "dac": NUM_DAC,
+    "avg": 16,
+    "maxcycles": 16,
+    "maxreads": 64,
+    "maxframes": 64,
+    "switchms": 150,
+}
 
 
 def emulate_sweep(board, cycles: int, reads: int) -> np.ndarray:
@@ -273,16 +327,16 @@ def emulate_sweep(board, cycles: int, reads: int) -> np.ndarray:
         for k in range(NMODE):
             if board.switch is not None:
                 board.switch.select(k)
-            acc[:, k] += np.mean([board.measure_raw(v)
-                                  for _ in range(max(1, int(reads)))], axis=0)
+            acc[:, k] += np.mean([board.measure_raw(v) for _ in range(max(1, int(reads)))], axis=0)
     return acc / max(1, int(cycles))
 
 
 class MockPIC(PIC):
     """Hardware-free stand-in backed by a forward function ``f(v18) -> raw_pds``."""
 
-    def __init__(self, forward=None, noise: float = 3e-4, config: PICConfig | None = None,
-                 switch=None, **kw):
+    def __init__(
+        self, forward=None, noise: float = 3e-4, config: PICConfig | None = None, switch=None, **kw
+    ):
         super().__init__(config, **kw)
         self.forward = twin_forward(switch=switch) if forward is None else forward
         self.noise = noise
@@ -305,15 +359,14 @@ class MockPIC(PIC):
 
     def measure_raw(self, voltages, retries: int = 3) -> np.ndarray:
         v = self._prep_dac(voltages)
-        self._last_v = v                  # the DACs hold a state; the sweep reads it back
+        self._last_v = v  # the DACs hold a state; the sweep reads it back
         y = np.asarray(self.forward(v), float).ravel()
         if self.noise:
             y = y + self._rng.normal(0.0, self.noise, y.shape)
         return np.clip(y, 0.0, None)
 
 
-def twin_forward(calib=None, error=None, x=None, seed: int = 0, dark: float = 0.01,
-                 switch=None):
+def twin_forward(calib=None, error=None, x=None, seed: int = 0, dark: float = 0.01, switch=None):
     """A forward for :class:`MockPIC` that is the actual physics: heater volts -> phases
     through a calibration, phases -> field through the twin, intensity -> photodiode
     volts through the readout scale.
@@ -343,8 +396,7 @@ def twin_forward(calib=None, error=None, x=None, seed: int = 0, dark: float = 0.
 
     def forward(v):
         ph = calib.phases(np.asarray(v, float))
-        inten = twin.outputs(torch.as_tensor(ph, dtype=torch.float32),
-                             _input()).detach().numpy()
+        inten = twin.outputs(torch.as_tensor(ph, dtype=torch.float32), _input()).detach().numpy()
         raw = np.full(NUM_ADC_RAW, dark)
         raw[list(OUT_PDS)] = calib.to_volts_response(inten)
         return raw

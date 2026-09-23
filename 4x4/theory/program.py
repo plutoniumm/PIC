@@ -52,8 +52,9 @@ def fidelity(U, V) -> float:
     return float(abs(np.trace(U.conj().T @ V)) / NMODE)
 
 
-def refine(U, twin, phases0=None, steps: int = 400, lr: float = 0.05, restarts: int = 1,
-           seed: int = 0):
+def refine(
+    U, twin, phases0=None, steps: int = 400, lr: float = 0.05, restarts: int = 1, seed: int = 0
+):
     """Fit the phases so `twin` realises `U` as closely as its hardware error allows.
 
     Warm-started from the exact ideal decomposition, which is already close, so this is a
@@ -71,8 +72,11 @@ def refine(U, twin, phases0=None, steps: int = 400, lr: float = 0.05, restarts: 
 
     best = (-1.0, base)
     for s in starts:
-        ph = torch.tensor(s, dtype=torch.float64 if twin.dtype == torch.complex128
-                          else torch.float32, requires_grad=True)
+        ph = torch.tensor(
+            s,
+            dtype=torch.float64 if twin.dtype == torch.complex128 else torch.float32,
+            requires_grad=True,
+        )
         opt = torch.optim.Adam([ph], lr=lr)
         for _ in range(steps):
             opt.zero_grad()

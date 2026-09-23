@@ -29,7 +29,7 @@ from theory.clements import NMODE
 from theory.drift import RCOND, infer_drift
 
 from .config import VOLTAGE_MAX
-from .layout import N_HEATERS
+from .layout import ACTIVE_IDX, MIRROR_OF, N_HEATERS
 from .normalise import sweep
 
 # A probe at all-zero bias is a poor place to measure from: several MZIs sit at an extremum
@@ -42,9 +42,17 @@ PROBE_BIAS_FRAC = 0.45
 class DriftTracker:
     """Holds the reference probe and the correction inferred from the latest one."""
 
-    def __init__(self, rig, *, enabled: bool = False, period_s: float = 180.0,
-                 repeats: int = 3, rcond: float = RCOND, step: float = 1.0,
-                 verbose: bool = False):
+    def __init__(
+        self,
+        rig,
+        *,
+        enabled: bool = False,
+        period_s: float = 180.0,
+        repeats: int = 3,
+        rcond: float = RCOND,
+        step: float = 1.0,
+        verbose: bool = False,
+    ):
         self.rig = rig
         self.enabled = bool(enabled)
         self.step = float(step)
@@ -52,9 +60,9 @@ class DriftTracker:
         self.repeats = int(repeats)
         self.rcond = float(rcond)
         self.verbose = verbose
-        self.bias = None          # the held operating point; fixed at anchor time
+        self.bias = None  # the held operating point; fixed at anchor time
         self.T_ref = None
-        self.last = None          # most recent DriftEstimate
+        self.last = None  # most recent DriftEstimate
         self._dphi = np.zeros(N_HEATERS)
         self._t_last = 0.0
         self.history = []
@@ -118,10 +126,12 @@ class DriftTracker:
         return np.asarray(phases, float) - self.dphi
 
     def status(self) -> dict:
-        return {"enabled": self.enabled,
-                "anchored": self.T_ref is not None,
-                "applied_rad": float(np.abs(self.dphi).max()),
-                "last": str(self.last) if self.last else None}
+        return {
+            "enabled": self.enabled,
+            "anchored": self.T_ref is not None,
+            "applied_rad": float(np.abs(self.dphi).max()),
+            "last": str(self.last) if self.last else None,
+        }
 
 
 class _TwinRig:
@@ -135,6 +145,7 @@ class _TwinRig:
     def __init__(self, dphi_true, gains=None, noise=0.0, seed=0):
         from theory.calib import Calibration
         from theory.twin import Twin
+
         self._twin = Twin()
         self.calib = Calibration.load_or_nominal()
         self.dphi_true = np.asarray(dphi_true, float)
@@ -153,11 +164,13 @@ class _TwinRig:
 
     def outputs(self, volts):
         import torch
+
         ph = self.calib.phases(volts) + self.dphi_true
         U = self._twin.matrix(torch.as_tensor(ph, dtype=torch.float32)).detach().numpy()
         col = np.abs(U[:, self._port]) ** 2 * self.g * self.c[self._port]
-        return np.clip(col + self.rng.normal(0, self.noise * max(col.mean(), 1e-12), NMODE),
-                       1e-12, None)
+        return np.clip(
+            col + self.rng.normal(0, self.noise * max(col.mean(), 1e-12), NMODE), 1e-12, None
+        )
 
 
 def _selftest(seed: int = 0):
@@ -178,30 +191,37 @@ def _selftest(seed: int = 0):
         return float(np.abs(A / A.sum() - T_ref / T_ref.sum()).mean())
 
     def trial(scale, noise, gains=None, seed_offset=0):
-        rig = _TwinRig(np.zeros(N_HEATERS), gains=gains, noise=noise,
-                       seed=seed + seed_offset)
+        rig = _TwinRig(np.zeros(N_HEATERS), gains=gains, noise=noise, seed=seed + seed_offset)
         tr = DriftTracker(rig, enabled=True, repeats=3)
         T_ref = tr.anchor()
         dphi = np.zeros(N_HEATERS)
-        dphi[:12] = rng.normal(0, scale, 12)          # mesh heaters only
-        rig.dphi_true = dphi                          # the chip drifts under us
+        # The modelled channels, which since the rewire are NOT the first twelve: ch3, ch5
+        # and ch7 are bonded mirrors and ch4 is aux. A bonded pair is one heater, so its two
+        # channels drift together by construction.
+        dphi[ACTIVE_IDX] = rng.normal(0, scale, ACTIVE_IDX.size)
+        for partner, primary in MIRROR_OF.items():
+            dphi[partner] = dphi[primary]
+        rig.dphi_true = dphi  # the chip drifts under us
         T_bad = tr.probe(tr.bias)
         est = tr.update(force=True)
         v_corr, _ = calib.volts(tr.correct(calib.phases(tr.bias)))
         return err(T_bad, T_ref), err(tr.probe(v_corr), T_ref), est
 
     before, after, est = trial(0.10, 0.01)
-    g_before, g_after, g_est = trial(0.10, 0.01,
-                                     gains=(np.array([1.0, 1.3, 0.9, 1.05]),
-                                            np.array([1.0, 0.95, 10 ** -0.6, 1.02])))
+    g_before, g_after, g_est = trial(
+        0.10, 0.01, gains=(np.array([1.0, 1.3, 0.9, 1.05]), np.array([1.0, 0.95, 10**-0.6, 1.02]))
+    )
     # Whether one below-noise probe lands just above or just below the gate is seed luck --
     # the threshold is a heuristic, not a guarantee, and a single trial tests the seed
     # rather than the gate. What must hold is that it *usually* refuses, and that whatever
     # slips through is negligible in size.
     quiets = [trial(0.0005, 0.04, seed_offset=i) for i in range(5)]
     refused = sum(not q[2].ok for q in quiets)
-    slipped = max(float(np.abs(q[2].dphi).max()) for q in quiets if q[2].ok) if \
-        refused < len(quiets) else 0.0
+    slipped = (
+        max(float(np.abs(q[2].dphi).max()) for q in quiets if q[2].ok)
+        if refused < len(quiets)
+        else 0.0
+    )
     quiet = quiets[0]
 
     port3_db = g_est.coupling_db[2] - g_est.coupling_db[0]
@@ -212,8 +232,7 @@ def _selftest(seed: int = 0):
     # encodes how much improvement is meaningful for the number of parameters fitted, so
     # requiring the measured improvement to beat it is the self-consistent test.
     assert est.ok and after < before * max(est.gate, 0.9), (before, after, str(est))
-    assert g_est.ok and g_after < g_before * max(g_est.gate, 0.9), \
-        (g_before, g_after, str(g_est))
+    assert g_est.ok and g_after < g_before * max(g_est.gate, 0.9), (g_before, g_after, str(g_est))
     assert abs(port3_db + 6.0) < 1.0, port3_db
     # The property that matters is not "a below-noise drift is always refused" -- at 4
     # percent probe noise a 0.0005 rad drift is 100x under the floor and the fit will
@@ -222,9 +241,19 @@ def _selftest(seed: int = 0):
     # changes nothing on the chip. A gate that never fired would also never correct.
     assert slipped < 0.02, slipped
     assert refused >= 2, [str(q[2]) for q in quiets]
-    return dict(before=before, after=after, est=est, gain_before=g_before,
-                gain_after=g_after, gain_est=g_est, port3_db=port3_db, quiet=quiet,
-                refused=refused, n_quiet=len(quiets), slipped=slipped)
+    return dict(
+        before=before,
+        after=after,
+        est=est,
+        gain_before=g_before,
+        gain_after=g_after,
+        gain_est=g_est,
+        port3_db=port3_db,
+        quiet=quiet,
+        refused=refused,
+        n_quiet=len(quiets),
+        slipped=slipped,
+    )
 
 
 if __name__ == "__main__":
@@ -235,5 +264,7 @@ if __name__ == "__main__":
     print("same, through a PD-gain change and a -6 dB port-3 coupling change")
     print(f"  probe error (de-gained) {r['gain_before']:.5f} -> {r['gain_after']:.5f}")
     print(f"  port 3 coupling recovered at {r['port3_db']:+.2f} dB (planted -6.00)")
-    print(f"drift below the noise floor refused in {r['refused']}/{r['n_quiet']} trials; "
-          f"largest that slipped through {r['slipped']:.4f} rad")
+    print(
+        f"drift below the noise floor refused in {r['refused']}/{r['n_quiet']} trials; "
+        f"largest that slipped through {r['slipped']:.4f} rad"
+    )

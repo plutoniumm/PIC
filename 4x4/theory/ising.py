@@ -120,8 +120,10 @@ def measured(calib) -> np.ndarray:
     fit, and on this die the nominal is off by a factor of three -- so an unfitted channel
     advertises a 4 pi swing it cannot make. Letting the optimiser plan through one is the
     difference between a design that works and a design that only looks like it does."""
-    return ~(np.isclose(np.asarray(calib.vpi, float), VPI_NOMINAL)
-             & (np.asarray(calib.phi0, float) == 0.0))
+    return ~(
+        np.isclose(np.asarray(calib.vpi, float), VPI_NOMINAL)
+        & (np.asarray(calib.phi0, float) == 0.0)
+    )
 
 
 def movers(twin, phases, trainable=None, tol: float = 1e-6) -> np.ndarray:
@@ -135,8 +137,11 @@ def movers(twin, phases, trainable=None, tol: float = 1e-6) -> np.ndarray:
     def grad_at(offset):
         # sum |U|^2 is the constant NMODE for any unitary, so it has no gradient at all;
         # the sum of squares is the cheapest scalar that actually tracks where the power went
-        ph = torch.as_tensor(np.asarray(phases, float) + offset,
-                             dtype=torch.float32).clone().requires_grad_(True)
+        ph = (
+            torch.as_tensor(np.asarray(phases, float) + offset, dtype=torch.float32)
+            .clone()
+            .requires_grad_(True)
+        )
         ((twin.matrix(ph).abs() ** 2) ** 2).sum().backward()
         return ph.grad.abs().numpy()
 
@@ -304,12 +309,12 @@ def config_energies(T, J, fit=None, cfgs=None, modes=None) -> np.ndarray:
     n(n-1)/2 couplings the four shots already returned."""
     J = np.asarray(J, float)
     n = len(J)
-    a, b = (host(T, J, modes)[:2] if fit is None else fit)
+    a, b = host(T, J, modes)[:2] if fit is None else fit
     S = hosted(T, modes, n)
     cfgs = configs(n) if cfgs is None else np.asarray(cfgs, float)
     iu = np.triu_indices(n, 1)
     q = 2.0 * (cfgs[:, iu[0]] * cfgs[:, iu[1]]) @ S
-    ferro = cfgs.sum(1) ** 2 - n          # what a non-zero b adds, and nothing else
+    ferro = cfgs.sum(1) ** 2 - n  # what a non-zero b adds, and nothing else
     return -0.5 * (q - b * ferro) / a
 
 
@@ -352,12 +357,23 @@ def decode(T, J, normalised: bool = True, modes=None) -> dict:
     cfgs = configs(len(J))
     E = config_energies(T, J, fit=(a, b), cfgs=cfgs, modes=modes)
     k = int(np.argmin(E))
-    return {"spins": cfgs[k], "index": k, "energies": E, "configs": cfgs, "modes": modes,
-            "a": a, "b": b, "rel_err": rel, "contrast": contrast, "T": T}
+    return {
+        "spins": cfgs[k],
+        "index": k,
+        "energies": E,
+        "configs": cfgs,
+        "modes": modes,
+        "a": a,
+        "b": b,
+        "rel_err": rel,
+        "contrast": contrast,
+        "T": T,
+    }
 
 
-def anneal(energy_fn, n: int, rng, restarts: int = 8, sweeps: int = 40,
-           t0: float = 1.0, t1: float = 0.01):
+def anneal(
+    energy_fn, n: int, rng, restarts: int = 8, sweeps: int = 40, t0: float = 1.0, t1: float = 0.01
+):
     """Metropolis single-flip descent against a chip-derived energy oracle.
 
     At n <= 4 the oracle is 2^n dot products and exhaustion is cheaper, so this exists to
@@ -409,23 +425,39 @@ class Encoding:
         return self.contrast >= MIN_CONTRAST
 
     def __str__(self) -> str:
-        return (f"n={self.n} host err {self.rel_err:.3f} contrast {self.contrast:.4f} "
-                f"eps {self.eps:.3f}{'' if self.ok else '  BELOW NOISE'}")
+        return (
+            f"n={self.n} host err {self.rel_err:.3f} contrast {self.contrast:.4f} "
+            f"eps {self.eps:.3f}{'' if self.ok else '  BELOW NOISE'}"
+        )
 
 
 def twin_transfer(twin, phases) -> np.ndarray:
     """|U|^2 for a phase vector: what the four-port probe would return, noise-free."""
     import torch
 
-    ph = phases if torch.is_tensor(phases) else torch.as_tensor(np.asarray(phases, float),
-                                                                dtype=torch.float32)
+    ph = (
+        phases
+        if torch.is_tensor(phases)
+        else torch.as_tensor(np.asarray(phases, float), dtype=torch.float32)
+    )
     with torch.no_grad():
         return (twin.matrix(ph).abs() ** 2).numpy().astype(float)
 
 
-def encode(J, twin, calib: Calibration | None = None, *, trainable=None,
-           vmax=VOLTAGE_MAX, restarts: int = 24, steps: int = 300, lr: float = 0.15,
-           sigma: float = SIGMA_DESIGN, passes: int = 1, seed: int = 0) -> Encoding:
+def encode(
+    J,
+    twin,
+    calib: Calibration | None = None,
+    *,
+    trainable=None,
+    vmax=VOLTAGE_MAX,
+    restarts: int = 24,
+    steps: int = 300,
+    lr: float = 0.15,
+    sigma: float = SIGMA_DESIGN,
+    passes: int = 1,
+    seed: int = 0,
+) -> Encoding:
     """Search the reachable set for heater volts whose |U|^2 hosts J.
 
     `vmax` may be a scalar or a per-channel array; a channel at 0 is pinned dark, which is
@@ -472,7 +504,7 @@ def encode(J, twin, calib: Calibration | None = None, *, trainable=None,
     mask = mask & (vmax > 0)
 
     xj = offdiag(J)
-    rms_x = float(np.sqrt(np.mean(xj ** 2)))
+    rms_x = float(np.sqrt(np.mean(xj**2)))
     x = torch.as_tensor(xj, dtype=torch.float32)
     vt = torch.as_tensor(vmax, dtype=torch.float32)
     mt = torch.as_tensor(mask.astype(np.float32))
@@ -501,7 +533,7 @@ def encode(J, twin, calib: Calibration | None = None, *, trainable=None,
         ph = np.pi * (v / vpi) ** 2 + phi0
         T = twin.matrix(ph).abs() ** 2
         S = (T + T.transpose(-1, -2)) / 2
-        y = (sgn[None, :, None, None] * S[..., ri, ci]).sum(1)   # (restarts, maps, couplings)
+        y = (sgn[None, :, None, None] * S[..., ri, ci]).sum(1)  # (restarts, maps, couplings)
         a, b = _affine(x, y)
         resid = y - (a[..., None] * x + b[..., None])
         contrast = a.abs() * rms_x
@@ -509,13 +541,13 @@ def encode(J, twin, calib: Calibration | None = None, *, trainable=None,
         # infinite derivative at zero: the unclamped form sent every voltage to NaN and the
         # design silently became whatever argmin does with an all-NaN array.
         rel = resid.pow(2).mean(-1).clamp_min(1e-24).sqrt() / contrast.clamp_min(1e-12)
-        eps = (rel ** 2 + (sig / contrast.clamp_min(1e-12)) ** 2).clamp_min(1e-24).sqrt()
+        eps = (rel**2 + (sig / contrast.clamp_min(1e-12)) ** 2).clamp_min(1e-24).sqrt()
         return v, a, b, rel, contrast, eps
 
     for _ in range(steps):
         opt.zero_grad()
         *_, eps = evaluate(u)
-        eps.min(-1).values.sum().backward()    # each restart keeps its own best assignment
+        eps.min(-1).values.sum().backward()  # each restart keeps its own best assignment
         opt.step()
         sched.step()
 
@@ -534,8 +566,15 @@ def encode(J, twin, calib: Calibration | None = None, *, trainable=None,
     return Encoding(volts, phases, T, a, b, rel_err, contrast, n, modes, sig, passes)
 
 
-def reach_dim(twin, calib, trainable=None, vmax=VOLTAGE_MAX, samples: int = 4000,
-              seed: int = 0, n: int = NSPIN_MAX) -> dict:
+def reach_dim(
+    twin,
+    calib,
+    trainable=None,
+    vmax=VOLTAGE_MAX,
+    samples: int = 4000,
+    seed: int = 0,
+    n: int = NSPIN_MAX,
+) -> dict:
     """How much of coupling-shape space the heaters can actually steer through.
 
     The readout gauge (a, b) makes only the *direction* of the off-diagonal vector matter,
@@ -556,25 +595,40 @@ def reach_dim(twin, calib, trainable=None, vmax=VOLTAGE_MAX, samples: int = 4000
     m = np.ones(N_HEATERS, bool) if trainable is None else np.asarray(trainable, bool)
     V = rng.uniform(0, 1, (samples, N_HEATERS)) * vm * m
     with torch.no_grad():
-        T = (twin.matrix(torch.as_tensor(calib.phases(V), dtype=torch.float32)
-                         ).abs() ** 2).numpy()
+        T = (twin.matrix(torch.as_tensor(calib.phases(V), dtype=torch.float32)).abs() ** 2).numpy()
     rows, cols = mode_maps(n)
     Z = np.concatenate([couplings(T, (rows[p], cols[p])) for p in range(len(rows))])
-    Z = Z - Z.mean(-1, keepdims=True)          # b is a shift, so only the residual counts
+    Z = Z - Z.mean(-1, keepdims=True)  # b is a shift, so only the residual counts
     nrm = np.linalg.norm(Z, axis=-1)
     D = Z[nrm > 1e-6] / nrm[nrm > 1e-6, None]  # a is a scale, so only the direction counts
     var = np.linalg.svd(D, compute_uv=False) ** 2
     var = var / var.sum()
-    return {"swing": float(nrm.mean()), "spectrum": var, "n": n,
-            "dim": float(np.exp(-(var * np.log(var + 1e-300)).sum())),
-            "of": n * (n - 1) // 2 - 1}
+    return {
+        "swing": float(nrm.mean()),
+        "spectrum": var,
+        "n": n,
+        "dim": float(np.exp(-(var * np.log(var + 1e-300)).sum())),
+        "of": n * (n - 1) // 2 - 1,
+    }
 
 
-def noise_curve(twin, calib, *, n: int = NSPIN_MAX, trainable=None, vmax=VOLTAGE_MAX,
-                instances: int = 8, sigmas=(0.001, 0.01, 0.02, 0.05, 0.08, 0.12),
-                design_sigmas=(SIGMA_READ, 0.1), draws: int = 16, bins: int = 6,
-                targets=(0.95, 0.9, 0.8), steps: int = 300, restarts: int = 24,
-                seed: int = 0) -> dict:
+def noise_curve(
+    twin,
+    calib,
+    *,
+    n: int = NSPIN_MAX,
+    trainable=None,
+    vmax=VOLTAGE_MAX,
+    instances: int = 8,
+    sigmas=(0.001, 0.01, 0.02, 0.05, 0.08, 0.12),
+    design_sigmas=(SIGMA_READ, 0.1),
+    draws: int = 16,
+    bins: int = 6,
+    targets=(0.95, 0.9, 0.8),
+    steps: int = 300,
+    restarts: int = 24,
+    seed: int = 0,
+) -> dict:
     """Ground-state rate against the recovered coupling error -- and the contrast it demands.
 
     A design is only ever wrong by `eps = hypot(rel_err, sigma / contrast)`, and the point
@@ -597,15 +651,38 @@ def noise_curve(twin, calib, *, n: int = NSPIN_MAX, trainable=None, vmax=VOLTAGE
         J = random_ising(np.random.default_rng(seed + 977 * n + i), n=n)
         cfgs_true, E_true = brute_force(J)
         for d, sd in enumerate(design_sigmas):
-            enc = encode(J, twin, calib, trainable=trainable, vmax=vmax, sigma=sd,
-                         steps=steps, restarts=restarts, seed=seed + i)
+            enc = encode(
+                J,
+                twin,
+                calib,
+                trainable=trainable,
+                vmax=vmax,
+                sigma=sd,
+                steps=steps,
+                restarts=restarts,
+                seed=seed + i,
+            )
             rng = np.random.default_rng(seed + 31 * i)
             for s in sigmas:
-                hit = sum(_score(np.clip(enc.T + rng.normal(0, s, enc.T.shape), 0.0, None),
-                                 J, cfgs_true, E_true, modes=enc.modes)["found_gs"]
-                          for _ in range(draws))
-                pts.append((float(np.hypot(enc.rel_err, s / max(enc.contrast, 1e-15))),
-                            hit / draws, enc.rel_err, enc.contrast, d))
+                hit = sum(
+                    _score(
+                        np.clip(enc.T + rng.normal(0, s, enc.T.shape), 0.0, None),
+                        J,
+                        cfgs_true,
+                        E_true,
+                        modes=enc.modes,
+                    )["found_gs"]
+                    for _ in range(draws)
+                )
+                pts.append(
+                    (
+                        float(np.hypot(enc.rel_err, s / max(enc.contrast, 1e-15))),
+                        hit / draws,
+                        enc.rel_err,
+                        enc.contrast,
+                        d,
+                    )
+                )
     pts = np.array(pts)
     eps, rate, which = pts[:, 0], pts[:, 1], pts[:, 4]
     edges = np.quantile(eps, np.linspace(0, 1, bins + 1))
@@ -614,13 +691,15 @@ def noise_curve(twin, calib, *, n: int = NSPIN_MAX, trainable=None, vmax=VOLTAGE
         m = (eps >= edges[i]) & (eps <= edges[i + 1])
         if not m.any():
             continue
-        cells.append((float(edges[i]), float(edges[i + 1]), int(m.sum()),
-                      float(rate[m].mean())))
+        cells.append((float(edges[i]), float(edges[i + 1]), int(m.sum()), float(rate[m].mean())))
         # the collapse claim, checked rather than asserted: designs that reached this eps by
         # trading fidelity for brightness must score the same as designs that reached it by
         # a quieter readout
-        per = [rate[m & (which == d)].mean() for d in range(len(design_sigmas))
-               if (m & (which == d)).sum() >= 4]
+        per = [
+            rate[m & (which == d)].mean()
+            for d in range(len(design_sigmas))
+            if (m & (which == d)).sum() >= 4
+        ]
         if len(per) > 1:
             spread = max(spread, float(np.ptp(per)))
     # monotone by construction: the threshold is the last eps at which the rate has held,
@@ -639,11 +718,17 @@ def noise_curve(twin, calib, *, n: int = NSPIN_MAX, trainable=None, vmax=VOLTAGE
     # left of the budget once the hosting residual has taken its share -- and a target below
     # `rel` is unreachable at any brightness, which is what the infinity says.
     room = {t: np.sqrt(max(v * v - rel * rel, 0.0)) for t, v in thr.items()}
-    return {"n": n, "eps": eps, "rate": rate, "bins": cells, "threshold": thr,
-            "collapse_spread": spread, "saturated": min(r for *_x, r in cells) >= max(targets),
-            "contrast_at": {t: (SIGMA_BENCH / v if v > 0 else np.inf)
-                            for t, v in room.items()},
-            "design": {"rel_err": rel, "contrast": float(pts[:, 3].mean())}}
+    return {
+        "n": n,
+        "eps": eps,
+        "rate": rate,
+        "bins": cells,
+        "threshold": thr,
+        "collapse_spread": spread,
+        "saturated": min(r for *_x, r in cells) >= max(targets),
+        "contrast_at": {t: (SIGMA_BENCH / v if v > 0 else np.inf) for t, v in room.items()},
+        "design": {"rel_err": rel, "contrast": float(pts[:, 3].mean())},
+    }
 
 
 def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
@@ -661,8 +746,9 @@ def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
     return max(c - h, 0.0), min(c + h, 1.0)
 
 
-def instances_for(p0: float, p1: float, power: float = 0.8, alpha: float = 0.05,
-                  arms: int = 1) -> int:
+def instances_for(
+    p0: float, p1: float, power: float = 0.8, alpha: float = 0.05, arms: int = 1
+) -> int:
     """Instances needed to see a true rate of `p1` against `p0`, at `power`.
 
     `arms=1` tests one run against a *known* constant -- blind guessing, 1/2^n up to ground
@@ -679,9 +765,8 @@ def instances_for(p0: float, p1: float, power: float = 0.8, alpha: float = 0.05,
         raise ValueError("no difference to detect")
     if arms == 1:
         num = z(1 - alpha) * np.sqrt(p0 * (1 - p0)) + z(power) * np.sqrt(p1 * (1 - p1))
-        return int(np.ceil(num ** 2 / d ** 2))
-    return int(np.ceil((z(1 - alpha / 2) + z(power)) ** 2
-                       * (p0 * (1 - p0) + p1 * (1 - p1)) / d ** 2))
+        return int(np.ceil(num**2 / d**2))
+    return int(np.ceil((z(1 - alpha / 2) + z(power)) ** 2 * (p0 * (1 - p0) + p1 * (1 - p1)) / d**2))
 
 
 def _score(T, J, cfgs_true, E_true, normalised: bool = True, modes=None) -> dict:
@@ -694,14 +779,25 @@ def _score(T, J, cfgs_true, E_true, normalised: bool = True, modes=None) -> dict
     span = E_true.max() - E_true.min()
     gs = set(np.flatnonzero(np.isclose(E_true, E_true.min())))
     r = np.corrcoef(E_ord, E_true)[0, 1] if len(E_true) > 2 else np.nan
-    return {"found_gs": bool(k in gs), "excess": float((E_true[k] - E_true.min())
-                                                       / (span + 1e-18)),
-            "pearson": float(r), "rel_err": res["rel_err"], "contrast": res["contrast"],
-            "chance": len(gs) / len(E_true)}
+    return {
+        "found_gs": bool(k in gs),
+        "excess": float((E_true[k] - E_true.min()) / (span + 1e-18)),
+        "pearson": float(r),
+        "rel_err": res["rel_err"],
+        "contrast": res["contrast"],
+        "chance": len(gs) / len(E_true),
+    }
 
 
-def _selftest(instances: int = 8, ns=(2, 3, 4), seed: int = 0, steps: int = 300,
-              restarts: int = 24, sigma: float = SIGMA_BENCH, verbose: bool = False):
+def _selftest(
+    instances: int = 8,
+    ns=(2, 3, 4),
+    seed: int = 0,
+    steps: int = 300,
+    restarts: int = 24,
+    sigma: float = SIGMA_BENCH,
+    verbose: bool = False,
+):
     """Small instances with known ground states, scored against the twin.
 
     Three chips, in order of honesty: a heater law that reaches 2 pi (what the mesh could do
@@ -718,11 +814,13 @@ def _selftest(instances: int = 8, ns=(2, 3, 4), seed: int = 0, steps: int = 300,
 
     ideal = Twin()
     fab = Twin(MeshError.sample(sigma_kappa=0.02, seed=1))
-    free = Calibration()                      # Vpi 1.5 V, phi0 0: every phase reachable
+    free = Calibration()  # Vpi 1.5 V, phi0 0: every phase reachable
     real = Calibration.load_or_nominal()
-    cases = [("free phases", free, ideal, None),
-             ("measured heaters", real, ideal, measured(real)),
-             ("measured + 2% couplers", real, fab, measured(real))]
+    cases = [
+        ("free phases", free, ideal, None),
+        ("measured heaters", real, ideal, measured(real)),
+        ("measured + 2% couplers", real, fab, measured(real)),
+    ]
 
     rows = []
     for label, calib, chip, mask in cases:
@@ -732,8 +830,9 @@ def _selftest(instances: int = 8, ns=(2, 3, 4), seed: int = 0, steps: int = 300,
             for i in range(instances):
                 J = random_ising(rng, n=n)
                 cfgs_true, E_true = brute_force(J)
-                enc = encode(J, ideal, calib, trainable=mask, steps=steps,
-                             restarts=restarts, seed=seed + i)
+                enc = encode(
+                    J, ideal, calib, trainable=mask, steps=steps, restarts=restarts, seed=seed + i
+                )
                 T = twin_transfer(chip, enc.phases)
                 T = np.clip(T + rng.normal(0, sigma, T.shape), 0.0, None)
                 s = _score(T, J, cfgs_true, E_true, modes=enc.modes)
@@ -742,13 +841,27 @@ def _selftest(instances: int = 8, ns=(2, 3, 4), seed: int = 0, steps: int = 300,
                 s["eps"] = enc.eps
                 s["finite"] = bool(np.isfinite(enc.volts).all())
                 acc.append(s)
-            row = {"case": label, "n": n, "instances": instances,
-                   "hits": int(sum(a["found_gs"] for a in acc)),
-                   **{k: float(np.nanmean([a[k] for a in acc]))
-                      for k in ("design_err", "design_contrast", "eps", "rel_err",
-                                "contrast", "excess", "pearson", "chance")},
-                   "found_gs": float(np.mean([a["found_gs"] for a in acc])),
-                   "finite": all(a["finite"] for a in acc)}
+            row = {
+                "case": label,
+                "n": n,
+                "instances": instances,
+                "hits": int(sum(a["found_gs"] for a in acc)),
+                **{
+                    k: float(np.nanmean([a[k] for a in acc]))
+                    for k in (
+                        "design_err",
+                        "design_contrast",
+                        "eps",
+                        "rel_err",
+                        "contrast",
+                        "excess",
+                        "pearson",
+                        "chance",
+                    )
+                },
+                "found_gs": float(np.mean([a["found_gs"] for a in acc])),
+                "finite": all(a["finite"] for a in acc),
+            }
             row["ci"] = wilson(row["hits"], instances)
             rows.append(row)
             if verbose:
@@ -770,8 +883,9 @@ def _selftest(instances: int = 8, ns=(2, 3, 4), seed: int = 0, steps: int = 300,
     # decode with `normalise` switched off must not, or the projection is doing nothing.
     gains = np.exp(rng.normal(0, 0.35, 2 * NMODE))
     dirty = gains[:NMODE, None] * enc.T * gains[NMODE:][None, :]
-    assert np.array_equal(decode(dirty, J, modes=enc.modes)["spins"],
-                          decode(enc.T, J, modes=enc.modes)["spins"]), "gain invariance"
+    assert np.array_equal(
+        decode(dirty, J, modes=enc.modes)["spins"], decode(enc.T, J, modes=enc.modes)["spins"]
+    ), "gain invariance"
     raw = decode(dirty, J, normalised=False, modes=enc.modes)
     assert raw["rel_err"] > decode(dirty, J, modes=enc.modes)["rel_err"], raw["rel_err"]
 
@@ -782,14 +896,19 @@ def _selftest(instances: int = 8, ns=(2, 3, 4), seed: int = 0, steps: int = 300,
     # a free-phase mesh must host the largest instance essentially exactly -- asked at
     # SIGMA_READ, because at the default budget the objective deliberately spends hosting
     # error on contrast and the rows above no longer answer a reachability question
-    reach = encode(random_ising(np.random.default_rng(seed), n=NSPIN_MAX), ideal, free,
-                   sigma=SIGMA_READ, steps=steps, restarts=restarts)
+    reach = encode(
+        random_ising(np.random.default_rng(seed), n=NSPIN_MAX),
+        ideal,
+        free,
+        sigma=SIGMA_READ,
+        steps=steps,
+        restarts=restarts,
+    )
     assert reach.rel_err < 0.01, reach
 
     # a second pass must pay for itself after its own sqrt(2) of extra noise, or `hosted`
     # is subtracting two matrices for nothing. Deterministic, so it needs no instances.
-    two = encode(J, ideal, real, trainable=measured(real), passes=2, steps=steps,
-                 restarts=restarts)
+    two = encode(J, ideal, real, trainable=measured(real), passes=2, steps=steps, restarts=restarts)
     one = encode(J, ideal, real, trainable=measured(real), steps=steps, restarts=restarts)
     assert two.eps < one.eps, (one.eps, two.eps)
     assert two.volts.shape == (2, N_HEATERS) and two.T.shape == (2, NMODE, NMODE), two.volts
@@ -819,17 +938,21 @@ def _selftest(instances: int = 8, ns=(2, 3, 4), seed: int = 0, steps: int = 300,
 
 
 def digest(rows) -> str:
-    w = f"{'case':<24}{'n':>2}{'design err':>12}{'contrast':>10}{'eps':>7}{'GS found':>10}" \
+    w = (
+        f"{'case':<24}{'n':>2}{'design err':>12}{'contrast':>10}{'eps':>7}{'GS found':>10}"
         f"{'95% CI':>14}{'chance':>8}{'excess':>8}{'E-corr':>8}"
+    )
     out = [w]
     for r in rows:
         lo, hi = r.get("ci", (float("nan"), float("nan")))
-        out.append(f"{r['case']:<24}{r['n']:>2}{r['design_err']:>12.3f}"
-                   f"{r['contrast']:>10.4f}{r.get('eps', float('nan')):>7.2f}"
-                   f"{r['hits']:>6}/{r['instances']:<3}"
-                   f"{f'[{lo:.2f}, {hi:.2f}]':>14}{r['chance']:>8.0%}"
-                   f"{r['excess']:>8.3f}"
-                   + (f"{r['pearson']:>8.3f}" if np.isfinite(r["pearson"]) else f"{'--':>8}"))
+        out.append(
+            f"{r['case']:<24}{r['n']:>2}{r['design_err']:>12.3f}"
+            f"{r['contrast']:>10.4f}{r.get('eps', float('nan')):>7.2f}"
+            f"{r['hits']:>6}/{r['instances']:<3}"
+            f"{f'[{lo:.2f}, {hi:.2f}]':>14}{r['chance']:>8.0%}"
+            f"{r['excess']:>8.3f}"
+            + (f"{r['pearson']:>8.3f}" if np.isfinite(r["pearson"]) else f"{'--':>8}")
+        )
     return "\n".join(out)
 
 
@@ -839,28 +962,43 @@ if __name__ == "__main__":
     _tw, _real = Twin(), Calibration.load_or_nominal()
     # only n = 4: at n = 3 the target is one angle on a circle and every calibration steers
     # the whole of it, so the number is 2.00 of 2 and says nothing
-    for _lbl, _c, _m in (("free phases", Calibration(), None),
-                         ("measured heaters", _real, measured(_real))):
+    for _lbl, _c, _m in (
+        ("free phases", Calibration(), None),
+        ("measured heaters", _real, measured(_real)),
+    ):
         _r = reach_dim(_tw, _c, _m, n=4)
         print(f"{_lbl:<24} n=4 steers {_r['dim']:.2f} of {_r['of']} coupling directions")
     print()
     print(digest(_selftest()))
 
-    print(f"\nground-state rate vs recovered coupling error eps, readout noise only "
-          f"(the bench's own residual is {SIGMA_BENCH:.2f} per entry)")
+    print(
+        f"\nground-state rate vs recovered coupling error eps, readout noise only "
+        f"(the bench's own residual is {SIGMA_BENCH:.2f} per entry)"
+    )
     for _n in (3, 4):
         _q = noise_curve(_tw, _real, n=_n, trainable=measured(_real))
-        print(f"  n={_n}  " + " ".join(f"{lo:.2f}-{hi:.2f}:{r:.2f}"
-                                       for lo, hi, _k, r in _q["bins"])
-              + f"   (design-sigma spread within a bin {_q['collapse_spread']:.2f})")
+        print(
+            f"  n={_n}  "
+            + " ".join(f"{lo:.2f}-{hi:.2f}:{r:.2f}" for lo, hi, _k, r in _q["bins"])
+            + f"   (design-sigma spread within a bin {_q['collapse_spread']:.2f})"
+        )
         if _q["saturated"]:
-            print(f"        holds every target out to eps "
-                  f"{max(_q['threshold'].values()):.2f}, the widest this sweep reached")
+            print(
+                f"        holds every target out to eps "
+                f"{max(_q['threshold'].values()):.2f}, the widest this sweep reached"
+            )
         else:
-            print("        " + "  ".join(
-                f"{t:.0%} needs eps<{_q['threshold'][t]:.2f} -> contrast>"
-                f"{_q['contrast_at'][t]:.2f}" for t in (0.95, 0.9, 0.8)))
+            print(
+                "        "
+                + "  ".join(
+                    f"{t:.0%} needs eps<{_q['threshold'][t]:.2f} -> contrast>"
+                    f"{_q['contrast_at'][t]:.2f}"
+                    for t in (0.95, 0.9, 0.8)
+                )
+            )
 
-    print(f"\ninstances needed: beat chance at n=3 with a true 50% -> "
-          f"{instances_for(0.25, 0.5)}; at n=4 -> {instances_for(0.125, 0.5)}; "
-          f"separate 50% from 75% between two runs -> {instances_for(0.5, 0.75, arms=2)} each")
+    print(
+        f"\ninstances needed: beat chance at n=3 with a true 50% -> "
+        f"{instances_for(0.25, 0.5)}; at n=4 -> {instances_for(0.125, 0.5)}; "
+        f"separate 50% from 75% between two runs -> {instances_for(0.5, 0.75, arms=2)} each"
+    )

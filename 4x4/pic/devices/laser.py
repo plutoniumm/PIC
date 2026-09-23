@@ -141,9 +141,7 @@ class Laser:
         # Arduino shows a purely numeric id (1110/1120) -- never open that one.
         cand = [p for p in ports if not re.fullmatch(r"\d+", p.rsplit("-", 1)[-1])]
         if not cand:
-            raise LaserError(
-                "no AeroDiode FTDI serial port found -- is the laser plugged in?"
-            )
+            raise LaserError("no AeroDiode FTDI serial port found -- is the laser plugged in?")
 
         for p in cand:
             if "AU05XLI8" in p:
@@ -211,9 +209,7 @@ class Laser:
             return target
 
         dur = span / self.rate
-        print(
-            f"  ramp setpoint {start:.1f} -> {target:.1f}  ({dur:.1f}s @ {self.rate:.0f}/s)"
-        )
+        print(f"  ramp setpoint {start:.1f} -> {target:.1f}  ({dur:.1f}s @ {self.rate:.0f}/s)")
 
         t0 = time.monotonic()
         while True:
@@ -280,9 +276,7 @@ class Laser:
         print(f"  ceilings clamped to {self.CEIL_MA:.0f} mA")
 
         self.dev.write_setting("tec_status", 1 if self.USE_TEC else 0, verify=False)
-        print(
-            f"  TEC {'on' if self.USE_TEC else 'OFF (open-loop; room temp-controlled)'}"
-        )
+        print(f"  TEC {'on' if self.USE_TEC else 'OFF (open-loop; room temp-controlled)'}")
 
         _, emW = self.setpoint_to_dbm(self.dev.read_setting("cw_current"))
         print(
@@ -321,9 +315,7 @@ class Laser:
             self.ramp_to(sp)
 
             edbm, emW = self.setpoint_to_dbm(sp)
-            print(
-                f"  raw setpoint {sp:.1f}  (~{emW:.1f} mW / {edbm:+.1f} dBm expected)"
-            )
+            print(f"  raw setpoint {sp:.1f}  (~{emW:.1f} mW / {edbm:+.1f} dBm expected)")
             return
 
         want = float(dbm)
@@ -341,8 +333,7 @@ class Laser:
             f"(~{mW:.1f} mW; measured I {self.measured_mA():.0f} mA)"
         )
 
-    def on(self, power_dbm: float | None = None, *, time: float | None = None,
-           raw: bool = False):
+    def on(self, power_dbm: float | None = None, *, time: float | None = None, raw: bool = False):
         """One-call power-up: open the serial if needed, safely enable the laser (at the
         non-zero floor), and -- if a level is given -- ramp to ``power_dbm`` (dBm, or a
         raw setpoint with ``raw=True``). With ``time=SEC`` it holds that level for SEC
@@ -383,12 +374,8 @@ class Laser:
 def main(argv=None):
     import argparse
 
-    ap = argparse.ArgumentParser(
-        prog="laser.py", description="AeroDiode PDMv5 laser control"
-    )
-    ap.add_argument(
-        "--port", default=None, help="serial device (default: autodetect the FTDI)"
-    )
+    ap = argparse.ArgumentParser(prog="laser.py", description="AeroDiode PDMv5 laser control")
+    ap.add_argument("--port", default=None, help="serial device (default: autodetect the FTDI)")
 
     sub = ap.add_subparsers(dest="cmd", required=True)
 

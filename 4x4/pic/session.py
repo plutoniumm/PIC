@@ -27,13 +27,45 @@ from __future__ import annotations
 
 import os
 import threading
+from pathlib import Path
 import time
 from contextlib import contextmanager
 
 from .devices.laser import Laser
 from .devices.mock import MockLaser
 from .devices.tec import MockTEC, NoTEC, make_tec
+from .config import BAUD_RATE, READY_BANNER, RESET_WAIT_S
 from .interface import PIC, MockPIC, PICError, find_port
+
+
+def _identify(port: str) -> str:
+    """Boot banner -> which instrument is on this port: 'board', 'tec' or 'unknown'.
+
+    Opening a CDC port asserts DTR and resets the Arduino, so this costs the TEC controller
+    a PID restart and about a minute of reconvergence when it guesses wrong. That is the
+    cheaper mistake. The expensive one is `cands[0]`, which this replaces: the TEC enumerates
+    ahead of the board alphabetically and is the same Mega 2560, so the old first-candidate
+    rule opened the temperature controller and addressed it as the mesh driver."""
+    import serial
+
+    banner = ""
+    try:
+        with serial.Serial(port, BAUD_RATE, timeout=1.0) as ser:
+            # the bootloader holds the line for over a second before the sketch runs, so a
+            # single RESET_WAIT_S read races it and reports a live board as unknown
+            deadline = time.time() + 3 * RESET_WAIT_S
+            while time.time() < deadline and READY_BANNER not in banner:
+                time.sleep(0.4)
+                banner += ser.read(ser.in_waiting or 0).decode("ascii", "replace")
+                if "LT8722" in banner or "target temperature" in banner:
+                    break
+    except Exception as e:  # a busy port is a diagnosis, not a mystery
+        return f"unreadable ({type(e).__name__}: {e})"
+    if READY_BANNER in banner:
+        return "board"
+    if "LT8722" in banner or "target temperature" in banner:
+        return "tec"
+    return "unknown"
 
 
 def _resolve_pic_port(explicit, laser_port):
@@ -44,11 +76,59 @@ def _resolve_pic_port(explicit, laser_port):
     if env:
         return env
     _, cands = find_port(None)
-    cands = [c for c in cands if c != laser_port]
+    # /dev/tty.* blocks on carrier detect on macOS and is the same device as its /dev/cu.*
+    # twin, so probing it hangs rather than answering
+    cu = {c for c in cands if c.startswith("/dev/cu.")}
+    cands = [c for c in cands if c in cu or c.replace("/dev/tty.", "/dev/cu.") not in cu]
+    cands = [
+        c for c in cands if c != laser_port and c.replace("/dev/tty.", "/dev/cu.") != laser_port
+    ]
     if not cands:
-        raise PICError("no board serial port found (after excluding the laser). Pass "
-                       "--pic-port or set $PIC4_PORT; is another process holding it?")
-    return cands[0]
+        raise PICError(
+            "no board serial port found (after excluding the laser). Pass "
+            "--pic-port or set $PIC4_PORT; is another process holding it?"
+        )
+    if len(cands) == 1:
+        return cands[0]
+    # The remembered answer is TRUSTED rather than re-checked, because a second look cannot
+    # confirm it. The board prints its banner from `setup()`, and macOS only pulses DTR --
+    # and so only resets the Mega -- on the first open after the device enumerates. Probe it
+    # twice in one run and the second open returns a stale ADC frame with no banner, which
+    # reads exactly like "not the board". Probing also resets the TEC controller, whose
+    # sketch runs a polarity test into the TEC element on every reset. So: discover once,
+    # remember, and do not touch either instrument again. Delete pic_data/.board_port after
+    # re-cabling.
+    cache = Path(__file__).resolve().parent.parent / "pic_data" / ".board_port"
+    try:
+        remembered = cache.read_text().strip()
+    except OSError:
+        remembered = ""
+    if remembered in cands:
+        return remembered  # trusted, not re-probed: see above
+
+    # Two passes, with a settle between. Both Arduinos sit behind one USB hub, and resetting
+    # the TEC -- which opening its port does -- leaves the board's node briefly deaf: it
+    # opens and reads clean but the banner never arrives. A second look after the bus
+    # settles finds it. Probing the board first would dodge this, but which port that is
+    # is exactly what we are trying to work out.
+    seen = {}
+    for attempt in range(2):
+        if attempt:
+            time.sleep(1.5)
+        for c in cands:
+            seen[c] = _identify(c)
+            if seen[c] == "board":
+                try:
+                    cache.parent.mkdir(parents=True, exist_ok=True)
+                    cache.write_text(c)
+                except OSError:
+                    pass  # a read-only tree costs a probe, not a run
+                return c
+    raise PICError(
+        f"no board found among {cands} (identified {seen}). The TEC controller "
+        f"is the same Mega 2560 and must not be driven as the board; set "
+        f"$PIC4_PORT to the one whose banner is {READY_BANNER!r}."
+    )
 
 
 def open_devices(mock=False, laser_port=None, pic_port=None, tec="mock"):
@@ -79,7 +159,8 @@ class _Session:
                 f"laser session watchdog fired at {self.duration_s:.0f} s and forced the "
                 f"laser OFF -- every read after that is dark current, so this run is "
                 f"aborted rather than completed with dark data. Size --duration from the "
-                f"job (see pic.acquisition.estimate_seconds) or pass a larger one.")
+                f"job (see pic.acquisition.estimate_seconds) or pass a larger one."
+            )
 
 
 # Sessions are process-wide singular on this rig -- one laser, one lock -- so the read
@@ -101,9 +182,18 @@ def check_active():
 
 
 @contextmanager
-def laser_session(laser, *, duration_s, power_dbm, tec=None, bfm_off=None, emit_eps=0.05,
-                  read_pds=None, pd_eps=0.02,
-                  require_stable=True):
+def laser_session(
+    laser,
+    *,
+    duration_s,
+    power_dbm,
+    tec=None,
+    bfm_off=None,
+    emit_eps=0.05,
+    read_pds=None,
+    pd_eps=0.02,
+    require_stable=True,
+):
     """Bounded, watchdog-guarded laser-on session. The only copy of the laser safety logic.
 
     On enter: check the chip is at temperature, baseline the monitor photodiode with the
@@ -134,8 +224,10 @@ def laser_session(laser, *, duration_s, power_dbm, tec=None, bfm_off=None, emit_
         s.tripped = True
         with lock:
             try:
-                print(f"\n[watchdog] {duration_s:.0f}s reached -> forcing laser OFF; "
-                      f"the run is aborted, not continued")
+                print(
+                    f"\n[watchdog] {duration_s:.0f}s reached -> forcing laser OFF; "
+                    f"the run is aborted, not continued"
+                )
                 laser.off()
             except Exception as e:
                 print(f"[watchdog] hw_off error: {e}")
@@ -146,7 +238,7 @@ def laser_session(laser, *, duration_s, power_dbm, tec=None, bfm_off=None, emit_
     s.stopped = stopped
     s.tec = tec
     s.bfm_off = _bfm() if bfm_off is None else bfm_off  # laser still off here
-    s.pds_off = None if read_pds is None else read_pds()   # dark baseline on the chip
+    s.pds_off = None if read_pds is None else read_pds()  # dark baseline on the chip
     try:
         with lock:
             laser.on(power_dbm)  # open (idempotent) + enable + ramp, one call
@@ -166,17 +258,32 @@ def laser_session(laser, *, duration_s, power_dbm, tec=None, bfm_off=None, emit_
         # evidence -- if they brighten, light reached the chip, whatever the monitor says.
         if not s.emitted and read_pds is not None and s.pds_off is not None:
             import numpy as _np
-            lit = float(_np.max(_np.asarray(read_pds(), float)
-                                - _np.asarray(s.pds_off, float)))
+
+            lit = float(_np.max(_np.asarray(read_pds(), float) - _np.asarray(s.pds_off, float)))
             if lit > pd_eps:
                 s.emitted = True
-                s.emitted_via = f"chip detectors (+{1e3 * lit:.0f} mV); monitor saw only " \
-                                f"{s.bfm_on - s.bfm_off:+.3f} V"
+                s.emitted_via = (
+                    f"chip detectors (+{1e3 * lit:.0f} mV); monitor saw only "
+                    f"{s.bfm_on - s.bfm_off:+.3f} V"
+                )
         s.chip_c = float("nan") if tec is None else tec.temperature()
 
-        def keepalive(sleep_s: float = 0.0):
-            with lock:
-                laser.dev.write_setting("cw_current", s.sp, verify=False)
+        # Rate-limited, because callers poke it per sample. `characterize` calls it once per
+        # sweep level -- 252 times per channel -- and each call is a serial write to the
+        # PDMv5, whose FTDI drops and re-enumerates under load. With the transport retrying
+        # across a dropout that turned a 1.3 min channel into 20, which is how a 16 min sweep
+        # became 4.6 hours. The job here is only to outrun the driver's idle self-disable, so
+        # a few seconds is as good as a few milliseconds; the safety watchdog is a separate
+        # thread and does not depend on this at all.
+        KEEPALIVE_S = 5.0
+        last = [0.0]
+
+        def keepalive(sleep_s: float = 0.0, force: bool = False):
+            now = time.time()
+            if force or now - last[0] >= KEEPALIVE_S:
+                last[0] = now
+                with lock:
+                    laser.dev.write_setting("cw_current", s.sp, verify=False)
             if sleep_s:
                 time.sleep(sleep_s)
 

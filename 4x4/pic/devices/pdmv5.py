@@ -26,6 +26,18 @@ import math
 import struct
 import time
 
+# What a vanishing USB serial node throws. serial.SerialException subclasses OSError, but on
+# POSIX pyserial lets termios.error through unwrapped, and that is the one that actually
+# surfaced when this adapter re-enumerated mid-sweep. termios does not exist on Windows --
+# importing it unconditionally stopped this whole driver loading there -- and pyserial's
+# Windows backend raises SerialException anyway, so OSError alone covers it.
+try:
+    import termios
+
+    _LINK_ERRORS = (OSError, termios.error)
+except ImportError:
+    _LINK_ERRORS = (OSError,)
+
 # name -> (register id, format).  SETTINGS use write-instr(0x10)+apply / read-instr(0x11).
 SETTINGS = {
     "cw_max_current": (0x3E, "f32"),
@@ -146,27 +158,34 @@ class PDMv5:
     def __exit__(self, *exc):
         self.close()
 
-    def _txn(
-        self, cmd: int, data: bytes = b"", addr: int | None = None, retries: int = 5
-    ):
+    def _txn(self, cmd: int, data: bytes = b"", addr: int | None = None, retries: int = 5):
         a = self.addr if addr is None else addr
         pkt = _frame(a if a is not None else 0, cmd, data)
 
         # FTDI link is flaky and mangles the odd frame; commands are idempotent, so resend
         # on a missing/corrupt reply.
         last = None
-        for _ in range(retries + 1):
-            self.ser.reset_input_buffer()
-            self.ser.write(pkt)
-            self.ser.flush()
+        for attempt in range(retries + 1):
+            try:
+                self.ser.reset_input_buffer()
+                self.ser.write(pkt)
+                self.ser.flush()
+                resp = self._read_frame()
+            except _LINK_ERRORS as e:
+                # This adapter re-enumerates under load: the node stays in /dev, every call
+                # raises "Device not configured" for a second or two, and then it comes back.
+                # Left unhandled that kills an hour-long sweep at whatever minute it happens,
+                # and -- worse -- it kills it inside Rig.close(), so the laser is never told
+                # to switch off. Reopening is the whole recovery; it is the same port.
+                last = f"link dropped ({type(e).__name__}: {e})"
+                self._reopen()
+                time.sleep(0.4 * (attempt + 1))
+                continue
 
-            resp = self._read_frame()
             if resp is not None:
                 _, sts, body = resp
                 if sts != 0x00:
-                    raise PDMv5Error(
-                        f"device error status 0x{sts:02x} for cmd 0x{cmd:02x}"
-                    )
+                    raise PDMv5Error(f"device error status 0x{sts:02x} for cmd 0x{cmd:02x}")
                 return body
 
             last = "no/again bad frame"
@@ -174,8 +193,24 @@ class PDMv5:
 
         raise PDMv5Error(f"no valid response to cmd 0x{cmd:02x} ({last})")
 
+    def _reopen(self):
+        """Close and reopen the port, swallowing whatever the dying handle throws."""
+        import serial
+
+        try:
+            if self.ser is not None:
+                self.ser.close()
+        except Exception:
+            pass
+        try:
+            self.ser = serial.Serial(self.port, BAUD, timeout=self.timeout)
+        except Exception:
+            self.ser = None
+
     def _read_frame(self):
         """Read one [LEN][STS][DATA...][CHK] frame; return (len,sts,data) or None."""
+        if self.ser is None:
+            raise OSError("port is not open")
         head = self.ser.read(1)
         if not head:
             return None
@@ -213,9 +248,7 @@ class PDMv5:
 
         return _decode(fmt, body)
 
-    def write_setting(
-        self, name: str, value, *, apply: bool = True, verify: bool = True
-    ):
+    def write_setting(self, name: str, value, *, apply: bool = True, verify: bool = True):
         rid, fmt = SETTINGS[name]
         try:
             payload = _encode(fmt, value)
@@ -233,9 +266,7 @@ class PDMv5:
         got = self.read_setting(name)
         if fmt == "u8" and int(got) != (int(value) & 0xFF):
             raise PDMv5Error(f"write {name}={value} not honoured (read back {got})")
-        if fmt == "f32" and abs(float(got) - float(value)) > max(
-            0.5, 0.01 * abs(float(value))
-        ):
+        if fmt == "f32" and abs(float(got) - float(value)) > max(0.5, 0.01 * abs(float(value))):
             raise PDMv5Error(f"write {name}={value} not honoured (read back {got})")
 
         return got

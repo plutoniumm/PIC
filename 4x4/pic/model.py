@@ -50,8 +50,11 @@ class TwinModel:
 
     def predict(self, V) -> np.ndarray:
         ph = self.calib.phases(np.asarray(V, float).ravel())
-        inten = self.twin.outputs(
-            self._torch.as_tensor(ph, dtype=self._torch.float32), self.x).detach().numpy()
+        inten = (
+            self.twin.outputs(self._torch.as_tensor(ph, dtype=self._torch.float32), self.x)
+            .detach()
+            .numpy()
+        )
         raw = np.full(NUM_ADC_RAW, self.dark)
         raw[list(OUT_PDS)] = self.calib.to_volts_response(inten)
         return raw
@@ -70,8 +73,9 @@ class MockModel(TwinModel):
         from theory.calib import Calibration
         from theory.twin import MeshError
 
-        super().__init__(calib=Calibration.sample(seed=seed),
-                         error=MeshError.sample(seed=seed), **kw)
+        super().__init__(
+            calib=Calibration.sample(seed=seed), error=MeshError.sample(seed=seed), **kw
+        )
 
 
 class DpnnModel:
@@ -86,7 +90,8 @@ class DpnnModel:
 
         if not os.path.exists(os.path.join(ckpt, "ckpt.pt")):
             raise FileNotFoundError(
-                f"no checkpoint at {ckpt}/ckpt.pt -- train one with `python -m learn.train_hw`")
+                f"no checkpoint at {ckpt}/ckpt.pt -- train one with `python -m learn.train_hw`"
+            )
         import torch
 
         from learn.dpnn import MODEL_DACS, load_ckpt, make_predict
@@ -94,8 +99,9 @@ class DpnnModel:
         self._torch = torch
         self.model, self.norm, self.buf, self.meta = load_ckpt(ckpt)
         self.channels = np.asarray(self.meta.get("channels", MODEL_DACS), int)
-        self._predict = make_predict(self.model, self.norm, self.buf, op_telemetry, op_port,
-                                     self.channels)
+        self._predict = make_predict(
+            self.model, self.norm, self.buf, op_telemetry, op_port, self.channels
+        )
         self.pds = list(self.meta.get("pds", OUT_PDS))
 
     def predict(self, V, port=None) -> np.ndarray:

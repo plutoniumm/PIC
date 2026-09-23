@@ -29,7 +29,7 @@ from ..config import TEC_SETPOINT_C, TEC_SETTLE_S, TEC_TOLERANCE_C
 # The controller sketch itself ignores anything outside 5..80 C; this is tighter, because
 # below the dew point water condenses on the die and well above room the TEC just saturates.
 T_MIN_C, T_MAX_C = 15.0, 45.0
-DRIVE_MAX_V = 2.0   # LT8722 DAC swing the PID loop is limited to
+DRIVE_MAX_V = 2.0  # LT8722 DAC swing the PID loop is limited to
 CURRENT_LIMIT_A = 1.0
 
 
@@ -53,8 +53,9 @@ class TEC:
     def target(self, c: float):
         c = float(c)
         if not T_MIN_C <= c <= T_MAX_C:
-            raise TECError(f"setpoint {c:.1f} C outside the safe band "
-                           f"{T_MIN_C:.0f}..{T_MAX_C:.0f} C")
+            raise TECError(
+                f"setpoint {c:.1f} C outside the safe band " f"{T_MIN_C:.0f}..{T_MAX_C:.0f} C"
+            )
         self._setpoint = c
         if self.is_open:
             self._write(c)
@@ -89,8 +90,10 @@ class TEC:
             if self.stable:
                 return time.time() - t0
             time.sleep(poll_s)
-        raise TECError(f"chip did not reach {self._setpoint:.2f} +/- {self.tolerance:.2f} C "
-                       f"within {timeout_s:.0f} s (now {self.temperature():.2f} C)")
+        raise TECError(
+            f"chip did not reach {self._setpoint:.2f} +/- {self.tolerance:.2f} C "
+            f"within {timeout_s:.0f} s (now {self.temperature():.2f} C)"
+        )
 
     def __enter__(self):
         return self.open()
@@ -99,8 +102,12 @@ class TEC:
         self.close()
 
     def status(self) -> dict:
-        return {"setpoint_c": self._setpoint, "temperature_c": self.temperature(),
-                "tolerance_c": self.tolerance, "stable": self.stable}
+        return {
+            "setpoint_c": self._setpoint,
+            "temperature_c": self.temperature(),
+            "tolerance_c": self.tolerance,
+            "stable": self.stable,
+        }
 
 
 class SerialTEC(TEC):
@@ -158,7 +165,7 @@ class SerialTEC(TEC):
         while time.time() < deadline:
             raw = self.ser.readline().decode("utf-8", "ignore").strip()
             if not raw:
-                continue          # a read timeout, not the end of the stream
+                continue  # a read timeout, not the end of the stream
             parts = raw.split(",")
             if len(parts) == 3:
                 try:
@@ -166,7 +173,7 @@ class SerialTEC(TEC):
                 except ValueError:
                     continue
                 if self.ser.in_waiting == 0:
-                    break         # caught up, and we have a real sample
+                    break  # caught up, and we have a real sample
             # Anything else is the sketch's boot banner ("Starting LT8722...", "Enter target
             # temperature:"). Opening the port resets the Arduino, so those two lines arrive
             # before any telemetry does -- giving up on them meant every freshly-opened
@@ -193,8 +200,7 @@ class SerialTEC(TEC):
 class MockTEC(TEC):
     """First-order thermal model. Settles in real time so `wait_stable` is exercised."""
 
-    def __init__(self, ambient_c: float = 23.0, tau_s: float = 8.0, noise_c: float = 0.005,
-                 **kw):
+    def __init__(self, ambient_c: float = 23.0, tau_s: float = 8.0, noise_c: float = 0.005, **kw):
         self.ambient, self.tau, self.noise = float(ambient_c), float(tau_s), float(noise_c)
         self._rng = np.random.default_rng(0)
         self._t = self.ambient

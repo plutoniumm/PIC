@@ -32,8 +32,21 @@ from __future__ import annotations
 import numpy as np
 
 from theory.layout import (  # noqa: F401  (re-exported: this is the one layout import)
-    ACTIVE_IDX, ALPHA_IDX, AUX_IDX, HEATERS, N_HEATERS, PHI_IDX, THETA_IDX,
-    Heater, describe, pack, sweep_columns, unpack,
+    ACTIVE_IDX,
+    ALPHA_IDX,
+    AUX_IDX,
+    HEATERS,
+    MIRROR_DACS,
+    MIRROR_OF,
+    N_HEATERS,
+    N_PHYSICAL_HEATERS,
+    PHI_IDX,
+    THETA_IDX,
+    Heater,
+    describe,
+    pack,
+    sweep_columns,
+    unpack,
 )
 
 from .config import WIRED_DACS
@@ -46,7 +59,7 @@ from .config import WIRED_DACS
 # Two layouts is one too many. This module now re-exports the measured one.
 HEATER_OF_DAC = np.arange(N_HEATERS)
 DAC_OF_HEATER = np.arange(N_HEATERS)
-VERIFIED = True   # the six internal phase shifters are measured, not assumed
+VERIFIED = True  # the six internal phase shifters are measured, not assumed
 
 ACTIVE_DACS = np.sort(DAC_OF_HEATER[ACTIVE_IDX])
 AUX_DACS = np.sort(DAC_OF_HEATER[AUX_IDX])

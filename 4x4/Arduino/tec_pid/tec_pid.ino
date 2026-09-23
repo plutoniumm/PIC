@@ -25,7 +25,9 @@ const uint8_t ADDR_UV_CLAMP = 0x0C;
 // 3. TEC DRIVER LIMITS
 // =======================================================
 
-const uint32_t POS_CURRENT_1A  = 0x000001B5;
+// ILIMP = 6.8 A - code * 13.28 mA (datasheet Eq. 9). 0x1B5 was +0.997 A; raised to +2.006 A
+// on 2026-09-23 (the loop sat in current limit, STATUS bit 1). LT8722 rating is 4 A.
+const uint32_t POS_CURRENT_2A  = 0x00000169;
 // Eq. 10 is ILIMN = code * -13.28 mA, NOT Eq. 9's downward scale, so 0x1B5 is -5.80 A --
 // past the part's own -4.5 A sink rating. 0x4B (75) is the -1 A this constant claims.
 const uint32_t NEG_CURRENT_1A  = 0x0000004B;
@@ -33,13 +35,18 @@ const uint32_t NEG_CURRENT_1A  = 0x0000004B;
 const uint32_t VOLT_CLAMP_6V   = 0x00000004;
 const uint32_t VOLT_CLAMP_0V   = 0x0000000F;
 
-const uint32_t CMD_STARTUP_PWM = 0x00000017;
+// SPIS_COMMAND is 22 bits and was written as a bare 0x17, which also cleared VCC_VREG (VCC
+// 3.1 V, only valid with an externally overdriven VCC), SW_VC_INT (minimum inductor current)
+// and PWR_LIM (2 W). Keep the datasheet default 0x08A214 and set only the enable bits.
+const uint32_t CMD_DEFAULT     = 0x0008A214;
+const uint32_t CMD_ENABLE      = CMD_DEFAULT | 0x1;  // ENABLE_REQ: VCC LDO + linear stage
+const uint32_t CMD_STARTUP_PWM = CMD_DEFAULT | 0x3;  // + SWEN_REQ: PWM switching
 
 // =======================================================
 // 4. DAC SCALING
 // =======================================================
 
-const double DAC_MAX = 2.0;
+const double DAC_MAX = 5.0;  // was 2.0: railed under any heater load (2026-09-23)
 const double REF_VOLTAGE = 3.0;
 const double INTERNAL_GAIN = 16.0;
 const double GAIN_ADJUST = 0.42;   // calibrated
@@ -69,7 +76,10 @@ double Setpoint = 25.0;
 double Input;
 double Output;
 
-PID tecPID(&Input, &Output, &Setpoint, 5, 0, 0, REVERSE);
+// Kp alone left a steady error of drive/Kp: holding the die took +1.63 V, so it sat 0.33 C
+// warm at 25.31 and never reached 25.00. Ki trims that away; PID_v1 clamps the integral to
+// the output limits, so it cannot wind up while the drive is at its cap.
+PID tecPID(&Input, &Output, &Setpoint, 5, 0.1, 0, REVERSE);
 
 // =======================================================
 // 7. CRC FUNCTION
@@ -217,22 +227,28 @@ void setup()
 
     Serial.println("Starting LT8722...");
 
-    lt8722_write(ADDR_COMMAND, 0x00000001);
+    // Datasheet start-up sequence (LT8722 Rev. B, "Enable and startup sequence")
+    lt8722_write(ADDR_COMMAND, CMD_ENABLE);
     delay(10);
-
-    lt8722_write(ADDR_STATUS, 0x00000000);
-
-    lt8722_write(ADDR_ILIMP, POS_CURRENT_1A);
+    lt8722_write(ADDR_DAC, 0xFF000000);  // LDR to GND when the linear stage turns on
+    lt8722_write(ADDR_ILIMP, POS_CURRENT_2A);
     lt8722_write(ADDR_ILIMN, NEG_CURRENT_1A);
-
     lt8722_write(ADDR_OV_CLAMP, VOLT_CLAMP_6V);
     lt8722_write(ADDR_UV_CLAMP, VOLT_CLAMP_0V);
-
+    lt8722_write(ADDR_STATUS, 0x00000000);  // clear latched faults: enables the linear stage
+    delay(2);
+    // ramp 0xFF000000 -> 0 over >= 5 ms so both outputs rise together to VIN/2
+    for (int32_t c = (int32_t)0xFF000000; c < 0; c += 0x40000) {
+        lt8722_write(ADDR_DAC, (uint32_t)c);
+        delayMicroseconds(100);
+    }
+    lt8722_write(ADDR_DAC, 0x00000000);
     lt8722_write(ADDR_COMMAND, CMD_STARTUP_PWM);
     delay(10);
     Serial.print("STATUS  0x"); Serial.println(lt8722_read(ADDR_STATUS), HEX);
     Serial.print("COMMAND 0x"); Serial.println(lt8722_read(ADDR_COMMAND), HEX);
     Serial.print("ILIMN   0x"); Serial.println(lt8722_read(ADDR_ILIMN), HEX);
+    Serial.print("ILIMP   0x"); Serial.println(lt8722_read(ADDR_ILIMP), HEX);
 
     // start at zero TEC current
     updateLT8722_DAC(0.0); //was 2.5
@@ -291,6 +307,15 @@ void loop()
             Serial.print("New Target: ");
             Serial.println(Setpoint);
         }
+    }
+    // STATUS every 5 s: a latched fault silently disables the output stage, and nothing
+    // else on this line would show it. Fault bits are 4..10; bit 0 is PWM switching.
+    static unsigned long lastStatus = 0;
+    if (millis() - lastStatus > 5000)
+    {
+        lastStatus = millis();
+        Serial.print("STATUS 0x");
+        Serial.println(lt8722_read(ADDR_STATUS), HEX);
     }
     tecPID.Compute();
 

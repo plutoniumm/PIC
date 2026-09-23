@@ -89,20 +89,24 @@ def assert_firmware_vmax(board, host=VOLTAGE_MAX_CH, tol_v: float = FIRMWARE_VMA
                 raise FirmwareMismatch(
                     f"firmware reports {fw.size} VMAX entries, the host has {host.size}. "
                     f"NUM_DAC disagrees between pic/config.py and "
-                    f"Arduino/pic4x4/pic4x4.ino; reflash the firmware.")
+                    f"Arduino/pic4x4/pic4x4.ino; reflash the firmware."
+                )
             bad = np.flatnonzero(np.abs(fw - host) > tol_v)
             if bad.size:
-                rows = "\n".join(f"    ch{int(i):<3} host {host[i]:.2f} V   "
-                                 f"firmware {fw[i]:.2f} V" for i in bad)
+                rows = "\n".join(
+                    f"    ch{int(i):<3} host {host[i]:.2f} V   " f"firmware {fw[i]:.2f} V"
+                    for i in bad
+                )
                 raise FirmwareMismatch(
                     f"the firmware's per-channel clamp disagrees with "
                     f"pic.config.VOLTAGE_MAX_CH on {bad.size} channel(s):\n{rows}\n"
                     f"  The two tables are meant to be identical -- the host commands a "
                     f"voltage and the DAC outputs whichever is smaller, silently. Reflash "
-                    f"Arduino/pic4x4/pic4x4.ino with the table in pic/config.py.")
+                    f"Arduino/pic4x4/pic4x4.ino with the table in pic/config.py."
+                )
             return fw
         if "," in raw and len(raw.split(",")) == board.cfg.num_adc_raw:
-            break                                  # an ADC frame: old firmware, and it wrote
+            break  # an ADC frame: old firmware, and it wrote
     # Whatever it did with `V`, the heaters are not where we think. Best effort, and its
     # own failure must not replace the message that says why we are here.
     try:
@@ -115,11 +119,13 @@ def assert_firmware_vmax(board, host=VOLTAGE_MAX_CH, tol_v: float = FIRMWARE_VMA
         f"the board {saw} to the `V` clamp query, so it is running firmware from before "
         f"that query existed -- and that firmware has just read `V` as a DAC line and "
         f"written every channel from it. {zeroed} Reflash "
-        f"Arduino/pic4x4/pic4x4.ino before running anything.")
+        f"Arduino/pic4x4/pic4x4.ino before running anything."
+    )
 
 
-def assert_calib_temperature(calib, setpoint_c: float = TEC_SETPOINT_C,
-                             tol_c: float = CALIB_TEMP_TOL_C):
+def assert_calib_temperature(
+    calib, setpoint_c: float = TEC_SETPOINT_C, tol_c: float = CALIB_TEMP_TOL_C
+):
     """Refuse to run a calibration that was fitted at a different chip temperature.
 
     Every heater's phi0 is an optical path length, and path length is thermo-optic: a
@@ -134,11 +140,13 @@ def assert_calib_temperature(calib, setpoint_c: float = TEC_SETPOINT_C,
     meta = getattr(calib, "meta", None) or {}
     chip_c = meta.get("chip_c")
     if not meta:
-        return None                    # nominal: no measurement, so nothing to disagree with
+        return None  # nominal: no measurement, so nothing to disagree with
     if chip_c is None or not np.isfinite(float(chip_c)):
-        print(f"  note: the calibration records no chip temperature, so it cannot be "
-              f"checked against the {setpoint_c:.2f} C setpoint. Re-run `./do char --write` "
-              f"to anchor it.")
+        print(
+            f"  note: the calibration records no chip temperature, so it cannot be "
+            f"checked against the {setpoint_c:.2f} C setpoint. Re-run `./do char --write` "
+            f"to anchor it."
+        )
         return None
     chip_c = float(chip_c)
     if abs(chip_c - setpoint_c) > tol_c:
@@ -148,7 +156,8 @@ def assert_calib_temperature(calib, setpoint_c: float = TEC_SETPOINT_C,
             f"tolerance {tol_c:.2f}). Every phi0 in pic_data/calib.json is anchored to "
             f"{chip_c:.2f} C, so running at {setpoint_c:.2f} C applies a uniform thermo-"
             f"optic phase offset across the whole mesh. Recalibrate at the setpoint "
-            f"(`./do char --write`) -- do not edit the constant to match.")
+            f"(`./do char --write`) -- do not edit the constant to match."
+        )
     return chip_c
 
 
@@ -175,6 +184,7 @@ def make_board(spec, port=None, laser_port=None, switch=None):
         return MockPIC(switch=switch)
     if spec == "sim":
         from .sim import BenchPIC
+
         return BenchPIC(switch=switch)
     if spec == "hw":
         return PIC(port=_resolve_pic_port(port, laser_port))
@@ -182,9 +192,20 @@ def make_board(spec, port=None, laser_port=None, switch=None):
 
 
 class Rig:
-    def __init__(self, laser="hw", board="hw", tec="mock", switch="mock", model=None, *,
-                 keep_laser: bool = False,
-                 calib=None, laser_port=None, pic_port=None, dynamic=False):
+    def __init__(
+        self,
+        laser="hw",
+        board="hw",
+        tec="mock",
+        switch="mock",
+        model=None,
+        *,
+        keep_laser: bool = False,
+        calib=None,
+        laser_port=None,
+        pic_port=None,
+        dynamic=False,
+    ):
         self.laser = make_laser(laser, laser_port)
         self.tec = make_tec(tec)
         self.switch = make_switch(switch)
@@ -194,12 +215,14 @@ class Rig:
         self.board = None  # opened lazily so the board port can exclude the laser's
         if isinstance(model, str):  # lazy so `import pic` stays torch-free
             from .model import make_model
+
             model = make_model(model)
         self.model = model
         self._calib = calib
         self._mask = out_mask()
         self._twin = None
         from .drift import DriftTracker
+
         self.drift = DriftTracker(self, enabled=dynamic)
 
     @property
@@ -208,6 +231,7 @@ class Rig:
         drive the chip but not to program a target accurately."""
         if self._calib is None:
             from theory.calib import Calibration
+
             self._calib = Calibration.load_or_nominal()
         return self._calib
 
@@ -217,6 +241,7 @@ class Rig:
         in torch, and `import pic` stays torch-free."""
         if self._twin is None:
             from theory.twin import Twin
+
             self._twin = Twin()
         return self._twin
 
@@ -224,8 +249,10 @@ class Rig:
         self.laser.open()
         self._laser_was_on = bool(getattr(self.laser, "is_on", lambda: False)())
         if self._laser_was_on and not self.keep_laser:
-            print("  note: laser was already on; it will be turned off on exit "
-                  "(pass --keep-laser to leave it lit)")
+            print(
+                "  note: laser was already on; it will be turned off on exit "
+                "(pass --keep-laser to leave it lit)"
+            )
         self.tec.open()
         self.switch.open()
         laser_port = getattr(getattr(self.laser, "dev", None), "port", None)
@@ -239,10 +266,12 @@ class Rig:
         # this is the one moment where finding out costs nothing.
         caps = self.board.capabilities()
         if not caps.get("sweep"):
-            print("  note: this firmware has no batched sweep, so a four-port sweep costs "
-                  "4 x repeats round trips instead of one. Reflash "
-                  "Arduino/pic4x4/pic4x4.ino to get it.")
-        if hasattr(self.switch, "attach"):   # board-routed switch: it needs the open board
+            print(
+                "  note: this firmware has no batched sweep, so a four-port sweep costs "
+                "4 x repeats round trips instead of one. Reflash "
+                "Arduino/pic4x4/pic4x4.ino to get it."
+            )
+        if hasattr(self.switch, "attach"):  # board-routed switch: it needs the open board
             self.switch.attach(self.board)
         return self
 
@@ -259,13 +288,18 @@ class Rig:
         moment as the TEC settle gate so that every hardware entry point -- all of them open
         a session -- is covered by both."""
         assert_calib_temperature(self.calib, self.tec.target)
-        return laser_session(self.laser, duration_s=duration_s, power_dbm=power_dbm,
-                             tec=self.tec,
-                             read_pds=lambda: self.outputs(np.zeros(N_HEATERS)), **kw)
+        return laser_session(
+            self.laser,
+            duration_s=duration_s,
+            power_dbm=power_dbm,
+            tec=self.tec,
+            read_pds=lambda: self.outputs(np.zeros(N_HEATERS)),
+            **kw,
+        )
 
     def measure(self, v) -> np.ndarray:
         """Set the 18 DAC volts, return the raw photodiode volts."""
-        check_active()   # a read after the watchdog trip is dark current, not a measurement
+        check_active()  # a read after the watchdog trip is dark current, not a measurement
         return self._checked(self.board.measure_raw(v))
 
     def _checked(self, raw) -> np.ndarray:
@@ -275,7 +309,7 @@ class Rig:
         # looks like a perfectly good number, so it has to be caught here -- the alternative
         # was a firmware marker, which would have changed a wire protocol the 6x6 shares.
         y = np.asarray(raw, float)
-        hot = y >= ADC_SAT_V              # (4,) from a read, (4, 4) from a sweep
+        hot = y >= ADC_SAT_V  # (4,) from a read, (4, 4) from a sweep
         if hot.any():
             pds = np.flatnonzero(hot if y.ndim == 1 else hot.any(1))
             raise SaturatedRead(
@@ -283,7 +317,8 @@ class Rig:
                 f"{y[hot].round(4).tolist()} V against a "
                 f"{ADC_REF_V:.2f} V ADC reference -- the converter is clipping and the value "
                 f"is not a measurement. Lower --dbm, or move the firmware to "
-                f"INTERNAL2V56 and set ADC_REF_V to match.")
+                f"INTERNAL2V56 and set ADC_REF_V to match."
+            )
         return raw
 
     @property
@@ -291,8 +326,11 @@ class Rig:
         """Whether a four-port sweep costs one round trip or 4*repeats of them. The cost
         model and the laser watchdog are sized from this, so it asks the board rather than
         assuming, and it is the same gate `sweep_ports` applies."""
-        return (self.board is not None and getattr(self.board, "batched", False)
-                and getattr(self.switch, "port", None) in ("board", "mock"))
+        return (
+            self.board is not None
+            and getattr(self.board, "batched", False)
+            and getattr(self.switch, "port", None) in ("board", "mock")
+        )
 
     def sweep_ports(self, cycles: int = 1, reads: int = 1):
         """A whole four-port sweep in ONE round trip -> raw T[pd, port], or None.
@@ -314,8 +352,8 @@ class Rig:
             return None
         check_active()
         raw = board.sweep_raw(int(cycles), int(reads))
-        check_active()   # a trip mid-sweep would leave the later columns dark
-        self.switch._sel = NMODE - 1        # the firmware leaves the mirror on the last port
+        check_active()  # a trip mid-sweep would leave the later columns dark
+        self.switch._sel = NMODE - 1  # the firmware leaves the mirror on the last port
         return self._checked(np.asarray(raw, float))[self._mask]
 
     def outputs(self, v) -> np.ndarray:
@@ -329,6 +367,7 @@ class Rig:
         has inferred, so what lands on the chip is the target as the chip is *now* rather
         than as it was at calibration."""
         from theory.program import phases_for
+
         return self.calib.volts(self.drift.correct(phases_for(U)), vmax=vmax)
 
     def realize(self, U, vmax: float = VOLTAGE_MAX):
@@ -343,11 +382,13 @@ class Rig:
         return self.model.predict(v)
 
     def status(self) -> dict:
-        return {"laser_on": bool(getattr(self.laser, "is_on", lambda: False)()),
-                "tec": self.tec.status(),
-                "switch": self.switch.status(),
-                "drift": self.drift.status(),
-                "calib": self.calib.meta or "nominal (uncharacterized)"}
+        return {
+            "laser_on": bool(getattr(self.laser, "is_on", lambda: False)()),
+            "tec": self.tec.status(),
+            "switch": self.switch.status(),
+            "drift": self.drift.status(),
+            "calib": self.calib.meta or "nominal (uncharacterized)",
+        }
 
     def close(self):
         try:

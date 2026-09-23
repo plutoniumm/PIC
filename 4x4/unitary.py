@@ -35,35 +35,58 @@ import numpy as np
 
 from pic import Rig
 from pic.acquisition import estimate_sweep_job
-from pic.matvec import (Transfers, bench_box, load_transfers, measure_transfer,
-                        reanchor, rig_probe, run_block)
+from pic.config import mirror_pairs
+from pic.matvec import (
+    Transfers,
+    bench_box,
+    load_transfers,
+    measure_transfer,
+    reanchor,
+    rig_probe,
+    run_block,
+)
 
-K = 2                # tile size: the 4x4 hosts as four 2x2 blocks, nothing bigger fits
+K = 2  # tile size: the 4x4 hosts as four 2x2 blocks, nothing bigger fits
 READOUT = "intensity"  # what the photodiodes return. "field" is the day there is an LO.
-TABLE_STATES = 100   # states in a table measured fresh on the mock chip
+TABLE_STATES = 100  # states in a table measured fresh on the mock chip
 
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--target", default=None,
-                   help="path to a real 4x4 matrix (whitespace text)")
-    p.add_argument("--vectors", default=None,
-                   help="path to 4xN inputs, one column per x (whitespace text)")
-    p.add_argument("--mock", action="store_true",
-                   help="run against the physical mock chip instead of the bench")
-    p.add_argument("--seed", type=int, default=0,
-                   help="seed for the random U/x when no --target/--vectors are given")
+    p.add_argument("--target", default=None, help="path to a real 4x4 matrix (whitespace text)")
+    p.add_argument(
+        "--vectors", default=None, help="path to 4xN inputs, one column per x (whitespace text)"
+    )
+    p.add_argument(
+        "--mock",
+        action="store_true",
+        help="run against the physical mock chip instead of the bench",
+    )
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="seed for the random U/x when no --target/--vectors are given",
+    )
     p.add_argument("--dbm", type=float, default=8.0, help="laser output power")
-    p.add_argument("--repeats", type=int, default=1,
-                   help="photodiode reads averaged per port")
-    p.add_argument("--reanchor", type=int, default=0, metavar="M",
-                   help="re-measure M stored table states and transport the table onto "
-                        "today's chip (~20 s at M=5; M<5 is underdetermined)")
-    p.add_argument("--optical-input", action="store_true",
-                   help="set the input weight with the laser per port, so the multiply "
-                        "happens in light; costs a retune per port")
-    p.add_argument("--tec", default="mock",
-                   help="TEC: 'mock', 'none', or a serial port (hardware only)")
+    p.add_argument("--repeats", type=int, default=1, help="photodiode reads averaged per port")
+    p.add_argument(
+        "--reanchor",
+        type=int,
+        default=0,
+        metavar="M",
+        help="re-measure M stored table states and transport the table onto "
+        "today's chip (~20 s at M=5; M<5 is underdetermined)",
+    )
+    p.add_argument(
+        "--optical-input",
+        action="store_true",
+        help="set the input weight with the laser per port, so the multiply "
+        "happens in light; costs a retune per port",
+    )
+    p.add_argument(
+        "--tec", default="mock", help="TEC: 'mock', 'none', or a serial port (hardware only)"
+    )
     p.add_argument("--laser-port", default=None, help="laser serial port")
     p.add_argument("--pic-port", default=None, help="PIC board serial port")
     return p.parse_args(argv)
@@ -93,9 +116,11 @@ def _hostable(U, X):
     shift, the Sinkhorn diagonals, the table pick, `measured_matrix` -- is real-valued too,
     so a coherent front end is work in `pic.matvec` and not a flag here."""
     if READOUT == "intensity" and (np.iscomplexobj(U) or np.iscomplexobj(X)):
-        sys.exit("complex target: this bench reads intensity, so the phases of U never "
-                 "reach the data and the answer would be (|U|^2)x, not Ux. Pass U.real or "
-                 "np.abs(U), or add a phase reference at the output and set READOUT.")
+        sys.exit(
+            "complex target: this bench reads intensity, so the phases of U never "
+            "reach the data and the answer would be (|U|^2)x, not Ux. Pass U.real or "
+            "np.abs(U), or add a phase reference at the output and set READOUT."
+        )
 
 
 def _targets(a):
@@ -127,8 +152,10 @@ def _table(rig, a, box) -> Transfers:
     if not a.mock:
         tab = load_transfers(calib=rig.calib)
         if tab is None:
-            sys.exit("no measured transfer table on file -- capture one first "
-                     "(scratchpad/raw_capture.py, or `./do char` then a sweep)")
+            sys.exit(
+                "no measured transfer table on file -- capture one first "
+                "(scratchpad/raw_capture.py, or `./do char` then a sweep)"
+            )
         if a.reanchor:
             tab = reanchor(rig, tab, m=a.reanchor, calib=rig.calib, dbm=a.dbm)
         return tab
@@ -136,9 +163,19 @@ def _table(rig, a, box) -> Transfers:
     tr = np.flatnonzero(box.trainable)
     volts = np.zeros((TABLE_STATES, len(box.vmax)))
     volts[:, tr] = np.asarray(box.vmax, float)[tr] * np.sqrt(
-        rng.uniform(0, 1, (TABLE_STATES, tr.size)))
-    probe = rig_probe(rig, rig.calib, power="laser" if a.optical_input else "digital",
-                      dbm=a.dbm, repeats=a.repeats, settle_s=0.0)
+        rng.uniform(0, 1, (TABLE_STATES, tr.size))
+    )
+    # `trainable` is per channel and a bonded pair has two of them, so an independent draw
+    # asks for a state the board cannot hold. The pair is one drive unit.
+    mirror_pairs(volts)
+    probe = rig_probe(
+        rig,
+        rig.calib,
+        power="laser" if a.optical_input else "digital",
+        dbm=a.dbm,
+        repeats=a.repeats,
+        settle_s=0.0,
+    )
     T = np.stack([measure_transfer(probe, v) for v in volts])
     return Transfers(volts, T, None)
 
@@ -153,23 +190,37 @@ def run_ux(a, rig=None, session=True):
     mine = rig is None
     if mine:
         kind = "mock" if a.mock else "hw"
-        rig = Rig(laser=kind, board=kind, switch=kind,
-                  tec="mock" if a.mock else a.tec,
-                  laser_port=a.laser_port, pic_port=a.pic_port).open()
+        rig = Rig(
+            laser=kind,
+            board=kind,
+            switch=kind,
+            tec="mock" if a.mock else a.tec,
+            laser_port=a.laser_port,
+            pic_port=a.pic_port,
+        ).open()
     try:
         box = bench_box(rig.calib)
         # watchdog: the mock table capture is TABLE_STATES sweeps, then four tiles.
         # Over- rather than under-sized by design -- a watchdog that fires early kills
         # the run, one that fires late costs seconds of lit diode.
         states = (TABLE_STATES if a.mock else 0) + 4 + int(a.reanchor)
-        dur = max(90.0, float(estimate_sweep_job(states, repeats=max(1, a.repeats),
-                                                 batched=rig.batched)))
+        dur = max(
+            90.0, float(estimate_sweep_job(states, repeats=max(1, a.repeats), batched=rig.batched))
+        )
 
         def go():
             tab = _table(rig, a, box)
-            return run_block(rig, U, box, k=K, X=X, transfers=tab,
-                             power="laser" if a.optical_input else "digital",
-                             dbm=a.dbm, repeats=a.repeats)
+            return run_block(
+                rig,
+                U,
+                box,
+                k=K,
+                X=X,
+                transfers=tab,
+                power="laser" if a.optical_input else "digital",
+                dbm=a.dbm,
+                repeats=a.repeats,
+            )
 
         if session:
             with rig.session(duration_s=dur, power_dbm=a.dbm):
@@ -185,13 +236,16 @@ def report(res, U, X) -> str:
     Y, Yt = res["Y"], res["Y_true"]
     lines = [f"{'x':<24}{'U x':<24}{'measured':<24}{'err':>7}"]
     for j in range(Y.shape[1]):
-        e = (float(np.linalg.norm(Y[:, j] - Yt[:, j]))
-             / max(float(np.linalg.norm(Yt[:, j])), 1e-12))
-        lines.append(f"{np.array2string(X[:, j], precision=2):<24}"
-                     f"{np.array2string(Yt[:, j], precision=2):<24}"
-                     f"{np.array2string(Y[:, j], precision=2):<24}{e:>7.3f}")
-    lines.append(f"matrix error {res['matrix_err']:.4f} (MEASURED, off the photodiodes)  "
-                 f"vector error {res['vec_err']:.4f}  sign accuracy {res['sign_acc']:.0%}")
+        e = float(np.linalg.norm(Y[:, j] - Yt[:, j])) / max(float(np.linalg.norm(Yt[:, j])), 1e-12)
+        lines.append(
+            f"{np.array2string(X[:, j], precision=2):<24}"
+            f"{np.array2string(Yt[:, j], precision=2):<24}"
+            f"{np.array2string(Y[:, j], precision=2):<24}{e:>7.3f}"
+        )
+    lines.append(
+        f"matrix error {res['matrix_err']:.4f} (MEASURED, off the photodiodes)  "
+        f"vector error {res['vec_err']:.4f}  sign accuracy {res['sign_acc']:.0%}"
+    )
     lines.append(f"cost: {res['cost']}")
     return "\n".join(lines)
 
@@ -202,8 +256,10 @@ def main(argv=None) -> int:
     res = run_ux(a)
     print(report(res, U, X))
     if res["matrix_err"] > 0.05:
-        print(f"\nthe mesh does not host this target: matrix error {res['matrix_err']:.4f} "
-              "is MEASURED and in the MATRIX, not the readout")
+        print(
+            f"\nthe mesh does not host this target: matrix error {res['matrix_err']:.4f} "
+            "is MEASURED and in the MATRIX, not the readout"
+        )
     return 0
 
 

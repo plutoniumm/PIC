@@ -36,7 +36,14 @@ from theory.clements import NMODE
 # The upper edge is measured, not chosen: the six wired channels fit Vpi = 2.3 - 4.6 V
 # against 8000 rows of `mrunal/Combined_Project_Data (1).xlsx` (see `pic.sim.BENCH_VPI`),
 # so the 4.0 V this used to sit at excluded a real channel and pushed its fit onto an alias.
-VPI_MIN, VPI_MAX = 0.4, 6.0
+# 12.0 and not 6.0 since 2026-09-22. The 6.0 was measured off the six channels the bring-up
+# board drove, which fitted 2.3-4.6 V. The first characterization with a working DAC put
+# seven channels at 5.0-5.4, and H10's trace -- 96 -> 189 mV, unmistakably real -- wants a
+# Vpi above 6 and was thrown out for hitting the bound. A band that clips the population it
+# is meant to describe is not a sanity check. It also matters far less now that acceptance
+# is decided by `theory.stat` (amplitude against measured noise, shape by F test) rather
+# than by a plausibility window.
+VPI_MIN, VPI_MAX = 0.4, 12.0
 
 SAMPLES_PER_FRINGE = 4  # the sampling floor a fitted fringe has to clear to be believed
 
@@ -125,9 +132,17 @@ def fit_fringe(v, y, vpi_seeds=None, vmax: float = None):
     for vpi0 in seeds:
         for phi00 in (0.0, np.pi / 2, np.pi, 3 * np.pi / 2):
             try:
-                p, _ = curve_fit(fringe, v, y, p0=[A0, B0, vpi0, phi00], maxfev=4000,
-                                 bounds=([-np.inf, 0.0, VPI_MIN, -4 * np.pi],
-                                         [np.inf, np.inf, VPI_MAX, 4 * np.pi]))
+                p, _ = curve_fit(
+                    fringe,
+                    v,
+                    y,
+                    p0=[A0, B0, vpi0, phi00],
+                    maxfev=4000,
+                    bounds=(
+                        [-np.inf, 0.0, VPI_MIN, -4 * np.pi],
+                        [np.inf, np.inf, VPI_MAX, 4 * np.pi],
+                    ),
+                )
             except (RuntimeError, ValueError):
                 continue
             r = float(np.sqrt(np.mean((fringe(v, *p) - y) ** 2)))
@@ -137,33 +152,54 @@ def fit_fringe(v, y, vpi_seeds=None, vmax: float = None):
         raise RuntimeError("no fringe fit converged")
 
     rmse, (A, B, vpi, phi0) = best
-    if not VPI_MIN * 1.01 <= vpi <= VPI_MAX * 0.99:  # ran to a bound: not a real fringe
-        raise RuntimeError(f"fitted Vpi {vpi:.2f} V ran to the edge of the physical band")
+    # A fit that runs to the Vpi bound used to be refused outright. On this chip that threw
+    # away real channels: H10 modulates 94 mV over its whole range but the arc never turns
+    # over, so no finite Vpi is pinned and the optimiser walks to the edge. The amplitude is
+    # measured, the shape is a cosine, and the phase slope is real -- what is unknown is only
+    # how far past the range the half-wave sits. Return it, flagged, and let the statistical
+    # gates in `theory.stat` decide: they test the amplitude against this detector's measured
+    # noise and the shape against a constant, neither of which cares where Vpi landed.
+    #
+    # `extrapolated` is a LOWER BOUND on Vpi, not a measurement. Anything programming from it
+    # is extrapolating past what was swept.
+    extrapolated = not (VPI_MIN * 1.01 <= vpi <= VPI_MAX * 0.99)
     span = (vmax / vpi) ** 2
     span_max = resolvable_span(v.size)
     if span > span_max:  # an alias, however good the residual looks
-        raise RuntimeError(f"fitted span {span:.0f} pi exceeds what {v.size} levels resolve "
-                           f"({span_max:.0f} pi); sweep more levels")
+        raise RuntimeError(
+            f"fitted span {span:.0f} pi exceeds what {v.size} levels resolve "
+            f"({span_max:.0f} pi); sweep more levels"
+        )
     if B < 0:  # keep B >= 0 and let phi0 carry the flip; see the module docstring
         B, phi0 = -B, phi0 + np.pi
     ss = float(np.sum((y - y.mean()) ** 2))
     return {
-        "A": float(A), "B": float(B), "vpi": float(vpi),
-        "phi0": float(np.mod(phi0, 2 * np.pi)), "rmse": rmse,
+        "A": float(A),
+        "B": float(B),
+        "vpi": float(vpi),
+        "phi0": float(np.mod(phi0, 2 * np.pi)),
+        "rmse": rmse,
         "r2": float(1 - np.sum((fringe(v, A, B, vpi, phi0) - y) ** 2) / ss) if ss > 0 else 0.0,
         "visibility": float(B / A) if A > 0 else 0.0,
         # the fringe in volts, which is what decides whether it is above the readout noise;
         # `visibility` is the same number relative to a mean that may itself be noise
         "amplitude": float(B),
         "span_pi": float((vmax / vpi) ** 2),
+        "extrapolated": bool(extrapolated),
         # residual relative to the fringe amplitude: how well the cosine actually describes
         # this trace, independent of how big the trace was
         "score": float(rmse / max(B, 1e-9)),
     }
 
 
-NO_FIT = {"visibility": 0.0, "amplitude": 0.0, "rmse": float("nan"), "r2": float("nan"),
-          "score": float("inf"), "pd": None}
+NO_FIT = {
+    "visibility": 0.0,
+    "amplitude": 0.0,
+    "rmse": float("nan"),
+    "r2": float("nan"),
+    "score": float("inf"),
+    "pd": None,
+}
 
 # Fringe amplitude, in photodiode volts, a fit has to clear to be a fringe at all.
 #
@@ -179,7 +215,7 @@ NO_FIT = {"visibility": 0.0, "amplitude": 0.0, "rmse": float("nan"), "r2": float
 MIN_AMPLITUDE_V = 0.011
 
 
-MIN_SNR = 6.0   # a fringe must stand this far above its own detector's read noise
+MIN_SNR = 6.0  # a fringe must stand this far above its own detector's read noise
 
 
 def read_noise(pic, n: int = 16, settle_s: float = 1.0) -> np.ndarray:
@@ -209,8 +245,9 @@ def read_noise(pic, n: int = 16, settle_s: float = 1.0) -> np.ndarray:
 STRONG_SNR, STRONG_R2 = 12.0, 0.95
 
 
-def passes(f, min_visibility: float = 0.10, min_amplitude: float = MIN_AMPLITUDE_V,
-           min_r2: float = 0.5) -> bool:
+def passes(
+    f, min_visibility: float = 0.10, min_amplitude: float = MIN_AMPLITUDE_V, min_r2: float = 0.5
+) -> bool:
     """Is this fit trustworthy? The single definition -- `better` ranks with it and
     `characterize` records with it, so a channel accepted while sweeping cannot come out of
     the file rejected. Two copies of this rule is exactly the bug that lost dac9."""
@@ -230,8 +267,9 @@ def passes(f, min_visibility: float = 0.10, min_amplitude: float = MIN_AMPLITUDE
     return f.get("visibility", 0) >= min_visibility
 
 
-def better(a, b, min_visibility: float = 0.10, min_amplitude: float = MIN_AMPLITUDE_V,
-           min_r2: float = 0.5) -> dict:
+def better(
+    a, b, min_visibility: float = 0.10, min_amplitude: float = MIN_AMPLITUDE_V, min_r2: float = 0.5
+) -> dict:
     """Pick the more trustworthy of two fringe fits.
 
     Contrast is a gate, not a ranking. A big fringe fitted badly is worse than a small one
@@ -244,6 +282,7 @@ def better(a, b, min_visibility: float = 0.10, min_amplitude: float = MIN_AMPLIT
     a cosine it never turns over. Against `pic.sim` all three are needed: contrast alone
     passes 12 channels of 12 that have no heater on them, contrast plus amplitude still
     passes one at r2 = 0.19."""
+
     def ok(f):
         return passes(f, min_visibility, min_amplitude, min_r2)
 
@@ -257,9 +296,16 @@ def better(a, b, min_visibility: float = 0.10, min_amplitude: float = MIN_AMPLIT
     return a if a.get("snr", 0) >= b.get("snr", 0) else b
 
 
-def best_fringe(levels, curves, pds=None, min_visibility: float = 0.10,
-                min_amplitude: float = MIN_AMPLITUDE_V, min_r2: float = 0.5,
-                noise=None, vmax: float = None) -> dict:
+def best_fringe(
+    levels,
+    curves,
+    pds=None,
+    min_visibility: float = 0.10,
+    min_amplitude: float = MIN_AMPLITUDE_V,
+    min_r2: float = 0.5,
+    noise=None,
+    vmax: float = None,
+) -> dict:
     """Fit one heater's sweep against every detector it was recorded on, keep the best.
     `curves` is (levels, n_detectors). `vmax` is the channel's own voltage ceiling and is
     passed straight to `fit_fringe`; leaving it None uses the swept top, which is the same
@@ -319,8 +365,11 @@ def random_bases(n: int, rng=None, channels=None, vmax=None):
 
     rng = _np.random.default_rng(0) if rng is None else rng
     channels = ACTIVE_DACS if channels is None else _np.asarray(channels, int)
-    hi = (_np.asarray(VOLTAGE_MAX_CH, float)[channels] if vmax is None
-          else _np.full(channels.size, float(vmax)))
+    hi = (
+        _np.asarray(VOLTAGE_MAX_CH, float)[channels]
+        if vmax is None
+        else _np.full(channels.size, float(vmax))
+    )
     out = [_np.zeros(N_HEATERS)]
     for _ in range(max(0, n - 1)):
         v = _np.zeros(N_HEATERS)
@@ -350,8 +399,7 @@ def sensitive_base(dac, calib, fitted, tries=3000, seed=0):
 
     twin = Twin()
     rng = _np.random.default_rng(seed)
-    movable = [int(c) for c in fitted
-               if VOLTAGE_MAX_CH[int(c)] > 0 and int(c) != int(dac)]
+    movable = [int(c) for c in fitted if VOLTAGE_MAX_CH[int(c)] > 0 and int(c) != int(dac)]
     if not movable:
         return _np.zeros(N_HEATERS), 0.0
     hi = _np.asarray([VOLTAGE_MAX_CH[c] for c in movable], float)
@@ -405,7 +453,7 @@ def open_base(calib, fitted, target=None, tries=4000, seed=0):
         if T is None:
             U = twin.matrix(torch.as_tensor(calib.phases(v)))
             T = (U.abs() ** 2).detach().numpy()
-        score = float(_np.min(T))          # worst (output, port) pair
+        score = float(_np.min(T))  # worst (output, port) pair
         if score > best_score:
             best, best_score = v, score
     return best
@@ -432,17 +480,30 @@ def transparent_base(dac, calib, vmax=None):
         if h.role != "theta" or h.column >= col or vmax[h.h] <= 0:
             continue
         ph = calib.phi0[h.h]
-        target = 2 * np.pi * np.round(ph / (2 * np.pi))     # nearest bar state
+        target = 2 * np.pi * np.round(ph / (2 * np.pi))  # nearest bar state
         cand = np.linspace(0.0, vmax[h.h], 64)
         got = np.pi * (cand / calib.vpi[h.h]) ** 2 + ph
         v[h.h] = cand[int(np.argmin(np.abs(got - target)))]
     return v
 
 
-def characterize(pic, session, *, pd=None, levels=None, channels=None, bases=None,
-                 switch=None, ports=None, settle_s: float = 0.5, repeats: int = 5,
-                 min_visibility: float = 0.10, min_amplitude: float = MIN_AMPLITUDE_V,
-                 min_r2: float = 0.5, verbose: bool = True):
+def characterize(
+    pic,
+    session,
+    *,
+    pd=None,
+    levels=None,
+    channels=None,
+    bases=None,
+    switch=None,
+    ports=None,
+    settle_s: float = 0.5,
+    repeats: int = 5,
+    min_visibility: float = 0.10,
+    min_amplitude: float = MIN_AMPLITUDE_V,
+    min_r2: float = 0.5,
+    verbose: bool = True,
+):
     """Sweep every active heater and fit its fringe.
 
     With `pd=None` each heater is fitted against all four outputs and the one it modulates
@@ -480,23 +541,24 @@ def characterize(pic, session, *, pd=None, levels=None, channels=None, bases=Non
         # The grid stays uniform in V^2 under any scaling, so the sampling argument holds.
         vmax = VOLTAGE_MAX_CH[int(c)]
         if vmax <= 0:
-            return None                       # nothing to sweep; do not invent an axis
+            return None  # nothing to sweep; do not invent an axis
         top = float(base_levels.max())
         return base_levels if top <= 0 else base_levels * (vmax / top)
 
     levels = base_levels
     channels = ACTIVE_DACS if channels is None else np.asarray(channels, int)
     bases = random_bases(3, channels=channels) if bases is None else list(bases)
-    ports = ([None] if switch is None
-             else list(range(NMODE)) if ports is None else list(ports))
+    ports = [None] if switch is None else list(range(NMODE)) if ports is None else list(ports)
     role = LABEL_OF_DAC
 
     vpi = np.full(N_HEATERS, VPI_NOMINAL)
     phi0 = np.zeros(N_HEATERS)
     noise = read_noise(pic)[pds]
     if verbose:
-        print("  read noise per detector (mV): "
-              + "  ".join(f"PD{p}:{1e3 * n:.1f}" for p, n in zip(pds, noise)))
+        print(
+            "  read noise per detector (mV): "
+            + "  ".join(f"PD{p}:{1e3 * n:.1f}" for p, n in zip(pds, noise))
+        )
     results, raw = {}, {}
     truncated = False
     # A watchdog trip aborts mid-channel rather than finishing it: `settled_read` raises
@@ -511,8 +573,10 @@ def characterize(pic, session, *, pd=None, levels=None, channels=None, bases=Non
                 # channels already in `results` are all fully lit.
                 truncated = "watchdog deadline reached between channels"
                 if verbose:
-                    print("  watchdog reached; keeping the partial characterization "
-                          "(every channel below was swept before the deadline).")
+                    print(
+                        "  watchdog reached; keeping the partial characterization "
+                        "(every channel below was swept before the deadline)."
+                    )
                 break
             levels = levels_for(c)
             if levels is None:
@@ -550,8 +614,16 @@ def characterize(pic, session, *, pd=None, levels=None, channels=None, bases=Non
                     raw_c[pi, bi] = ys
                     depth = ys.max(axis=0) - ys.min(axis=0)
                     fp[pi] = depth if np.isnan(fp[pi]).all() else np.fmax(fp[pi], depth)
-                    g = best_fringe(levels, ys, pds, min_visibility, min_amplitude,
-                                    min_r2, noise=noise, vmax=VOLTAGE_MAX_CH[int(c)])
+                    g = best_fringe(
+                        levels,
+                        ys,
+                        pds,
+                        min_visibility,
+                        min_amplitude,
+                        min_r2,
+                        noise=noise,
+                        vmax=VOLTAGE_MAX_CH[int(c)],
+                    )
                     g["base"], g["port"] = bi, port
                     f = better(g, f, min_visibility, min_amplitude, min_r2)
             # One gate, not two. This used to re-derive `ok` with its own copy of the rule, so
@@ -574,41 +646,58 @@ def characterize(pic, session, *, pd=None, levels=None, channels=None, bases=Non
                 vpi[c], phi0[c] = f["vpi"], f["phi0"]
             results[int(c)] = f
             if verbose:
-                print(f"  {role[int(c)]:<14} PD{f.get('pd')} port{f.get('port')} base{f.get('base')}  "
-                      f"vis {f['visibility']:.3f}  amp {1e3 * f.get('amplitude', 0):5.1f}mV  "
-                      f"r2 {f.get('r2', 0):+.3f}  "
-                      f"Vpi {f.get('vpi', float('nan')):.2f}  "
-                      f"{'ok' if f['ok'] else 'REJECTED (invisible in intensity)'}")
+                print(
+                    f"  {role[int(c)]:<14} PD{f.get('pd')} port{f.get('port')} base{f.get('base')}  "
+                    f"vis {f['visibility']:.3f}  amp {1e3 * f.get('amplitude', 0):5.1f}mV  "
+                    f"r2 {f.get('r2', 0):+.3f}  "
+                    f"Vpi {f.get('vpi', float('nan')):.2f}  "
+                    f"{'ok' if f['ok'] else 'REJECTED (invisible in intensity)'}"
+                )
     except WatchdogTripped as e:
         truncated = "watchdog tripped mid-sweep"
         if verbose:
             print(f"\n  {e}")
-            print(f"  keeping the {len(results)} channel(s) completed before the trip; "
-                  f"the channel in flight is discarded.")
+            print(
+                f"  keeping the {len(results)} channel(s) completed before the trip; "
+                f"the channel in flight is discarded."
+            )
 
     n_ok = sum(r["ok"] for r in results.values())
-    calib = Calibration(vpi, phi0, meta={
-        "source": "pic.characterize.characterize",
-        "pds": pds, "n_bases": len(bases), "ports": ports,
-        "min_visibility": min_visibility, "min_amplitude": min_amplitude, "min_r2": min_r2,
-        "n_ok": n_ok, "n_swept": len(results),
-        "chip_c": getattr(session, "chip_c", None),
-        # provenance, not decoration: a calibration merged from a truncated run covers
-        # fewer channels than its `ports`/`n_bases` fields imply
-        "truncated": truncated,
-    })
+    calib = Calibration(
+        vpi,
+        phi0,
+        meta={
+            "source": "pic.characterize.characterize",
+            "pds": pds,
+            "n_bases": len(bases),
+            "ports": ports,
+            "min_visibility": min_visibility,
+            "min_amplitude": min_amplitude,
+            "min_r2": min_r2,
+            "n_ok": n_ok,
+            "n_swept": len(results),
+            "chip_c": getattr(session, "chip_c", None),
+            # provenance, not decoration: a calibration merged from a truncated run covers
+            # fewer channels than its `ports`/`n_bases` fields imply
+            "truncated": truncated,
+        },
+    )
     return results, calib
 
 
 def digest(results) -> str:
-    rows = [f"{'heater':<14} {'Vpi':>6} {'phi0/pi':>8} {'vis':>6} {'amp/mV':>7} {'r2':>7} "
-            f"{'span/pi':>8}  ok"]
+    rows = [
+        f"{'heater':<14} {'Vpi':>6} {'phi0/pi':>8} {'vis':>6} {'amp/mV':>7} {'r2':>7} "
+        f"{'span/pi':>8}  ok"
+    ]
     for _, r in sorted(results.items()):
-        rows.append(f"{r['label']:<14} {r.get('vpi', float('nan')):>6.2f} "
-                    f"{r.get('phi0', float('nan')) / np.pi:>8.2f} {r['visibility']:>6.3f} "
-                    f"{1e3 * r.get('amplitude', 0):>7.1f} "
-                    f"{r.get('r2', float('nan')):>+7.3f} {r.get('span_pi', float('nan')):>8.1f}"
-                    f"  {'y' if r['ok'] else 'n'}")
+        rows.append(
+            f"{r['label']:<14} {r.get('vpi', float('nan')):>6.2f} "
+            f"{r.get('phi0', float('nan')) / np.pi:>8.2f} {r['visibility']:>6.3f} "
+            f"{1e3 * r.get('amplitude', 0):>7.1f} "
+            f"{r.get('r2', float('nan')):>+7.3f} {r.get('span_pi', float('nan')):>8.1f}"
+            f"  {'y' if r['ok'] else 'n'}"
+        )
     n_ok = sum(r["ok"] for r in results.values())
     rows.append(f"\n{n_ok}/{len(results)} heaters characterized")
     return "\n".join(rows)

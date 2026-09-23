@@ -67,7 +67,7 @@ case "$cmd" in
     PY="$(need 'import matplotlib' matplotlib)"
     exec env PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PY" "$ROOT/figs.py" "$@"
     ;;
-  selftest|status|measure|tec|recal|calibrate|sync|char|program|dataset|ising|matvec)
+  selftest|status|measure|tec|recal|calibrate|sync|char|fastchar|program|dataset|ising|matvec)
     PY="$(need 'import numpy, scipy' 'numpy+scipy')"
     exec env PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" "$PY" -m pic "$cmd" "$@"
     ;;

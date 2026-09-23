@@ -35,8 +35,13 @@ class OpticalSwitch:
     """Selects which of the four input ports is lit. Ports are 0-indexed here and sent
     1-indexed, matching the unit's own numbering."""
 
-    def __init__(self, port: str, baud: int = SWITCH_BAUD, timeout_s: float = 2.0,
-                 settle_s: float = SWITCH_SETTLE_S):
+    def __init__(
+        self,
+        port: str,
+        baud: int = SWITCH_BAUD,
+        timeout_s: float = 2.0,
+        settle_s: float = SWITCH_SETTLE_S,
+    ):
         self.port, self.baud, self.timeout_s, self.settle_s = port, baud, timeout_s, settle_s
         self.ser = None
         self._sel = None
@@ -202,8 +207,10 @@ class NoSwitch(OpticalSwitch):
 
     def select(self, port: int):
         if int(port) != self._sel:
-            raise SwitchError(f"no optical switch on this rig; the fibre is in port "
-                              f"{self._sel} and moving it is a manual step")
+            raise SwitchError(
+                f"no optical switch on this rig; the fibre is in port "
+                f"{self._sel} and moving it is a manual step"
+            )
         return self._sel
 
     def dark(self):

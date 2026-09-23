@@ -13,10 +13,25 @@ from .program import fidelity, phases_for, refine, unitary_for, volts_for
 
 __all__ = [
     "Calibration",
-    "MESH", "NMODE", "NMZI", "decompose", "reconstruct", "random_unitary",
-    "HEATERS", "N_HEATERS", "ACTIVE_IDX", "pack", "unpack", "sweep_columns",
-    "fidelity", "phases_for", "unitary_for", "volts_for", "refine",
-    "Twin", "MeshError",
+    "MESH",
+    "NMODE",
+    "NMZI",
+    "decompose",
+    "reconstruct",
+    "random_unitary",
+    "HEATERS",
+    "N_HEATERS",
+    "ACTIVE_IDX",
+    "pack",
+    "unpack",
+    "sweep_columns",
+    "fidelity",
+    "phases_for",
+    "unitary_for",
+    "volts_for",
+    "refine",
+    "Twin",
+    "MeshError",
 ]
 
 
@@ -24,5 +39,6 @@ def __getattr__(name):
     """torch-backed pieces load on demand, so `import theory` stays torch-free."""
     if name in ("Twin", "MeshError"):
         from . import twin as _t
+
         return getattr(_t, name)
     raise AttributeError(name)

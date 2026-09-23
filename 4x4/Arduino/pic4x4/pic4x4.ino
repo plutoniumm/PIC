@@ -25,26 +25,49 @@
 // "optimise" it back into setup().
 
 const int NUM_CHIPS = 2;
-const int CS[NUM_CHIPS] = {10, 9};   // chip k drives channels 16k .. 16k+15
+// CS is pin 7 on this board, confirmed at the bench 2026-09-22. It is NOT the 10 that
+// `mrunal/Setup.ino` and `Arduino/pin_check/pin_check.ino` both use -- those describe the
+// original bring-up wiring. Driving 10 leaves the DAC unselected, so it ignores every write
+// and holds every output at 0 V: SPI looks perfectly healthy (there is no readback), the
+// clamp table reads back correctly, and the analog rail draws 0.00 A because nothing is
+// sourcing. That is a whole afternoon of "the heaters do not modulate light".
+const int CS[NUM_CHIPS] = {7, 9};    // chip k drives channels 16k .. 16k+15
 const int NUM_DAC = 16;              // DAC81416 channels, ch0..ch15
 
-// Per-channel ceiling: V = I*R from each heater's own measured resistance at the current
-// limit in pic/config.py (HEATER_MAX_MA). Raised from 30 mA to 40 mA deliberately --
-// span goes as V^2, so this is 1.78x more phase everywhere, and no document gives an
-// absolute maximum to weigh it against. Keep this table and pic.config in step. A single
-// global 3.0 V is WRONG and unsafe: the 60R group draws 52 mA at 3 V. Index is DAC channel.
-// H18/H14/H6 (ch 6, 8, 11) have no confirmed resistance, so they take the SMALLEST
-// staged 1.5 V, not 0.0 and not their group's ceiling. 1.5 V draws 26.6 mA even against the
-// smallest resistance on this board, so it is safe under every hypothesis, and it is enough
-// for pic.resistance to weigh the channel against a known one using the TEC as a
-// calorimeter. Raise to the real I*R ceiling only after that measurement -- 3 V would draw
-// 53 mA if the channel turned out to be 56 ohm. Holding them at 0.0 was self-defeating: a
-// dark channel is never swept, so never characterized, so it stays dark.
+// Per-channel ceiling: V = I*n*R from each heater's own measured resistance at the current
+// limit in pic/config.py (HEATER_MAX_MA = 40), where n is how many DAC channels are bonded
+// onto that heater. Keep this table and pic.config.VOLTAGE_MAX_CH in step element for
+// element -- `pic.rig.assert_firmware_vmax` reads it back over the `V` query on every open
+// and refuses on any disagreement. A single global 3.0 V is WRONG and unsafe: the 57R group
+// draws 52 mA at 3 V on one channel. Index is DAC channel.
+//
+// Rewired 2026-09-22 (mrunal/board_firmware_v2.md): sixteen channels, THIRTEEN heaters.
+// ch2+3, ch4+5 and ch6+7 are each shorted onto one heater, which is why those six entries
+// are equal in pairs and why they are the high ones -- a bonded pair sources 80 mA into
+// 57 ohm, and that is what finally takes H4 past 2 pi. H18, H14 and H6 no longer have a
+// driver and are gone from this table entirely.
+//
+// 50 mA since 2026-09-22, but every 114-119 ohm channel lands on 4.95 and not the 5.7-5.9
+// that 50 mA would want: the DAC cannot exceed DAC_REF, and `setDAC` would not clamp it --
+// code = V * 65535 / DAC_REF overflows a 16-bit unsigned and wraps to a LOW voltage with no
+// error. So those sit near 44 mA. The bonded pairs do reach 50 mA per channel, half the
+// resistance needing half the volts.
+//
+// ch10 (H12) is the one conservative entry. Its resistance is disputed -- 62.3 ohm here and
+// in every prior bench table, 116.8 in the v2 sweep firmware, which is also that firmware's
+// value for H2. The low reading stands: guessing high would put 75 mA through it.
 //        ch:   0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15
-// heater:    H15  H12  H11   H8   H4   H3  H18   H9  H14  H13  H10   H6   H7   H5   H2   H1
+// heater:     H1   H2  H10  H10   H9   H9   H4   H4  H15  H13  H12  H11   H7   H8   H5   H3
 const float VMAX[NUM_DAC] = {
-           4.55, 2.45, 4.75, 4.55, 2.30, 4.50, 1.50, 2.25, 1.50, 4.55, 2.25, 1.50, 4.60, 4.65, 4.65, 4.55
+           4.95, 4.95, 4.95, 4.95, 4.95, 4.95, 4.95, 4.95, 4.95, 4.95, 3.10, 4.95, 4.95, 4.95, 4.95, 4.95
 };
+
+// Channels shorted together on the board. Held here as well as on the host because this is
+// the backstop: two DAC81416 output stages commanded to different voltages drive current
+// into each other, and the host is not the only thing that can write this board.
+const int NUM_PAIRS = 3;
+const int PAIRS[NUM_PAIRS][2] = { {2, 3}, {4, 5}, {6, 7} };
+
 const float DAC_REF = 5.0;           // DAC full-scale reference
 
 // The ADC ran against AVCC (5.0 V) and the photodiodes never come near it: over the
@@ -67,6 +90,46 @@ const float DAC_REF = 5.0;           // DAC full-scale reference
 // Saturation would not: `sat` reports it rather than silently clipping.
 const float ADC_REF_V = 2.56;
 const int NUM_PINS = 4;              // one PD-TIA per mesh output, A0..A3
+
+// Autoranging. The photodiodes use a few percent of a 2.56 V span -- the brightest output
+// measured 158 mV at +5 dBm, which is 63 of 1023 counts, so six of ten bits were being
+// thrown away. The Mega's 1.1 V bandgap is the only lower reference it has and buys 2.33x,
+// a bit and a bit. The frame still goes out in VOLTS, converted against whichever reference
+// was actually used, so the host protocol does not change and nothing upstream has to know.
+//
+// Slack on both edges: step up well before clipping, step down only when the reading would
+// still sit comfortably inside the smaller span. Both references are +-10% part to part, so
+// these are nominal scales and every quantity this rig uses is a ratio within one sweep.
+const float ADC_REFS[] = {1.1, 2.56, 5.0};
+const uint8_t ADC_MODES[] = {INTERNAL1V1, INTERNAL2V56, DEFAULT};
+const int N_ADC_REFS = 3;
+const int RANGE_UP = 950;     // any channel above this: the span is too small
+const int RANGE_DOWN = 330;   // every channel below this: the next span down still fits
+int adcRef = 1;               // start where the old fixed build sat, at 2.56 V
+
+void setAdcRef(int idx) {
+  if (idx < 0) idx = 0;
+  if (idx >= N_ADC_REFS) idx = N_ADC_REFS - 1;
+  if (idx == adcRef) return;
+  adcRef = idx;
+  analogReference(ADC_MODES[adcRef]);
+  for (int n = 0; n < 8; n++) analogRead(0);   // the reference needs settling reads
+}
+
+// Pick a range from one cheap look, before the averaged read that is actually reported.
+void autorange() {
+  for (int pass = 0; pass < N_ADC_REFS; pass++) {
+    int peak = 0;
+    for (int i = 0; i < NUM_PINS; i++) {
+      int v = analogRead(i);
+      if (v > peak) peak = v;
+    }
+    if (peak > RANGE_UP && adcRef < N_ADC_REFS - 1) { setAdcRef(adcRef + 1); continue; }
+    if (peak < RANGE_DOWN && adcRef > 0) { setAdcRef(adcRef - 1); continue; }
+    return;
+  }
+}
+
 const int AVG_N = 16;                // full ADC sweeps averaged per reply. 16 not 5: PD0's
                                      // read noise is ~170x the other detectors', and averaging
                                      // is the only lever that costs nothing but time.
@@ -121,7 +184,7 @@ void setup() {
   SPI.begin();
   SPI.beginTransaction(SPISettings(10000000, MSBFIRST, SPI_MODE1));
 
-  analogReference(INTERNAL2V56);
+  analogReference(ADC_MODES[adcRef]);
   for (int n = 0; n < 8; n++) analogRead(0);          // the mux/reference needs settling reads
   for (int i = 0; i < NUM_DAC; i++) setDAC(i, 0.0);   // known state on reset
   Serial.println("pic4x4 ready");
@@ -149,6 +212,25 @@ void loop() {
     return;
   }
 
+  if (buf[0] == 'Q' || buf[0] == 'q') {              // "Q": ask the switch where it is
+    // The mirror's own answer, passed through verbatim. `selectPort` deliberately discards
+    // replies, so a switch that is unpowered, unplugged or parked open is indistinguishable
+    // from a working one -- and downstream that reads as a dead optical path with no way to
+    // tell which half is at fault. POS is the Sercalo's position query (`mrunal/Sercalo
+    // Optical Switch.pdf` 10.9); silence here is itself the diagnosis.
+    while (Serial1.available()) Serial1.read();
+    Serial1.println("POS");
+    unsigned long t0 = millis();
+    Serial.print("SWITCH ");
+    bool any = false;
+    while (millis() - t0 < 1000) {
+      while (Serial1.available()) { Serial.write(Serial1.read()); any = true; }
+    }
+    if (!any) Serial.print("(no reply)");
+    Serial.println();
+    return;
+  }
+
   if (buf[0] == 'C' || buf[0] == 'c') {              // "C": what this firmware can do
     // A board can carry the `V` table and still predate the batched sweep, so the host
     // cannot infer one capability from the other. Asked before anything is driven, so a
@@ -162,7 +244,8 @@ void loop() {
     Serial.print(" maxcycles="); Serial.print(SWEEP_MAX_CYCLES);
     Serial.print(" maxreads="); Serial.print(SWEEP_MAX_READS);
     Serial.print(" maxframes="); Serial.print(SWEEP_MAX_FRAMES);
-    Serial.print(" switchms="); Serial.println(SWITCH_SETTLE_MS);
+    Serial.print(" switchms="); Serial.print(SWITCH_SETTLE_MS);
+    Serial.print(" adcref="); Serial.println(ADC_REFS[adcRef], 2);
     return;
   }
 
@@ -197,6 +280,11 @@ void loop() {
     values[idx++] = atof(tok);
   for (; idx < NUM_DAC; idx++) values[idx] = 0.0;    // pad a short line
 
+  // Mirror before driving: a bonded pair must reach the DACs as one voltage. The host
+  // refuses a mismatch outright; here the lower channel wins, because a firmware that
+  // rejects a line has no way to tell the caller what it did with the heater.
+  for (int p = 0; p < NUM_PAIRS; p++) values[PAIRS[p][1]] = values[PAIRS[p][0]];
+
   for (int i = 0; i < NUM_DAC; i++) setDAC(i, values[i]);
   readAndSendADC();
 }
@@ -210,12 +298,17 @@ void setDAC(int ch, float voltage) {
   int channel = ch % 16;
 
   digitalWrite(cs, LOW);
-  SPI.transfer(0x10 | channel);            // write + update channel
-  SPI.transfer((code >> 8) & 0xFF);
-  SPI.transfer(code & 0xFF);
-  digitalWrite(cs, HIGH);
-
-  digitalWrite(cs, LOW);                   // power-up / config, every write
+  // Config BEFORE the value, and no 0x05. Both matter, and the old order is why this board
+  // accepted every write and drove nothing.
+  //
+  // 0x05 is SYNCCONFIG: a set bit puts that channel in synchronous update mode, where DAC
+  // data lands in the register and does NOT reach the pin until an LDAC trigger. This wrote
+  // 0xFFFF -- all sixteen channels -- after every single value, and nothing here ever
+  // issues LDAC. The vendor's `mrunal/Setup.ino` never touches 0x05 at all.
+  //
+  // The remaining two stay per-write rather than once in setup(), which is this project's
+  // documented invariant, but they now precede the value the way `configureDAC` does.
+  digitalWrite(cs, LOW);                   // power-up / config
   SPI.transfer(0x03); SPI.transfer(0x00); SPI.transfer(0x84);
   digitalWrite(cs, HIGH);
 
@@ -224,7 +317,9 @@ void setDAC(int ch, float voltage) {
   digitalWrite(cs, HIGH);
 
   digitalWrite(cs, LOW);
-  SPI.transfer(0x05); SPI.transfer(0xFF); SPI.transfer(0xFF);
+  SPI.transfer(0x10 | channel);            // write + update channel
+  SPI.transfer((code >> 8) & 0xFF);
+  SPI.transfer(code & 0xFF);
   digitalWrite(cs, HIGH);
 }
 
@@ -244,10 +339,11 @@ void accumulate(unsigned long* acc, int frames) {
 }
 
 void readAndSendADC() {
+  autorange();
   unsigned long acc[NUM_PINS] = {0};
   accumulate(acc, 1);
   for (int i = 0; i < NUM_PINS; i++) {
-    float mean = ((float)acc[i] / AVG_N / 1023.0) * ADC_REF_V;
+    float mean = ((float)acc[i] / AVG_N / 1023.0) * ADC_REFS[adcRef];
     Serial.print(mean, 5);
     if (i < NUM_PINS - 1) Serial.print(",");
   }
@@ -275,7 +371,7 @@ void readSweep(int cycles, int reads) {
   for (int k = 0; k < NUM_PORTS; k++)
     for (int i = 0; i < NUM_PINS; i++) {
       Serial.print(k == 0 && i == 0 ? ' ' : ',');
-      Serial.print(((float)acc[k][i] / (frames * AVG_N) / 1023.0) * ADC_REF_V, 5);
+      Serial.print(((float)acc[k][i] / (frames * AVG_N) / 1023.0) * ADC_REFS[adcRef], 5);
     }
   Serial.println();
 }

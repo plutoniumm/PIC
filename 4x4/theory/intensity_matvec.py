@@ -75,8 +75,7 @@ from .twin import Twin
 # the first mesh column, which sit on the input rails. `_selftest` checks this rather than
 # assuming it. Fitting them wastes optimiser dimensions and reads as if they mattered.
 _INPUT_PHI = {int(PHI_IDX[k]) for k in range(NMZI) if COLUMN[k] == 0}
-VISIBLE_IDX = np.array(sorted((set(THETA_IDX.tolist()) | set(PHI_IDX.tolist())) - _INPUT_PHI),
-                       int)
+VISIBLE_IDX = np.array(sorted((set(THETA_IDX.tolist()) | set(PHI_IDX.tolist())) - _INPUT_PHI), int)
 
 # From `scan_rails` against pic_data/calib.json and the board's per-channel ceilings. Two
 # numbers pick a rail pair and both matter: the residual, which spans 3e-4 to 1.5 across the
@@ -115,8 +114,9 @@ class HeaterBox:
 
     def __post_init__(self):
         n = N_HEATERS
-        self.vpi = np.where(np.isfinite(self.vpi) & (np.asarray(self.vpi, float) > 0),
-                            self.vpi, VPI_NOMINAL) * np.ones(n)
+        self.vpi = np.where(
+            np.isfinite(self.vpi) & (np.asarray(self.vpi, float) > 0), self.vpi, VPI_NOMINAL
+        ) * np.ones(n)
         self.phi0 = np.nan_to_num(np.asarray(self.phi0, float) * np.ones(n))
         self.vmax = np.clip(np.asarray(self.vmax, float) * np.ones(n), 0.0, None)
         if self.trainable is None:
@@ -125,8 +125,9 @@ class HeaterBox:
         self.trainable = np.asarray(self.trainable, bool) & (self.vmax > 0)
 
     @classmethod
-    def from_calibration(cls, calib: Calibration, vmax=VOLTAGE_MAX, known=None,
-                         visible_only: bool = True) -> "HeaterBox":
+    def from_calibration(
+        cls, calib: Calibration, vmax=VOLTAGE_MAX, known=None, visible_only: bool = True
+    ) -> "HeaterBox":
         """The box the bench is actually in.
 
         `known` defaults to "Vpi is not still sitting exactly at VPI_NOMINAL", which is what
@@ -163,10 +164,14 @@ class HeaterBox:
     def describe(self) -> str:
         rows = [f"{'dac':>3} {'Vpi':>6} {'Vmax':>5} {'span/pi':>8}  free"]
         for i in range(N_HEATERS):
-            rows.append(f"{i:>3} {self.vpi[i]:>6.2f} {self.vmax[i]:>5.2f} "
-                        f"{self.span_pi[i]:>8.3f}  {'y' if self.trainable[i] else 'n'}")
-        rows.append(f"{int(self.trainable.sum())} of {N_HEATERS} channels free; widest span "
-                    f"{self.span_pi[self.trainable].max(initial=0.0):.2f} pi")
+            rows.append(
+                f"{i:>3} {self.vpi[i]:>6.2f} {self.vmax[i]:>5.2f} "
+                f"{self.span_pi[i]:>8.3f}  {'y' if self.trainable[i] else 'n'}"
+            )
+        rows.append(
+            f"{int(self.trainable.sum())} of {N_HEATERS} channels free; widest span "
+            f"{self.span_pi[self.trainable].max(initial=0.0):.2f} pi"
+        )
         return "\n".join(rows)
 
 
@@ -221,18 +226,27 @@ class Program:
 
     volts: np.ndarray
     phases: np.ndarray
-    scale: float          # the mesh hosts scale * A, so divide every reading by it
-    hosted: np.ndarray    # |U|^2 on the rails, as fitted
-    err: float            # relative, scale-invariant
+    scale: float  # the mesh hosts scale * A, so divide every reading by it
+    hosted: np.ndarray  # |U|^2 on the rails, as fitted
+    err: float  # relative, scale-invariant
 
     def __str__(self):
-        return (f"Program(err={self.err:.4f}, scale={self.scale:.4f}, "
-                f"Vmax={self.volts.max():.2f})")
+        return (
+            f"Program(err={self.err:.4f}, scale={self.scale:.4f}, " f"Vmax={self.volts.max():.2f})"
+        )
 
 
-def fit_nonneg(A, box: HeaterBox, twin: Twin | None = None, rails=BEST_RAILS,
-               restarts: int = 16, steps: int = 400, lr: float = 0.15, tol: float = 0.01,
-               seed: int = 0):
+def fit_nonneg(
+    A,
+    box: HeaterBox,
+    twin: Twin | None = None,
+    rails=BEST_RAILS,
+    restarts: int = 16,
+    steps: int = 400,
+    lr: float = 0.15,
+    tol: float = 0.01,
+    seed: int = 0,
+):
     """Heater VOLTS whose hosted |U|^2 block matches nonnegative A up to one scale.
 
     Optimised in voltage space, not phase space: every value the fit can produce is a
@@ -278,12 +292,18 @@ def fit_nonneg(A, box: HeaterBox, twin: Twin | None = None, rails=BEST_RAILS,
     scales = (hosted * A).sum((-2, -1)) / max((A * A).sum(), 1e-18)
     inside = np.flatnonzero(errs <= max(errs.min(), tol))
     k = int(inside[np.argmax(scales[inside])])
-    return Program(v[k].numpy().astype(float), ph[k].numpy().astype(float),
-                   float(scales[k]), hosted[k], float(errs[k]))
+    return Program(
+        v[k].numpy().astype(float),
+        ph[k].numpy().astype(float),
+        float(scales[k]),
+        hosted[k],
+        float(errs[k]),
+    )
 
 
-def scan_rails(A, box: HeaterBox, twin: Twin | None = None, k: int | None = None,
-               tol: float = 0.01, **kw):
+def scan_rails(
+    A, box: HeaterBox, twin: Twin | None = None, k: int | None = None, tol: float = 0.01, **kw
+):
     """Every (out, in) rail pair of size k: feasible ones first, brightest among those.
 
     Worth the passes, and worth ranking on both numbers. On the measured calibration the
@@ -353,8 +373,7 @@ def dither_matvec(twin: Twin, phases, p, rails=BEST_RAILS, n_dither: int = 64, r
     rng = np.random.default_rng() if rng is None else rng
     out, inp = rails
     with torch.no_grad():
-        U = twin.matrix(torch.as_tensor(np.asarray(phases, float),
-                                        dtype=torch.float32)).numpy()
+        U = twin.matrix(torch.as_tensor(np.asarray(phases, float), dtype=torch.float32)).numpy()
     amp = np.sqrt(np.clip(np.asarray(p, float).ravel(), 0.0, None))
     acc = np.zeros(len(out))
     for _ in range(n_dither):
@@ -422,9 +441,17 @@ class MatvecPlan:
         return sum(t.coeff * t.matrix() for t in self.terms) - self.offset
 
 
-def plan_matvec(B, box: HeaterBox, twin: Twin | None = None, rails=None, mode: str = "shift",
-                floor: float = 1e-3, margin: float = 0.25, seed: int = 0,
-                **fit_kw) -> MatvecPlan:
+def plan_matvec(
+    B,
+    box: HeaterBox,
+    twin: Twin | None = None,
+    rails=None,
+    mode: str = "shift",
+    floor: float = 1e-3,
+    margin: float = 0.25,
+    seed: int = 0,
+    **fit_kw,
+) -> MatvecPlan:
     """Signed target B -> the mesh programs that compute it.
 
     Two nonnegative decompositions, and the choice is a read-noise decision, not a
@@ -446,8 +473,10 @@ def plan_matvec(B, box: HeaterBox, twin: Twin | None = None, rails=None, mode: s
     if mode == "split":
         Ap, rp, sp = sinkhorn(np.clip(B, 0, None), floor=floor)
         Am, rm, sm = sinkhorn(np.clip(-B, 0, None), floor=floor)
-        terms = (Term(+1.0, fit_nonneg(Ap, box, twin, rails, seed=seed, **fit_kw), rp, sp),
-                 Term(-1.0, fit_nonneg(Am, box, twin, rails, seed=seed + 1, **fit_kw), rm, sm))
+        terms = (
+            Term(+1.0, fit_nonneg(Ap, box, twin, rails, seed=seed, **fit_kw), rp, sp),
+            Term(-1.0, fit_nonneg(Am, box, twin, rails, seed=seed + 1, **fit_kw), rm, sm),
+        )
         return MatvecPlan(B, rails, mode, terms, 0.0)
     if mode == "shift":
         c = max(0.0, -float(B.min())) + margin * float(np.abs(B).mean())
@@ -464,9 +493,19 @@ def score(y_hat, y):
     return float(err), float(np.mean(np.sign(y_hat) == np.sign(y)))
 
 
-def validate(box: HeaterBox, twin: Twin | None = None, k: int = 2, rails=None, trials: int = 6,
-             noise: float = 0.0, repeats: int = 1, mode: str = "shift", seed: int = 0,
-             plan=None, **fit_kw) -> dict:
+def validate(
+    box: HeaterBox,
+    twin: Twin | None = None,
+    k: int = 2,
+    rails=None,
+    trials: int = 6,
+    noise: float = 0.0,
+    repeats: int = 1,
+    mode: str = "shift",
+    seed: int = 0,
+    plan=None,
+    **fit_kw,
+) -> dict:
     """Twin end-to-end: a random signed B, planned and then read back vector by vector.
 
     Pass `plan` to re-measure one plan at several noise levels without refitting it."""
@@ -483,14 +522,31 @@ def validate(box: HeaterBox, twin: Twin | None = None, k: int = 2, rails=None, t
         errs.append(e)
         signs.append(s)
     m_err, m_sign = score(plan.predict().ravel(), B.ravel())
-    return {"k": k, "rails": plan.rails, "mode": plan.mode, "fit_err": plan.err,
-            "matrix_err": m_err, "matrix_sign": m_sign, "vec_err": float(np.mean(errs)),
-            "sign_acc": float(np.mean(signs)), "noise": noise, "repeats": repeats,
-            "trials": trials, "passes": plan.passes, "plan": plan}
+    return {
+        "k": k,
+        "rails": plan.rails,
+        "mode": plan.mode,
+        "fit_err": plan.err,
+        "matrix_err": m_err,
+        "matrix_sign": m_sign,
+        "vec_err": float(np.mean(errs)),
+        "sign_acc": float(np.mean(signs)),
+        "noise": noise,
+        "repeats": repeats,
+        "trials": trials,
+        "passes": plan.passes,
+        "plan": plan,
+    }
 
 
-def reachability(box: HeaterBox, twin: Twin | None = None, sizes=(2, 3, 4), trials: int = 2,
-                 seed: int = 0, **fit_kw) -> list[dict]:
+def reachability(
+    box: HeaterBox,
+    twin: Twin | None = None,
+    sizes=(2, 3, 4),
+    trials: int = 2,
+    seed: int = 0,
+    **fit_kw,
+) -> list[dict]:
     """What the restriction costs, split into its two causes.
 
     `ideal` is the mesh as designed -- every intensity-visible phase free over 4 pi -- so the
@@ -531,16 +587,31 @@ def _selftest(seed: int = 0):
     ds = float(max(np.abs(A0.sum(0) - 1).max(), np.abs(A0.sum(1) - 1).max()))
 
     # the switched matvec is exact, and the dither converges to it
-    prog = fit_nonneg(sinkhorn(np.abs(rng.normal(size=(2, 2))) + 0.05)[0], box, twin,
-                      BEST_RAILS, restarts=12, steps=300, seed=seed)
+    prog = fit_nonneg(
+        sinkhorn(np.abs(rng.normal(size=(2, 2))) + 0.05)[0],
+        box,
+        twin,
+        BEST_RAILS,
+        restarts=12,
+        steps=300,
+        seed=seed,
+    )
     p = np.abs(rng.normal(size=2)) + 0.1
-    exact = block(twin.matrix(torch.as_tensor(prog.phases, dtype=torch.float32)),
-                  BEST_RAILS).numpy() @ p
+    exact = (
+        block(twin.matrix(torch.as_tensor(prog.phases, dtype=torch.float32)), BEST_RAILS).numpy()
+        @ p
+    )
     sw = nonneg_matvec(twin_probe(twin, box), prog.volts, p, BEST_RAILS)
     switch_err = float(np.abs(sw - exact).max() / max(np.abs(exact).max(), 1e-18))
-    dith = {n: float(np.linalg.norm(dither_matvec(twin, prog.phases, p, BEST_RAILS, n,
-                                                  np.random.default_rng(1)) - exact)
-                     / np.linalg.norm(exact)) for n in (64, 1024)}
+    dith = {
+        n: float(
+            np.linalg.norm(
+                dither_matvec(twin, prog.phases, p, BEST_RAILS, n, np.random.default_rng(1)) - exact
+            )
+            / np.linalg.norm(exact)
+        )
+        for n in (64, 1024)
+    }
 
     # Sinkhorn must actually produce a doubly stochastic factorisation and invert exactly
     Braw = np.abs(rng.normal(size=(3, 3))) + 0.05
@@ -557,51 +628,78 @@ def _selftest(seed: int = 0):
 
     assert blind_move < 1e-9, blind_move
     assert ds < 1e-9, ds
-    assert switch_err < 1e-5, switch_err   # complex64 twin; the scheme itself is exact
+    assert switch_err < 1e-5, switch_err  # complex64 twin; the scheme itself is exact
     assert dith[1024] < dith[64], dith
     assert sink_ds < 1e-9 and sink_inv < 1e-9, (sink_ds, sink_inv)
     assert clean["vec_err"] < 0.05, clean["vec_err"]
     assert clean["sign_acc"] == 1.0, clean["sign_acc"]
-    return {"blind_move": blind_move, "doubly_stochastic": ds, "switch_err": switch_err,
-            "dither": dith, "sinkhorn_ds": sink_ds, "sinkhorn_inv": sink_inv,
-            "clean": clean, "noisy": noisy, "split": split, "box": box,
-            "calibrated": bool(Calibration.load_or_nominal().meta)}
+    return {
+        "blind_move": blind_move,
+        "doubly_stochastic": ds,
+        "switch_err": switch_err,
+        "dither": dith,
+        "sinkhorn_ds": sink_ds,
+        "sinkhorn_inv": sink_inv,
+        "clean": clean,
+        "noisy": noisy,
+        "split": split,
+        "box": box,
+        "calibrated": bool(Calibration.load_or_nominal().meta),
+    }
 
 
 if __name__ == "__main__":
     r = _selftest()
     src = "measured calibration" if r["calibrated"] else "NOMINAL (uncharacterized)"
-    print(f"heater box: {src}, uniform {VOLTAGE_MAX:.0f} V ceiling "
-          f"(the board clamps four channels lower -- see pic.matvec)")
+    print(
+        f"heater box: {src}, uniform {VOLTAGE_MAX:.0f} V ceiling "
+        f"(the board clamps four channels lower -- see pic.matvec)"
+    )
     print(r["box"].describe())
     print(f"\nblind heaters move |U|^2 by  {r['blind_move']:.1e}  (they must not)")
     print(f"|U|^2 doubly stochastic to   {r['doubly_stochastic']:.1e}")
     print(f"switched matvec vs A p       {r['switch_err']:.1e}  (exact: no cross terms)")
-    print(f"coherent dither vs the same  {r['dither'][64]:.3f} at 64, "
-          f"{r['dither'][1024]:.3f} at 1024 shots")
-    print(f"sinkhorn doubly stochastic   {r['sinkhorn_ds']:.1e}, inverts to "
-          f"{r['sinkhorn_inv']:.1e}")
+    print(
+        f"coherent dither vs the same  {r['dither'][64]:.3f} at 64, "
+        f"{r['dither'][1024]:.3f} at 1024 shots"
+    )
+    print(
+        f"sinkhorn doubly stochastic   {r['sinkhorn_ds']:.1e}, inverts to "
+        f"{r['sinkhorn_inv']:.1e}"
+    )
 
     c, n, s = r["clean"], r["noisy"], r["split"]
     plan = c["plan"]
-    print(f"\n2x2 signed matvec on rails out{c['rails'][0]} in{c['rails'][1]}, "
-          f"{c['mode']} decomposition, {c['passes']} reads/vector")
-    print(f"  hosted residual / block brightness   {c['fit_err']:.4f} / "
-          f"{plan.terms[0].prog.scale:.3f}")
+    print(
+        f"\n2x2 signed matvec on rails out{c['rails'][0]} in{c['rails'][1]}, "
+        f"{c['mode']} decomposition, {c['passes']} reads/vector"
+    )
+    print(
+        f"  hosted residual / block brightness   {c['fit_err']:.4f} / "
+        f"{plan.terms[0].prog.scale:.3f}"
+    )
     print(f"  realised matrix vs target B          {c['matrix_err']:.4f}")
     print(f"  vector error / sign, noiseless       {c['vec_err']:.4f} / {c['sign_acc']:.0%}")
     print(f"  vector error / sign, 0.5% read noise {n['vec_err']:.4f} / {n['sign_acc']:.0%}")
-    print(f"  same by the 6x6 split, {s['passes']} reads      "
-          f"{s['vec_err']:.4f} / {s['sign_acc']:.0%}")
-    print("  read noise, amplified by 1/brightness and the Sinkhorn diagonals "
-          "(0.004-0.025 is the bench's measured range; `repeats` buys 1/sqrt(N) back)")
+    print(
+        f"  same by the 6x6 split, {s['passes']} reads      "
+        f"{s['vec_err']:.4f} / {s['sign_acc']:.0%}"
+    )
+    print(
+        "  read noise, amplified by 1/brightness and the Sinkhorn diagonals "
+        "(0.004-0.025 is the bench's measured range; `repeats` buys 1/sqrt(N) back)"
+    )
     for nz in (0.004, 0.012, 0.025):
         v = validate(r["box"], plan=plan, noise=nz, trials=12, seed=1)
-        print(f"    noise {nz:.3f}   vec err {v['vec_err']:.3f}  sign {v['sign_acc']:.0%}"
-              f"   -> {int(np.ceil((v['vec_err'] / 0.05) ** 2))} reads for 5%")
+        print(
+            f"    noise {nz:.3f}   vec err {v['vec_err']:.3f}  sign {v['sign_acc']:.0%}"
+            f"   -> {int(np.ceil((v['vec_err'] / 0.05) ** 2))} reads for 5%"
+        )
 
     print("\nwhat the restriction costs (relative residual of the hosted block)")
     print(f"{'k':>2} {'ideal raw':>10} {'ideal sink':>11} {'box raw':>9} {'box sink':>9}")
     for row in reachability(r["box"], restarts=12, steps=300):
-        print(f"{row['k']:>2} {row['ideal_raw']:>10.3f} {row['ideal_sink']:>11.3f} "
-              f"{row['box_raw']:>9.3f} {row['box_sink']:>9.3f}")
+        print(
+            f"{row['k']:>2} {row['ideal_raw']:>10.3f} {row['ideal_sink']:>11.3f} "
+            f"{row['box_raw']:>9.3f} {row['box_sink']:>9.3f}"
+        )

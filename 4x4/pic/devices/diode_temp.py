@@ -31,8 +31,8 @@ import time
 # wherever it likes: 27.40, 39.91 and 47.65 C on three separate enables in one session, which
 # is why a table captured an hour ago hosted 2.4x worse than one captured before it.
 TARGET_C = 35.0
-TOL_C = 0.10             # hold quality is 0.4 C peak-to-peak near the rail, better inside it
-SETTLE_S = 20.0          # the inner loop is slow; anything faster measures a transient
+TOL_C = 0.10  # hold quality is 0.4 C peak-to-peak near the rail, better inside it
+SETTLE_S = 20.0  # the inner loop is slow; anything faster measures a transient
 MAX_STEPS = 14
 SP_MIN, SP_MAX = 5.0, 65.0
 TEC_CURRENT_MAX = 500.0  # refuse rather than drive the cooler into whatever its limit is
@@ -68,8 +68,13 @@ def measure_gain(dev, step: float = 3.0) -> tuple[float, float]:
     return (t1 - t0) / (sp1 - sp0), sp0
 
 
-def hold(dev, target_c: float = TARGET_C, tol_c: float = TOL_C,
-         max_steps: int = MAX_STEPS, verbose: bool = True) -> float:
+def hold(
+    dev,
+    target_c: float = TARGET_C,
+    tol_c: float = TOL_C,
+    max_steps: int = MAX_STEPS,
+    verbose: bool = True,
+) -> float:
     """Drive the diode to `target_c` and leave it there. Returns the temperature reached.
 
     Secant on the measured gain rather than a fixed step: the inner loop's transfer is
@@ -80,14 +85,17 @@ def hold(dev, target_c: float = TARGET_C, tol_c: float = TOL_C,
     if abs(g) < 0.05:
         raise DiodeTempError(
             f"setpoint moves the diode by only {g:+.3f} C per C -- this unit's TEC cannot be "
-            f"steered from the setpoint, so the hold point cannot be made reproducible")
+            f"steered from the setpoint, so the hold point cannot be made reproducible"
+        )
     for i in range(max_steps):
         t = _settle(dev)
         ic = abs(float(dev.measure("tec_current")))
         if ic > TEC_CURRENT_MAX:
             dev.write_setting("temperature", 25.0, verify=False)
-            raise DiodeTempError(f"tec_current {ic:.0f} over {TEC_CURRENT_MAX:.0f}; "
-                                 f"setpoint returned to 25 and the servo stopped")
+            raise DiodeTempError(
+                f"tec_current {ic:.0f} over {TEC_CURRENT_MAX:.0f}; "
+                f"setpoint returned to 25 and the servo stopped"
+            )
         if verbose:
             print(f"  step {i}: setpoint {sp:.2f} -> diode {t:.3f} C")
         if abs(t - target_c) <= tol_c:
@@ -116,11 +124,17 @@ class PID:
     the sensor is quantised; a D term on this would amplify read noise into setpoint dither.
     """
 
-    def __init__(self, dev, target_c: float = 38.0, kp: float = -0.6, ki: float = -0.08,
-                 period_s: float = 15.0):
+    def __init__(
+        self,
+        dev,
+        target_c: float = 38.0,
+        kp: float = -0.6,
+        ki: float = -0.08,
+        period_s: float = 15.0,
+    ):
         self.dev, self.target, self.kp, self.ki = dev, float(target_c), kp, ki
         self.period = float(period_s)
-        self.i = float(dev.read_setting("temperature"))   # integrator IS the setpoint
+        self.i = float(dev.read_setting("temperature"))  # integrator IS the setpoint
         self._last = 0.0
 
     def step(self) -> tuple[float, float]:
@@ -140,25 +154,38 @@ class PID:
             t, sp = self.step()
             ok = ok + 1 if abs(t - self.target) <= tol_c else 0
             if verbose:
-                print(f"    {time.time()-t0:5.0f}s  diode {t:7.3f}  setpoint {sp:6.2f}"
-                      f"  {'ok' if ok else ''}", flush=True)
+                print(
+                    f"    {time.time()-t0:5.0f}s  diode {t:7.3f}  setpoint {sp:6.2f}"
+                    f"  {'ok' if ok else ''}",
+                    flush=True,
+                )
             if ok >= 3:
                 return t
             time.sleep(self.period)
-        raise DiodeTempError(f"PID did not hold {self.target} C within {tol_c} in "
-                             f"{timeout_s:.0f} s; last {t:.3f} C at setpoint {sp:.2f}")
+        raise DiodeTempError(
+            f"PID did not hold {self.target} C within {tol_c} in "
+            f"{timeout_s:.0f} s; last {t:.3f} C at setpoint {sp:.2f}"
+        )
 
 
 def _selftest():
     class Fake:
         """An inner loop with an unknown offset and gain, exactly like the real one."""
+
         def __init__(self, gain=0.8, offset=11.4):
             self.sp, self.g, self.o = 25.0, gain, offset
-        def read_setting(self, k): return self.sp
-        def write_setting(self, k, v, **kw): self.sp = float(v)
-        def measure(self, k): return self.g * self.sp + self.o
+
+        def read_setting(self, k):
+            return self.sp
+
+        def write_setting(self, k, v, **kw):
+            self.sp = float(v)
+
+        def measure(self, k):
+            return self.g * self.sp + self.o
 
     import builtins
+
     real_sleep, time.sleep = time.sleep, lambda s: None
     try:
         for gain, off in ((0.8, 11.4), (1.0, 2.4), (0.5, 22.0)):
@@ -166,7 +193,7 @@ def _selftest():
             got = hold(d, 25.0, verbose=False)
             assert abs(got - 25.0) <= TOL_C, (gain, off, got)
         print(f"servo reaches 25.00 C within {TOL_C} C for three unknown inner loops")
-        d = Fake(0.0, 39.9)                      # a unit that cannot be steered
+        d = Fake(0.0, 39.9)  # a unit that cannot be steered
         try:
             hold(d, 25.0, verbose=False)
         except DiodeTempError as e:
@@ -174,13 +201,17 @@ def _selftest():
             print("refuses a unit whose setpoint does not move the diode")
         else:
             raise AssertionError("must refuse when the gain is zero")
+
         # the PID has to reach a target the one-shot servo cannot, on a plant that drifts
         class Drifting(Fake):
             def __init__(self, gain, offset, drift):
-                super().__init__(gain, offset); self.d, self.n = drift, 0
+                super().__init__(gain, offset)
+                self.d, self.n = drift, 0
+
             def measure(self, k):
                 self.n += 1
                 return self.g * self.sp + self.o + self.d * self.n
+
         for gain, off, drift in ((-0.9, 62.0, 0.0), (-1.3, 78.0, 0.004), (-0.6, 52.0, -0.003)):
             d = Drifting(gain, off, drift)
             p = PID(d, target_c=38.0, period_s=1.0)

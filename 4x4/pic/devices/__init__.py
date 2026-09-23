@@ -12,7 +12,21 @@ from .switch import MockSwitch, NoSwitch, OpticalSwitch, SwitchError, make_switc
 from .tec import TEC, MockTEC, NoTEC, SerialTEC, TECError, make_tec
 
 __all__ = [
-    "Laser", "LaserError", "MockLaser", "PDMv5", "PDMv5Error", "main",
-    "TEC", "SerialTEC", "MockTEC", "NoTEC", "TECError", "make_tec",
-    "OpticalSwitch", "MockSwitch", "NoSwitch", "SwitchError", "make_switch",
+    "Laser",
+    "LaserError",
+    "MockLaser",
+    "PDMv5",
+    "PDMv5Error",
+    "main",
+    "TEC",
+    "SerialTEC",
+    "MockTEC",
+    "NoTEC",
+    "TECError",
+    "make_tec",
+    "OpticalSwitch",
+    "MockSwitch",
+    "NoSwitch",
+    "SwitchError",
+    "make_switch",
 ]

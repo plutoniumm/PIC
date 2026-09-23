@@ -66,16 +66,17 @@ class MeshError:
         return -10 * np.log10(np.maximum(floor, 1e-18))
 
     def as_tensors(self, dtype=torch.float32):
-        return (torch.as_tensor(self.kappa, dtype=dtype),
-                torch.as_tensor(self.loss_db, dtype=dtype))
+        return (
+            torch.as_tensor(self.kappa, dtype=dtype),
+            torch.as_tensor(self.loss_db, dtype=dtype),
+        )
 
 
 def _coupler(kappa, cdtype):
     """Directional coupler as a 2x2 block: [[t, i r], [i r, t]], t^2 + r^2 = 1."""
     t = torch.sqrt(1 - kappa).to(cdtype)
     r = torch.sqrt(kappa).to(cdtype)
-    return torch.stack([torch.stack([t, 1j * r], -1),
-                        torch.stack([1j * r, t], -1)], -2)
+    return torch.stack([torch.stack([t, 1j * r], -1), torch.stack([1j * r, t], -1)], -2)
 
 
 def _mzi_block(theta, phi, k1, k2, amp, cdtype):
@@ -119,8 +120,14 @@ class Twin:
         lead = ph.shape[:-1]
         U = torch.eye(NMODE, dtype=self.dtype).expand(*lead, NMODE, NMODE).clone()
         for k, (m, n) in enumerate(MESH):
-            blk = _mzi_block(theta[..., k], phi[..., k],
-                             self.kappa[k, 0], self.kappa[k, 1], self.amp[k], self.dtype)
+            blk = _mzi_block(
+                theta[..., k],
+                phi[..., k],
+                self.kappa[k, 0],
+                self.kappa[k, 1],
+                self.amp[k],
+                self.dtype,
+            )
             step = torch.eye(NMODE, dtype=self.dtype).expand(*lead, NMODE, NMODE).clone()
             step[..., m, m], step[..., m, n] = blk[..., 0, 0], blk[..., 0, 1]
             step[..., n, m], step[..., n, n] = blk[..., 1, 0], blk[..., 1, 1]
@@ -177,8 +184,10 @@ def _selftest(seed: int = 0):
 
     phs = np.stack([heater_phases(random_unitary(rng)) for _ in range(7)])
     Ub = twin.matrix(torch.as_tensor(phs)).numpy()
-    worst_batch = max(float(np.abs(Ub[i] - twin.matrix(torch.as_tensor(phs[i])).numpy()).max())
-                      for i in range(len(phs)))
+    worst_batch = max(
+        float(np.abs(Ub[i] - twin.matrix(torch.as_tensor(phs[i])).numpy()).max())
+        for i in range(len(phs))
+    )
     err = Twin(MeshError.sample(seed=1), dtype=torch.complex128)
     Ue = err.matrix(torch.as_tensor(phs[0])).numpy()
     worst_err_unitary = float(np.abs(Ue.conj().T @ Ue - np.eye(NMODE)).max())

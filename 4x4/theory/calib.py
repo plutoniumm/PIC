@@ -30,8 +30,8 @@ NUM_OUT = NMODE
 # so the same phase costs more power. With the board capped at 3 V a heater only reaches a
 # full 2 pi if Vpi <= 2.12 V, which is the first thing a sweep has to confirm.
 VPI_NOMINAL = 1.5
-VOLTAGE_MAX = 3.0   # hard per-channel ceiling of this design, not a bench setting. Host,
-                    # firmware (pic4x4.ino VMAX) and mrunal/Setup.ino all agree at 3.0.
+VOLTAGE_MAX = 3.0  # hard per-channel ceiling of this design, not a bench setting. Host,
+# firmware (pic4x4.ino VMAX) and mrunal/Setup.ino all agree at 3.0.
 
 
 @dataclass
@@ -43,8 +43,12 @@ class Calibration:
     meta: dict = field(default_factory=dict)
 
     def __post_init__(self):
-        for name, n in (("vpi", N_HEATERS), ("phi0", N_HEATERS),
-                        ("pd_gain", NUM_OUT), ("pd_offset", NUM_OUT)):
+        for name, n in (
+            ("vpi", N_HEATERS),
+            ("phi0", N_HEATERS),
+            ("pd_gain", NUM_OUT),
+            ("pd_offset", NUM_OUT),
+        ):
             v = np.asarray(getattr(self, name), float).ravel()
             if v.size != n:
                 raise ValueError(f"{name}: expected {n} values, got {v.size}")
@@ -117,8 +121,10 @@ class Calibration:
         # handing this an (n, 4, 4) would broadcast detector gains onto the wrong axis and
         # return something plausible. Map over the stack instead; the callers all do.
         if raw.ndim != 2 or raw.shape[0] != NUM_OUT:
-            raise ValueError(f"to_transfer takes one ({NUM_OUT}, ports) sweep with detectors "
-                             f"on axis 0, got {raw.shape}")
+            raise ValueError(
+                f"to_transfer takes one ({NUM_OUT}, ports) sweep with detectors "
+                f"on axis 0, got {raw.shape}"
+            )
         off = self.pd_offset if dark is None else np.asarray(dark, float)
         P = np.clip((raw - off[:, None]) / self.pd_gain[:, None], 0.0, None)
         s = P.sum(0, keepdims=True)
@@ -139,20 +145,30 @@ class Calibration:
     def save(self, path=CONFIG_PATH):
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({
-            "vpi": self.vpi.tolist(), "phi0": self.phi0.tolist(),
-            "pd_gain": self.pd_gain.tolist(), "pd_offset": self.pd_offset.tolist(),
-            "meta": self.meta,
-        }, indent=2))
+        path.write_text(
+            json.dumps(
+                {
+                    "vpi": self.vpi.tolist(),
+                    "phi0": self.phi0.tolist(),
+                    "pd_gain": self.pd_gain.tolist(),
+                    "pd_offset": self.pd_offset.tolist(),
+                    "meta": self.meta,
+                },
+                indent=2,
+            )
+        )
         return path
 
     @classmethod
     def load(cls, path=CONFIG_PATH):
         d = json.loads(Path(path).read_text())
-        return cls(np.array(d["vpi"]), np.array(d["phi0"]),
-                   np.array(d.get("pd_gain", np.ones(NUM_OUT))),
-                   np.array(d.get("pd_offset", np.zeros(NUM_OUT))),
-                   d.get("meta", {}))
+        return cls(
+            np.array(d["vpi"]),
+            np.array(d["phi0"]),
+            np.array(d.get("pd_gain", np.ones(NUM_OUT))),
+            np.array(d.get("pd_offset", np.zeros(NUM_OUT))),
+            d.get("meta", {}),
+        )
 
     @classmethod
     def load_or_nominal(cls, path=CONFIG_PATH):
@@ -166,11 +182,13 @@ class Calibration:
         """A plausible fabricated instance: Vpi spread across heaters and unknown static
         offsets. Used to give the mock rig something a characterization run has to find."""
         rng = np.random.default_rng(seed)
-        return cls(VPI_NOMINAL * (1 + sigma_vpi * rng.normal(size=N_HEATERS)),
-                   rng.uniform(0, 2 * np.pi, N_HEATERS),
-                   np.full(NUM_OUT, 0.8) * (1 + 0.05 * rng.normal(size=NUM_OUT)),
-                   np.full(NUM_OUT, 0.01),
-                   {"source": f"Calibration.sample(seed={seed})"})
+        return cls(
+            VPI_NOMINAL * (1 + sigma_vpi * rng.normal(size=N_HEATERS)),
+            rng.uniform(0, 2 * np.pi, N_HEATERS),
+            np.full(NUM_OUT, 0.8) * (1 + 0.05 * rng.normal(size=NUM_OUT)),
+            np.full(NUM_OUT, 0.01),
+            {"source": f"Calibration.sample(seed={seed})"},
+        )
 
 
 def ds_error(T) -> float:
@@ -218,7 +236,7 @@ def fit_shared(levels, traces, vpi_seeds, weights=None):
 
     best = None
     for vpi0 in np.asarray(vpi_seeds, float).ravel():
-        for f in np.linspace(0.6, 1.6, 21):           # Vpi is the poorly-known one
+        for f in np.linspace(0.6, 1.6, 21):  # Vpi is the poorly-known one
             vpi = float(vpi0 * f)
             if not 0.4 <= vpi <= 12.0:
                 continue
@@ -255,28 +273,35 @@ def refit_phi0(volts, y, vpi, amp=None, offset=None, prior=None, span=np.pi):
         M = np.stack([np.ones_like(th), np.cos(th), -np.sin(th)], axis=1)
         coef, *_ = np.linalg.lstsq(M, y, rcond=None)
         a, c, d = coef
-        return (float(np.arctan2(d, c)) % (2 * np.pi), float(np.hypot(c, d)), float(a),
-                float(np.sqrt(np.mean((M @ coef - y) ** 2))))
+        return (
+            float(np.arctan2(d, c)) % (2 * np.pi),
+            float(np.hypot(c, d)),
+            float(a),
+            float(np.sqrt(np.mean((M @ coef - y) ** 2))),
+        )
 
     p0 = 0.0 if prior is None else float(prior)
     grid = p0 + np.linspace(-span, span, 2001)
     resid = y[None, :] - (offset + amp * np.cos(th[None, :] + grid[:, None]))
-    rms = np.sqrt((resid ** 2).mean(axis=1))
+    rms = np.sqrt((resid**2).mean(axis=1))
     k = int(np.argmin(rms))
     return float(grid[k] % (2 * np.pi)), float(amp), float(offset), float(rms[k])
 
 
 def _selftest(seed: int = 0):
     rng0 = np.random.default_rng(seed)
-    for trial in range(20):        # refit_phi0 recovers a planted offset from few points
+    for trial in range(20):  # refit_phi0 recovers a planted offset from few points
         vpi = rng0.uniform(3.5, 5.5)
         phi = rng0.uniform(0, 2 * np.pi)
         amp, off = rng0.uniform(0.05, 0.3), rng0.uniform(0.1, 0.5)
         v = np.linspace(0, 3.0, 5)
         y = off + amp * np.cos(np.pi * (v / vpi) ** 2 + phi) + 0.002 * rng0.normal(size=v.size)
-        drift = rng0.uniform(-0.4, 0.4)      # what a re-anchor is actually chasing
-        y = off + amp * np.cos(np.pi * (v / vpi) ** 2 + phi + drift) \
+        drift = rng0.uniform(-0.4, 0.4)  # what a re-anchor is actually chasing
+        y = (
+            off
+            + amp * np.cos(np.pi * (v / vpi) ** 2 + phi + drift)
             + 0.002 * rng0.normal(size=v.size)
+        )
         got, _, _, _ = refit_phi0(v, y, vpi, amp=amp, offset=off, prior=phi)
         err = abs((got - phi - drift + np.pi) % (2 * np.pi) - np.pi)
         assert err < 0.06, (trial, err, drift, vpi)
@@ -284,8 +309,9 @@ def _selftest(seed: int = 0):
     c = Calibration.sample(seed=seed)
     rng = np.random.default_rng(seed)
     v = rng.uniform(0, VOLTAGE_MAX, N_HEATERS)
-    assert np.allclose(c.phases(c.volts(c.phases(v))[0]) % (2 * np.pi),
-                       c.phases(v) % (2 * np.pi)), "volts/phases round trip"
+    assert np.allclose(
+        c.phases(c.volts(c.phases(v))[0]) % (2 * np.pi), c.phases(v) % (2 * np.pi)
+    ), "volts/phases round trip"
     tgt = rng.uniform(0, 2 * np.pi, N_HEATERS)
     vv, ok = c.volts(tgt)
     got = c.phases(vv) % (2 * np.pi)
@@ -294,8 +320,9 @@ def _selftest(seed: int = 0):
     # to_transfer must invert an arbitrary per-port launch through the readout it knows.
     # The per-port factors are the ones the old static `input_scale` guessed once; here they
     # are drawn fresh, which is the whole point -- the answer must not depend on them.
-    U = np.linalg.qr(rng.normal(size=(NUM_OUT, NUM_OUT))
-                     + 1j * rng.normal(size=(NUM_OUT, NUM_OUT)))[0]
+    U = np.linalg.qr(
+        rng.normal(size=(NUM_OUT, NUM_OUT)) + 1j * rng.normal(size=(NUM_OUT, NUM_OUT))
+    )[0]
     P = np.abs(U) ** 2
     for _ in range(20):
         launch = rng.uniform(0.05, 3.0, NUM_OUT)
@@ -312,8 +339,12 @@ def _selftest(seed: int = 0):
 if __name__ == "__main__":
     n, tot = _selftest()
     c = Calibration.sample(seed=0)
-    print(f"volts <-> phases round trip OK; {n}/{tot} random targets reachable at "
-          f"{VOLTAGE_MAX:.0f} V")
-    print(f"phase span per heater at the {VOLTAGE_MAX:.0f} V design ceiling (units of pi): "
-          f"{np.round(c.reach_span(), 2)}   -- the board's real per-channel ceilings are in "
-          f"pic.config.VOLTAGE_MAX_CH")
+    print(
+        f"volts <-> phases round trip OK; {n}/{tot} random targets reachable at "
+        f"{VOLTAGE_MAX:.0f} V"
+    )
+    print(
+        f"phase span per heater at the {VOLTAGE_MAX:.0f} V design ceiling (units of pi): "
+        f"{np.round(c.reach_span(), 2)}   -- the board's real per-channel ceilings are in "
+        f"pic.config.VOLTAGE_MAX_CH"
+    )

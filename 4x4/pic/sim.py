@@ -47,8 +47,18 @@ from theory.clements import NMODE, NMZI
 from theory.layout import N_HEATERS, THETA_IDX, PHI_IDX
 
 from .config import (
-    ADC_AVG_N, VOLTAGE_MAX_CH, ADC_BITS, ADC_REF_V, DAC_BITS, DAC_REF_V, FIRMWARE_VMAX, NUM_ADC_RAW,
-    OUT_PDS, PICConfig, WIRED_DACS,
+    mirror_pairs,
+    ADC_AVG_N,
+    VOLTAGE_MAX_CH,
+    ADC_BITS,
+    ADC_REF_V,
+    DAC_BITS,
+    DAC_REF_V,
+    FIRMWARE_VMAX,
+    NUM_ADC_RAW,
+    OUT_PDS,
+    PICConfig,
+    WIRED_DACS,
 )
 from .interface import MOCK_CAPS, PIC, emulate_sweep
 
@@ -58,12 +68,14 @@ from .interface import MOCK_CAPS, PIC, emulate_sweep
 # injected at each input facet, all heaters at 0 V. Rows i1..i4 = L15/L17/L19/L21, columns
 # o1..o4 = R24/R22/R20/R18. This is the one absolute optical measurement the bench has and
 # everything optical here is fitted to it.
-MEASURED_OUT_DBM = np.array([
-    [-14.00, -22.00, -19.20, -11.92],
-    [-15.03, -19.20, -13.78, -13.98],
-    [-34.00, -16.66, -24.00, -36.00],
-    [-14.14, -21.88, -19.03, -14.64],
-])
+MEASURED_OUT_DBM = np.array(
+    [
+        [-14.00, -22.00, -19.20, -11.92],
+        [-15.03, -19.20, -13.78, -13.98],
+        [-34.00, -16.66, -24.00, -36.00],
+        [-14.14, -21.88, -19.03, -14.64],
+    ]
+)
 REF_INPUT_DBM = 1.0  # the launch power that table's loss column was computed against
 
 # What a logged session actually ran at. The loss table above was taken through an external
@@ -102,14 +114,21 @@ ZERO_BIAS_PHI = np.array([1.290994, 5.604259, 4.808305, 0.444812, 0.790153, 1.26
 # supports it on its sharpest prediction: DAC3 would then be the first-column MZI on rails
 # (0,1) and so blind to light injected at ports 3 and 4, and its measured modulation depth
 # there is 4x smaller than at ports 1 and 2.
-BENCH_MZI_OF_DAC = (3, 4, 2, 0, 1, 5)
+# Keyed by NEW DAC channel since the rewire: the bring-up board drove H15, H12, H11, H8, H4
+# and H3 on channels 0-5, and those heaters are now on 8, 10, 11, 13, 6 and 15.
+BENCH_MZI_OF_DAC = {8: 3, 10: 4, 11: 2, 13: 0, 6: 1, 15: 5}
 
 # Vpi per wired DAC channel, volts. Fitted from 8000 measured (6 DAC volts -> 4 PD volts)
 # rows in `mrunal/Combined_Project_Data (1).xlsx`: marginalising over the other five
 # channels leaves the swept channel's cosine intact (its frequency, at least), so each
 # channel gets one Vpi shared across every port-and-detector marginal that showed contrast.
 # Channels 4 and 5 modulate weakly and their numbers are the least trustworthy.
-BENCH_VPI = np.array([4.10, 4.57, 3.78, 3.92, 2.97, 2.27])
+# Keyed by the NEW DAC channel since the 2026-09-22 rewire (mrunal/board_firmware_v2.md).
+# The six fits belong to heaters, not to channel numbers: the bring-up board drove H15, H12,
+# H11, H8, H4 and H3 on channels 0-5, and those heaters now sit on 8, 10, 11, 13, 6+7 and 15.
+# H4 takes a bonded pair, so both its channels carry its Vpi.
+BENCH_VPI_OF_DAC = {8: 4.10, 10: 4.57, 11: 3.78, 13: 3.92, 6: 2.97, 7: 2.97, 15: 2.27}
+BENCH_VPI = np.array([BENCH_VPI_OF_DAC[d] for d in sorted(BENCH_VPI_OF_DAC)])
 
 # --- the readout -------------------------------------------------------------------
 
@@ -123,8 +142,8 @@ BENCH_VPI = np.array([4.10, 4.57, 3.78, 3.92, 2.97, 2.27])
 # not settled. The value here takes the brightest rows.
 PD_TIA_V_PER_W = 3.9e4
 
-ADC_LSB_V = ADC_REF_V / (2**ADC_BITS - 1)      # 4.888 mV, the raw 10-bit step
-READ_QUANTUM_V = ADC_LSB_V / ADC_AVG_N         # the firmware averages ADC_AVG_N reads
+ADC_LSB_V = ADC_REF_V / (2**ADC_BITS - 1)  # 4.888 mV, the raw 10-bit step
+READ_QUANTUM_V = ADC_LSB_V / ADC_AVG_N  # the firmware averages ADC_AVG_N reads
 DAC_LSB_V = DAC_REF_V / (2**DAC_BITS - 1)
 
 # --- noise and drift ---------------------------------------------------------------
@@ -141,9 +160,9 @@ DAC_LSB_V = DAC_REF_V / (2**DAC_BITS - 1)
 # removing it is per-output, and the cheapest physical account of that is phase jitter,
 # which is also why a channel sitting on the steep part of its fringe is the noisy one.
 
-RIN_FRAC = 0.020          # common-mode gain jitter per read; sd of the summed four outputs
+RIN_FRAC = 0.020  # common-mode gain jitter per read; sd of the summed four outputs
 PHASE_JITTER_RAD = 0.030  # per-heater, per read; set so per-channel sd lands in 0.6-5.7 mV
-READ_SIGMA_V = 6.0e-4     # additive electronic floor, from the darkest channels
+READ_SIGMA_V = 6.0e-4  # additive electronic floor, from the darkest channels
 
 # Drift. Experiment 1 puts a 30-minute repeat at 5.0-5.8 mV rms, which is the read noise
 # over again, so nothing measurable moves in half an hour. Experiment 3 repeats a fixed bias
@@ -151,8 +170,8 @@ READ_SIGMA_V = 6.0e-4     # additive electronic floor, from the darkest channels
 # terms from both sides; the split between coupling and phase is not separately identified,
 # so the phase figure is PROVISIONAL and chosen to keep a three-hour repeat inside the
 # measured 2-67 mV max-deviation band.
-DRIFT_GAIN_PER_SQRT_H = 0.012    # fractional random walk on each port's coupling
-DRIFT_PHASE_PER_SQRT_H = 0.020   # rad, per heater
+DRIFT_GAIN_PER_SQRT_H = 0.012  # fractional random walk on each port's coupling
+DRIFT_PHASE_PER_SQRT_H = 0.020  # rad, per heater
 
 # Unplugging and replugging the input fibre moved the per-port throughput by -1.2 to +3.3 dB
 # (Experiment 1, DS2 -> DS3). That is not time drift -- the 30-minute repeat ruled that out
@@ -179,7 +198,7 @@ def bench_heater_of_dac(mzi_of_dac=BENCH_MZI_OF_DAC) -> np.ndarray:
     invisible in intensity by construction. DAC0 is the *strongest* modulator on the bench
     -- 40 mV of swing at port 4 against a 55 mV total. One of the two is wrong, and it is
     not the measurement."""
-    fixed = {d: int(THETA_IDX[m]) for d, m in enumerate(mzi_of_dac)}
+    fixed = {d: int(THETA_IDX[m]) for d, m in mzi_of_dac.items()}
     rest = [h for h in range(N_HEATERS) if h not in set(fixed.values())]
     out, it = np.empty(N_HEATERS, int), iter(rest)
     return np.array([fixed[d] if d in fixed else next(it) for d in range(N_HEATERS)])
@@ -214,9 +233,19 @@ class BenchSim:
     like three hours later" does not have to wait three hours.
     """
 
-    def __init__(self, *, seed: int = 0, input_dbm: float = SESSION_INPUT_DBM,
-                 heater_of_dac=None, vpi=None, phi0=None, vmax: float = FIRMWARE_VMAX,
-                 wired=WIRED_DACS, noise: bool = True, quantise: bool = True):
+    def __init__(
+        self,
+        *,
+        seed: int = 0,
+        input_dbm: float = SESSION_INPUT_DBM,
+        heater_of_dac=None,
+        vpi=None,
+        phi0=None,
+        vmax: float = FIRMWARE_VMAX,
+        wired=WIRED_DACS,
+        noise: bool = True,
+        quantise: bool = True,
+    ):
         import torch
 
         from theory.twin import Twin
@@ -230,16 +259,22 @@ class BenchSim:
         self.quantise = bool(quantise)
         self.wired = np.array(sorted(wired), int)
 
-        self.heater_of_dac = (bench_heater_of_dac() if heater_of_dac is None
-                              else np.asarray(heater_of_dac, int))
+        self.heater_of_dac = (
+            bench_heater_of_dac() if heater_of_dac is None else np.asarray(heater_of_dac, int)
+        )
         self.phi0 = zero_bias_phases() if phi0 is None else np.asarray(phi0, float).copy()
 
         # an unwired channel is not a heater at 0 V, it is a heater no voltage reaches:
         # infinite Vpi, so whatever the host sends it the phase never moves
         self.vpi = np.full(N_HEATERS, np.inf)
-        v6 = BENCH_VPI if vpi is None else np.asarray(vpi, float)
-        for d, x in zip(self.wired, np.atleast_1d(v6)):
-            self.vpi[self.heater_of_dac[d]] = x
+        if vpi is None:
+            # by channel, not by position in `self.wired`: the two stopped agreeing when the
+            # rewire moved every heater off the channel that used to carry it
+            for d, x in BENCH_VPI_OF_DAC.items():
+                self.vpi[self.heater_of_dac[d]] = x
+        else:
+            for d, x in zip(self.wired, np.atleast_1d(np.asarray(vpi, float))):
+                self.vpi[self.heater_of_dac[d]] = x
 
         self.mesh_t = self._mesh_t(self.phi0)
         self.eta_out = _eta_out()
@@ -252,8 +287,9 @@ class BenchSim:
 
     def _mesh_t(self, phases) -> np.ndarray:
         """|U|^2 as T[i, o]: the power fraction from input facet i to output facet o."""
-        U = self.twin.matrix(self._torch.as_tensor(np.asarray(phases, float),
-                                                   dtype=self._torch.float32))
+        U = self.twin.matrix(
+            self._torch.as_tensor(np.asarray(phases, float), dtype=self._torch.float32)
+        )
         return (U.abs() ** 2).detach().numpy().T
 
     def select(self, port: int) -> int:
@@ -337,8 +373,9 @@ class BenchPIC(PIC):
     host that thinks it swept to 5 V has really swept to 3 and fitted the wrong Vpi.
     """
 
-    def __init__(self, sim: BenchSim | None = None, config: PICConfig | None = None,
-                 switch=None, **kw):
+    def __init__(
+        self, sim: BenchSim | None = None, config: PICConfig | None = None, switch=None, **kw
+    ):
         kw.setdefault("voltage_max", FIRMWARE_VMAX)
         super().__init__(config, **kw)
         self.sim = BenchSim() if sim is None else sim
@@ -391,9 +428,9 @@ def fit_zero_bias(measured_dbm=MEASURED_OUT_DBM, restarts: int = 60, seed: int =
 
     def split(x):
         ph = np.zeros(N_HEATERS)
-        ph[THETA_IDX], ph[PHI_IDX] = x[:NMZI], x[NMZI:2 * NMZI]
+        ph[THETA_IDX], ph[PHI_IDX] = x[:NMZI], x[NMZI : 2 * NMZI]
         m = np.abs(twin.matrix(torch.as_tensor(ph)).numpy()) ** 2
-        g = np.concatenate([[1.0], np.exp(x[2 * NMZI:])])
+        g = np.concatenate([[1.0], np.exp(x[2 * NMZI :])])
         w = m.T * g
         return w / w.sum(1, keepdims=True), g / g.max()
 
@@ -401,13 +438,14 @@ def fit_zero_bias(measured_dbm=MEASURED_OUT_DBM, restarts: int = 60, seed: int =
     best = None
     for _ in range(restarts):
         x0 = np.concatenate([rng.uniform(0, 2 * np.pi, 2 * NMZI), rng.normal(0, 0.3, NMODE - 1)])
-        r = least_squares(lambda x: (np.log10(split(x)[0]) - np.log10(target)).ravel(),
-                          x0, max_nfev=800)
+        r = least_squares(
+            lambda x: (np.log10(split(x)[0]) - np.log10(target)).ravel(), x0, max_nfev=800
+        )
         if best is None or r.cost < best.cost:
             best = r
     s, g = split(best.x)
     err = np.abs(10 * np.log10(s / target)).max()
-    return best.x[:NMZI], best.x[NMZI:2 * NMZI], g, float(err)
+    return best.x[:NMZI], best.x[NMZI : 2 * NMZI], g, float(err)
 
 
 def _selftest(seed: int = 0, verbose: bool = False):
@@ -429,6 +467,7 @@ def _selftest(seed: int = 0, verbose: bool = False):
     for combo in range(2):
         v = np.zeros(N_HEATERS)
         v[list(WIRED_DACS)] = sim.rng.integers(0, 13, len(WIRED_DACS)) * 0.25
+        mirror_pairs(v)  # a bonded pair is one drive unit, not two samples
         for p in range(NMODE):
             sim.select(p)
             y = np.array([sim.read(v, p) for _ in range(300)])
@@ -438,7 +477,7 @@ def _selftest(seed: int = 0, verbose: bool = False):
     out["sd_mV"] = (float(sds.min() * 1e3), float(sds.max() * 1e3))
     out["span_mV"] = (float(spans.min() * 1e3), float(spans.max() * 1e3))
     assert 0.3e-3 <= np.median(sds) <= 6.0e-3, out["sd_mV"]
-    assert sds.max() < 8.0e-3, out["sd_mV"]        # measured worst channel was 5.65 mV
+    assert sds.max() < 8.0e-3, out["sd_mV"]  # measured worst channel was 5.65 mV
     assert 2.0e-3 <= np.median(spans) <= 40e-3, out["span_mV"]
 
     # 3. the readout lattice. Every one of the 77,280 PD values in the mrunal/ workbooks is
@@ -476,8 +515,10 @@ def _selftest(seed: int = 0, verbose: bool = False):
     for d in probe:
         v = np.zeros(N_HEATERS)
         v[d] = VOLTAGE_MAX_CH[d]
-        moved += any(not np.array_equal(still.read(v, p), still.read(np.zeros(N_HEATERS), p))
-                     for p in range(NMODE))
+        moved += any(
+            not np.array_equal(still.read(v, p), still.read(np.zeros(N_HEATERS), p))
+            for p in range(NMODE)
+        )
     out["wired_that_move"] = (moved, len(probe))
     assert moved == len(probe), out["wired_that_move"]
 
@@ -559,8 +600,7 @@ def _selftest(seed: int = 0, verbose: bool = False):
 
     tight = sweep(FIRMWARE_VMAX)
     out["vpi_at_clamp"] = {d: (round(g, 2), round(t, 2)) for d, (g, t) in tight.items()}
-    out["n_ok_at_clamp"] = sum(abs(g - t) < 0.35 for g, t in tight.values()
-                               if np.isfinite(g))
+    out["n_ok_at_clamp"] = sum(abs(g - t) < 0.35 for g, t in tight.values() if np.isfinite(g))
 
     if verbose:
         for k, v in out.items():
@@ -570,26 +610,45 @@ def _selftest(seed: int = 0, verbose: bool = False):
 
 if __name__ == "__main__":
     r = _selftest()
-    print(f"measured power table reproduced to {r['table_max_db']:.3f} dB "
-          f"(16 entries, -36 to -12 dBm)")
-    print(f"read noise per channel       {r['sd_mV'][0]:.2f} - {r['sd_mV'][1]:.2f} mV "
-          f"(measured 0.58 - 5.65)")
-    print(f"15-min spread per channel    {r['span_mV'][0]:.1f} - {r['span_mV'][1]:.1f} mV "
-          f"(measured 2.9 - 33.2)")
-    print(f"readout quantum              {r['quantum_mV']:.4f} mV "
-          f"(every measured PD value is a multiple of it)")
-    print(f"wired channels that move     {r['wired_that_move'][0]}/{r['wired_that_move'][1]}"
-          f"; the other 12 read bit-identical")
-    print(f"30 min repeat, worst channel {r['drift30m_mV'][0]:.1f} mV median "
-          f"(measured: at the read noise)")
-    print(f"3 h repeat                   {r['drift3h_mV'][0]:.1f} mV median, "
-          f"{r['drift3h_mV'][1]:.1f} worst (measured 2 - 67)")
-    print(f"after a fibre reconnect      {r['recouple_mV'][0]:.1f} mV median, "
-          f"{r['recouple_mV'][1]:.1f} worst (measured up to 269)")
-    print(f"\nVpi recovered from a 0-5 V sweep, worst error "
-          f"{max(r['vpi_err'].values()):.3f} V")
-    print(f"at the firmware's {FIRMWARE_VMAX:.0f} V clamp: "
-          f"{r['n_ok_at_clamp']}/{len(WIRED_DACS)} channels recovered")
+    print(
+        f"measured power table reproduced to {r['table_max_db']:.3f} dB "
+        f"(16 entries, -36 to -12 dBm)"
+    )
+    print(
+        f"read noise per channel       {r['sd_mV'][0]:.2f} - {r['sd_mV'][1]:.2f} mV "
+        f"(measured 0.58 - 5.65)"
+    )
+    print(
+        f"15-min spread per channel    {r['span_mV'][0]:.1f} - {r['span_mV'][1]:.1f} mV "
+        f"(measured 2.9 - 33.2)"
+    )
+    print(
+        f"readout quantum              {r['quantum_mV']:.4f} mV "
+        f"(every measured PD value is a multiple of it)"
+    )
+    print(
+        f"wired channels that move     {r['wired_that_move'][0]}/{r['wired_that_move'][1]}"
+        f"; the other 12 read bit-identical"
+    )
+    print(
+        f"30 min repeat, worst channel {r['drift30m_mV'][0]:.1f} mV median "
+        f"(measured: at the read noise)"
+    )
+    print(
+        f"3 h repeat                   {r['drift3h_mV'][0]:.1f} mV median, "
+        f"{r['drift3h_mV'][1]:.1f} worst (measured 2 - 67)"
+    )
+    print(
+        f"after a fibre reconnect      {r['recouple_mV'][0]:.1f} mV median, "
+        f"{r['recouple_mV'][1]:.1f} worst (measured up to 269)"
+    )
+    print(f"\nVpi recovered from a 0-5 V sweep, worst error " f"{max(r['vpi_err'].values()):.3f} V")
+    print(
+        f"at the firmware's {FIRMWARE_VMAX:.0f} V clamp: "
+        f"{r['n_ok_at_clamp']}/{len(WIRED_DACS)} channels recovered"
+    )
     for d, (got, true) in r["vpi_at_clamp"].items():
-        print(f"  DAC{d}  planted {true:.2f} V  fitted {got:.2f} V  "
-              f"span over 0-{FIRMWARE_VMAX:.0f} V = {(FIRMWARE_VMAX / true)**2:.2f} pi")
+        print(
+            f"  DAC{d}  planted {true:.2f} V  fitted {got:.2f} V  "
+            f"span over 0-{FIRMWARE_VMAX:.0f} V = {(FIRMWARE_VMAX / true)**2:.2f} pi"
+        )

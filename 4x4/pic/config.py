@@ -21,58 +21,131 @@ BAUD_RATE = 115200
 RESET_WAIT_S = 2.0  # the board resets when the serial port is opened
 READY_BANNER = "pic4x4 ready"
 
-NUM_DAC = 16          # DAC81416 channels; must match NUM_DAC in pic4x4.ino
-NUM_ADC_RAW = 4       # A0..A3, one per mesh output through a PD-TIA (mrunal/PD_TIA_circuit.pdf)
+NUM_DAC = 16  # DAC81416 channels; must match NUM_DAC in pic4x4.ino
+NUM_ADC_RAW = 4  # A0..A3, one per mesh output through a PD-TIA (mrunal/PD_TIA_circuit.pdf)
 OUT_PDS = (0, 1, 2, 3)  # the four mesh outputs, in rail order
-MON_PDS = ()          # this block carries no tap monitors
+MON_PDS = ()  # this block carries no tap monitors
 NUM_OUT = len(OUT_PDS)
 
-# The DAC81416 has 16 channels on one chip at CS 10, and the packaged part exposes 18 heater
-# pads -- so two heaters have no driver at all. Of the 16, three (H18, H14, H6) were never
-# resistance-checked and are held dark, leaving 13 drivable. Map and resistances are from
-# Arduino/pin_check/pin_check.ino, which is the notebook decode.
-DAC_HEATER = ("H15", "H12", "H11", "H8", "H4", "H3", "H18", "H9",
-              "H14", "H13", "H10", "H6", "H7", "H5", "H2", "H1")
-HEATER_OHMS = (114.1, 62.3, 118.8, 114.1, 57.8, 113.5, None, 57.2,
-               None, 114.9, 56.4, None, 116.1, 117.1, 116.8, 114.1)
+# Board wiring as rewired on 2026-09-22 (`mrunal/board_firmware_v2.md`). Sixteen DAC
+# channels drive THIRTEEN heaters: H10, H9 and H4 each take a bonded pair of channels, and
+# H18, H14 and H6 lost their driver. The previous map was one heater per channel and the
+# identity; neither holds any more.
+DAC_HEATER = (
+    "H1",
+    "H2",
+    "H10",
+    "H10",
+    "H9",
+    "H9",
+    "H4",
+    "H4",
+    "H15",
+    "H13",
+    "H12",
+    "H11",
+    "H7",
+    "H8",
+    "H5",
+    "H3",
+)
+
+# Channels physically shorted together onto one heater. Two DAC81416 outputs tied together
+# and commanded to different voltages fight each other, so this is a damage constraint and
+# not a modelling convenience: `PIC._sanitize` refuses a mismatched write and the firmware
+# mirrors each group. Bonding is also the whole point of the rewire -- a pair sources twice
+# the current, which is what finally takes a 57-ohm heater past 2 pi.
+DAC_PAIRS = ((2, 3), (4, 5), (6, 7))
+PAIR_OF_DAC = {d: g for g in DAC_PAIRS for d in g}
+
+# Per channel, the resistance of the heater it drives; both channels of a pair carry the
+# same heater and therefore the same number.
+#
+# H12 IS DISPUTED and deliberately takes the smaller value. `Arduino/pin_check` and every
+# prior bench table give 62.3 ohm; the v2 firmware's own table gives 116.8, which is also
+# exactly the value it gives H2 -- a copy-paste shape. Every other heater agrees between the
+# two. At 40 mA the two readings differ by 4.67 V against 2.45 V, and guessing high would put
+# 75 mA through it, so the low reading stands until `pic.resistance` settles it.
+HEATER_OHMS = (
+    114.1,
+    116.8,
+    56.4,
+    56.4,
+    57.2,
+    57.2,
+    57.8,
+    57.8,
+    114.1,
+    114.9,
+    62.3,
+    118.8,
+    116.1,
+    114.1,
+    117.1,
+    113.5,
+)
 # Raised from the documents' 30 mA on a deliberate call: nothing in ananya/ or mrunal/ gives
 # an absolute maximum, a derating curve or a source for the 30 -- it is asserted twice and
 # never justified. Span goes as V^2, so 40 mA buys (40/30)^2 = 1.78x more phase on every
 # channel -- enough to put several heaters past pi, which is the threshold that decides
 # whether an MZI can reach every splitting ratio. The risk is lifetime, not immediate
 # failure; nothing here is a datasheet limit. Put this back to 30 to revert everything.
-HEATER_MAX_MA = 40.0
+# 50 mA since 2026-09-22, approved at the bench. The first characterization with a working
+# DAC put Vpi at 4.73-5.33 V on every channel that fitted, against ceilings of 4.50-4.75 V at
+# 40 mA: the mesh reaches only ~0.8 pi, the cosine never turns over, and seven of twelve
+# channels came back unfittable for that reason rather than for want of signal. 50 mA puts
+# 5.70 V on a 114 ohm heater, which clears Vpi. Risk is lifetime, not immediate failure.
+HEATER_MAX_MA = 50.0
 
-# Per-channel ceiling, not a global one. The heaters come in two resistance groups and a
-# single 3 V clamp puts 52 mA through the 60R group -- 1.7x its rating.
-# Per channel from its own measured resistance, not a two-group approximation: V = I*R, so
-# a 118.8 ohm heater may take more than a 113.5 ohm one at the same current. Rounded down to
-# 0.05 V so a rounding error cannot push a channel over the limit.
+# Per-channel ceiling, from the channel's own heater and how many channels share it: a
+# bonded pair sources 2 x HEATER_MAX_MA into one resistance, so V = I*n*R. Rounded down to
+# 0.05 V so a rounding error cannot push a channel over the limit. Both channels of a pair
+# land on the same number by construction, which is what makes a mirrored write safe.
 #
-# An unmeasured channel is STAGED, not held dark and not opened to its group's ceiling.
-# Holding it dark was self-defeating: no resistance clamped it to 0 V, so no characterization
-# ever swept it, so its Vpi stayed nominal and `HeaterBox.from_calibration` dropped it for
-# being unfitted -- three heaters locked out by a measurement nobody could take because they
-# were locked out.
-#
-# Stage one is 1.5 V, which draws 26.6 mA even against the smallest resistance on the board
-# (56.4 ohm) and is therefore safe under every hypothesis. That is enough to weigh the
-# channel: `pic.resistance` balances it against a known heater using the TEC's drive as a
-# calorimeter and returns R to a few percent. Stage two is the channel's own I*R ceiling,
-# and it is unlocked by putting the measured value in HEATER_OHMS -- not by editing this.
-#
-# 3 V is NOT safe before that measurement: at 56.4 ohm it draws 53 mA against a 40 mA rating.
-# All three sit in a 114-119 ohm neighbourhood and could probably take 4.55 V -- H14 and H18
-# share the TP26 ground cluster with H13 (114.9) and H15 (114.1), and H6 shares rail 0 with
-# H7 (116.1) -- but an inference does not set a current limit. (The earlier version of this
-# argument paired theta with phi by resistance group and cited DAC4/7 and DAC2/9 as pairs;
-# under the confirmed map in theory.layout neither is a pair, DAC 7 is not any MZI's phi, and
-# all twelve mesh channels have a measured resistance anyway.)
+# An unmeasured channel would be STAGED at V_UNMEASURED rather than held dark -- holding it
+# dark was self-defeating, since no resistance clamped it to 0 V, so no characterization ever
+# swept it, so its Vpi stayed nominal and `HeaterBox.from_calibration` dropped it for being
+# unfitted. No channel needs that today: the three heaters that had no measured resistance
+# are the three the rewire disconnected.
 V_UNMEASURED = 1.5
-VOLTAGE_MAX_CH = tuple(V_UNMEASURED if r is None
-                       else float(int(1e-3 * HEATER_MAX_MA * r / 0.05) * 0.05)
-                       for r in HEATER_OHMS)
-WIRED_DACS = tuple(i for i, v in enumerate(VOLTAGE_MAX_CH) if v > 0)   # all 16 channels
+# The DAC cannot exceed its own reference, and asking it to is not a clamp but a wrap:
+# `pic4x4.ino` computes code = V * 65535 / DAC_REF as a 16-bit unsigned, so 5.90 V against a
+# 5.0 V reference overflows to a LOW voltage with no error anywhere. 50 mA wants 5.7-5.9 V on
+# the 114-119 ohm channels; the ceiling is the reference, which caps them near 44 mA. The
+# bonded pairs reach their full 50 mA because half the resistance needs half the volts.
+DAC_CEILING_V = 4.95  # DAC_REF 5.0 in the firmware, less a margin against rounding
+
+VOLTAGE_MAX_CH = tuple(
+    (
+        V_UNMEASURED
+        if r is None
+        else min(
+            DAC_CEILING_V,
+            float(int(1e-3 * HEATER_MAX_MA * len(PAIR_OF_DAC.get(d, (d,))) * r / 0.05) * 0.05),
+        )
+    )
+    for d, r in enumerate(HEATER_OHMS)
+)
+
+
+def mirror_pairs(v):
+    """Copy each bonded group's first channel over the rest, in place, and return it.
+
+    The free variable on this board is the DRIVE UNIT, not the DAC channel: `DAC_PAIRS`
+    shorts two outputs onto one heater, so a draw that gives them separate values is not a
+    richer sample, it is an impossible state that `PIC._prep_dac` refuses. Any code that
+    builds a voltage vector by iterating channels needs this; code that builds one from
+    `ACTIVE_DACS` or `REACHABLE_DACS` does not, since neither contains a partner.
+    """
+    import numpy as _np
+
+    v = _np.asarray(v, float)
+    for grp in DAC_PAIRS:
+        v[..., list(grp)] = v[..., grp[0], None]
+    return v
+
+
+WIRED_DACS = tuple(i for i, v in enumerate(VOLTAGE_MAX_CH) if v > 0)  # all 16 channels
 
 # One command scale for every channel. Callers work in "drive volts" 0..DRIVE_MAX_V and the
 # scale opens each channel up to its own real ceiling, so nothing above has to carry a
@@ -115,6 +188,7 @@ def volts_to_drive(volts):
     live = s > 0
     return np.clip(np.asarray(volts, float) / np.where(live, s, 1.0), 0.0, DRIVE_MAX_V) * live
 
+
 VOLTAGE_MIN = 0.0
 # The firmware clamp is per channel (`VMAX[]` in pic4x4.ino) and equals VOLTAGE_MAX_CH
 # element for element -- `pic.rig.assert_firmware_vmax` checks that over the wire on every
@@ -136,7 +210,7 @@ ADC_REF_V = 2.56
 ADC_SAT_V = 0.99 * ADC_REF_V
 ADC_BITS = 10
 
-ADC_AVG_N = 16       # full ADC sweeps averaged per firmware reply; must match pic4x4.ino AVG_N
+ADC_AVG_N = 16  # full ADC sweeps averaged per firmware reply; must match pic4x4.ino AVG_N
 
 # The measured 0.12 s per read, split into the two halves that scale differently. That split
 # is the whole case for the firmware's batched sweep: `ADC_FRAME_S` is real work and buys
@@ -145,7 +219,7 @@ ADC_AVG_N = 16       # full ADC sweeps averaged per firmware reply; must match p
 # ATmega2560's default prescaler (13 ADC clocks at 125 kHz = 104 us) is 6.7 ms of the 120,
 # so 94 percent of a read was the host waiting on USB.
 ADC_FRAME_S = ADC_AVG_N * NUM_ADC_RAW * 104e-6
-SERIAL_RTT_S = 0.113   # 0.12 measured, less the conversions above
+SERIAL_RTT_S = 0.113  # 0.12 measured, less the conversions above
 DEFAULT_TIMEOUT_S = 3.0
 DEFAULT_SETTLE_S = 0.5  # thermo-optic settle before a read (mrunal/Setup.ino HEATER_DELAY_MS)
 

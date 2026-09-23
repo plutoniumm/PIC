@@ -1,7 +1,7 @@
 # mrunal/ — the delivered 4x4 hardware, as documented
 
 Everything the vendor and the bench have produced for this chip: the Quanfluence tapeout
-design review, the packaging IO map, the two Arduino sketches actually flashed, three
+design review, the packaging IO map, the Arduino sketches actually flashed, three
 component datasheets, three raw datasets, and a series of measurement reports by **Mrunal
 Kumavat** (June–August 2026) with heater routing voltages contributed by **Ananya**.
 
@@ -139,6 +139,16 @@ against the vendor pad table above:
 Twelve of eighteen heaters are unbonded to the board. `pic/config.py` exposes this as
 `WIRED_DACS`, but **the code's DAC indices are model-heater indices, not these bench indices** —
 see §8, item 1.
+
+### 2.1.1 The 2026-09-22 rewire — SUPERSEDES §2.1
+
+The board was rewired and reflashed: sixteen DAC channels now drive thirteen heaters, with
+H10, H9 and H4 each taking a bonded pair of channels and H18, H14 and H6 losing their
+driver entirely. Every DAC index in §2.1 and in `pic/layout.py` is stale.
+
+`board_firmware_v2.md` has the new map, the evidence for it, the span it buys at 40 mA, and
+two disagreements with `pic/config.py` worth settling before driving anything — H12's
+resistance above all.
 
 ### 2.2 `Setup.ino` — the data-collection sketch
 

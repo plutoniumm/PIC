@@ -102,11 +102,25 @@ class _MockDev:
 
     def status(self) -> dict:
         s = {"address": self.addr}
-        for n in ("key", "bnc_interlock", "ext_interlock", "driver_enable",
-                  "diode_cw_current", "diode_temperature", "temperature_consign"):
+        for n in (
+            "key",
+            "bnc_interlock",
+            "ext_interlock",
+            "driver_enable",
+            "diode_cw_current",
+            "diode_temperature",
+            "temperature_consign",
+        ):
             s[n] = self.measure(n)
-        for n in ("operating_mode", "cw_current_source", "tec_status", "temperature",
-                  "cw_laser_status", "laser_status", "cw_current"):
+        for n in (
+            "operating_mode",
+            "cw_current_source",
+            "tec_status",
+            "temperature",
+            "cw_laser_status",
+            "laser_status",
+            "cw_current",
+        ):
             s[n] = self.read_setting(n)
         return s
 
@@ -122,9 +136,17 @@ class MockLaser(Laser):
     BFM_DARK = 0.20
     LASE_THRESHOLD_SP = 8.0  # below this the diode is armed but not lasing
 
-    def __init__(self, port: str | None = None, *, key: int = 1, interlock: int = 1,
-                 lase_sp: float | None = None, rate_sp_s: float = 400.0,
-                 dt_s: float = 0.01, **kw):
+    def __init__(
+        self,
+        port: str | None = None,
+        *,
+        key: int = 1,
+        interlock: int = 1,
+        lase_sp: float | None = None,
+        rate_sp_s: float = 400.0,
+        dt_s: float = 0.01,
+        **kw,
+    ):
         self.key = int(key)
         self.interlock = int(interlock)
         self.lase_sp = self.LASE_THRESHOLD_SP if lase_sp is None else float(lase_sp)

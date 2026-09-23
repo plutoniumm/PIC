@@ -109,8 +109,10 @@ import numpy as np
 from .calib import Calibration
 from .matmat import manifold_dist, polar, qr_orth, random_orthogonal
 
-BENCH = ("pic_data/sessions/2026-08-27/raw_transfers_big.json",   # 25 C
-         "pic_data/sessions/2026-08-27/raw_transfers_20C.json")   # 20 C, same 100 states
+BENCH = (
+    "pic_data/sessions/2026-08-27/raw_transfers_big.json",  # 25 C
+    "pic_data/sessions/2026-08-27/raw_transfers_20C.json",
+)  # 20 C, same 100 states
 
 
 def clip(M, s: float = 1.0) -> np.ndarray:
@@ -166,8 +168,8 @@ def best_signed_sigma(A) -> float:
     `|ad| + |bc|`. That gives the best case in closed form and needs no search."""
     M = np.sqrt(np.clip(np.asarray(A, float), 0.0, None))
     a, b, c, d = M.ravel()
-    fr, det = float((M ** 2).sum()), abs(a * d) + abs(b * c)
-    return float(np.sqrt((fr + np.sqrt(max(fr ** 2 - 4 * det ** 2, 0.0))) / 2))
+    fr, det = float((M**2).sum()), abs(a * d) + abs(b * c)
+    return float(np.sqrt((fr + np.sqrt(max(fr**2 - 4 * det**2, 0.0))) / 2))
 
 
 def embed_contraction(A, rng=None) -> np.ndarray:
@@ -181,11 +183,10 @@ def embed_contraction(A, rng=None) -> np.ndarray:
     U, s, Vh = np.linalg.svd(A)
     if s.max() > 1 + 1e-9:
         raise ValueError(f"||A||_2 = {s.max():.6f} > 1; not a sub-block of any orthogonal")
-    G = np.diag(np.sqrt(np.clip(1 - s ** 2, 0.0, None)))
+    G = np.diag(np.sqrt(np.clip(1 - s**2, 0.0, None)))
     rng = np.random.default_rng() if rng is None else rng
     Z, W = random_orthogonal(rng, k), random_orthogonal(rng, k)
-    return np.block([[U @ np.diag(s) @ Vh, U @ G @ W.T],
-                     [-Z @ G @ Vh, Z @ np.diag(s) @ W.T]])
+    return np.block([[U @ np.diag(s) @ Vh, U @ G @ W.T], [-Z @ G @ Vh, Z @ np.diag(s) @ W.T]])
 
 
 def _dykstra(A, ops, iters: int) -> np.ndarray:
@@ -216,9 +217,15 @@ def substochastic(A, iters: int = 400) -> np.ndarray:
     two temperatures, which is what says it is systematic -- column-only normalisation plus
     real per-row loss -- rather than the noise a projection is entitled to remove."""
     k, n = np.asarray(A, float).shape
-    return _dykstra(A, (lambda M: M - np.clip(M.sum(1, keepdims=True) - 1, 0, None) / n,
-                        lambda M: M - np.clip(M.sum(0, keepdims=True) - 1, 0, None) / k,
-                        lambda M: np.clip(M, 0.0, None)), iters)
+    return _dykstra(
+        A,
+        (
+            lambda M: M - np.clip(M.sum(1, keepdims=True) - 1, 0, None) / n,
+            lambda M: M - np.clip(M.sum(0, keepdims=True) - 1, 0, None) / k,
+            lambda M: np.clip(M, 0.0, None),
+        ),
+        iters,
+    )
 
 
 def birkhoff(T, iters: int = 2000) -> np.ndarray:
@@ -230,9 +237,15 @@ def birkhoff(T, iters: int = 2000) -> np.ndarray:
     "distance to the Birkhoff polytope" has to mean if it is going to be compared with the
     distance to the unistochastic subset."""
     n = np.asarray(T, float).shape[0]
-    return _dykstra(T, (lambda M: M + (1 - M.sum(1, keepdims=True)) / n,
-                        lambda M: M + (1 - M.sum(0, keepdims=True)) / n,
-                        lambda M: np.clip(M, 0.0, None)), iters)
+    return _dykstra(
+        T,
+        (
+            lambda M: M + (1 - M.sum(1, keepdims=True)) / n,
+            lambda M: M + (1 - M.sum(0, keepdims=True)) / n,
+            lambda M: np.clip(M, 0.0, None),
+        ),
+        iters,
+    )
 
 
 def _fit_stochastic(T, complex_: bool, restarts: int, seed: int) -> tuple:
@@ -246,9 +259,9 @@ def _fit_stochastic(T, complex_: bool, restarts: int, seed: int) -> tuple:
 
     def unpack(p):
         K = np.zeros((n, n), complex if complex_ else float)
-        K[iu] = (p[:m] + 1j * p[m:2 * m]) if complex_ else p[:m]
+        K[iu] = (p[:m] + 1j * p[m : 2 * m]) if complex_ else p[:m]
         K = K - (K.conj().T if complex_ else K.T)
-        return expm(K + 1j * np.diag(p[2 * m:]) if complex_ else K)
+        return expm(K + 1j * np.diag(p[2 * m :]) if complex_ else K)
 
     def f(p):
         V = unpack(p)
@@ -337,8 +350,7 @@ def load_bench(paths=BENCH, calib: Calibration | None = None, root=None) -> list
         d = json.loads(q.read_text())
         dark = np.asarray(d["dark_switch_off"], float)
         # stored port-major (raw[k][j]) because that is the order the switch visits
-        T = np.stack([calib.to_transfer(np.asarray(s["raw"], float).T, dark)
-                      for s in d["states"]])
+        T = np.stack([calib.to_transfer(np.asarray(s["raw"], float).T, dark) for s in d["states"]])
         out.append((np.asarray([s["volts"] for s in d["states"]], float), T))
     return out
 
@@ -349,9 +361,11 @@ def intensity_sets(T, restarts: int = 3, seed: int = 0) -> dict:
     same scale as `manifold_dist` and as a relative entry error."""
     T = np.asarray(T, float)
     n = T.shape[0]
-    return {"birkhoff": float(np.linalg.norm(T - birkhoff(T)) / n),
-            "unistochastic": unistochastic_fit(T, restarts, seed)[1],
-            "orthostochastic": orthostochastic_fit(T, restarts, seed)[1]}
+    return {
+        "birkhoff": float(np.linalg.norm(T - birkhoff(T)) / n),
+        "unistochastic": unistochastic_fit(T, restarts, seed)[1],
+        "orthostochastic": orthostochastic_fit(T, restarts, seed)[1],
+    }
 
 
 def subblock_census(T, k: int = 2) -> dict:
@@ -370,14 +384,22 @@ def subblock_census(T, k: int = 2) -> dict:
                 blk = A[np.ix_(out, inp)]
                 rows += list(blk.sum(1))
                 cols += list(blk.sum(0))
-                naive.append(float(np.linalg.svd(np.sqrt(np.clip(blk, 0, None)),
-                                                 compute_uv=False)[0]))
+                naive.append(
+                    float(np.linalg.svd(np.sqrt(np.clip(blk, 0, None)), compute_uv=False)[0])
+                )
                 best.append(best_signed_sigma(blk))
     rows, cols, naive, best = map(np.asarray, (rows, cols, naive, best))
-    return {"n": len(naive), "row_excess": rows, "col_excess": cols,
-            "sigma_naive": naive, "sigma_best": best,
-            "row_viol": float((rows > 1).mean()), "col_viol": float((cols > 1).mean()),
-            "naive_viol": float((naive > 1).mean()), "best_viol": float((best > 1).mean())}
+    return {
+        "n": len(naive),
+        "row_excess": rows,
+        "col_excess": cols,
+        "sigma_naive": naive,
+        "sigma_best": best,
+        "row_viol": float((rows > 1).mean()),
+        "col_viol": float((cols > 1).mean()),
+        "naive_viol": float((naive > 1).mean()),
+        "best_viol": float((best > 1).mean()),
+    }
 
 
 def compare_subblocks(Ta, Tb, k: int = 2, iters: int = 400) -> dict:
@@ -397,9 +419,14 @@ def compare_subblocks(Ta, Tb, k: int = 2, iters: int = 400) -> dict:
                 pro.append(float(np.linalg.norm(substochastic(a, iters) - b)))
     raw, pro = np.asarray(raw), np.asarray(pro)
     moved = np.abs(raw - pro) > 1e-12
-    return {"identity": float(raw.mean()), "substochastic": float(pro.mean()),
-            "moved": float(moved.mean()), "excess_repeat": _excess_repeat(Ta, Tb, k),
-            "helped": float((pro < raw - 1e-12).mean()), "n": len(raw)}
+    return {
+        "identity": float(raw.mean()),
+        "substochastic": float(pro.mean()),
+        "moved": float(moved.mean()),
+        "excess_repeat": _excess_repeat(Ta, Tb, k),
+        "helped": float((pro < raw - 1e-12).mean()),
+        "n": len(raw),
+    }
 
 
 def _excess_repeat(Ta, Tb, k: int) -> float:
@@ -407,13 +434,15 @@ def _excess_repeat(Ta, Tb, k: int) -> float:
     heater states. A projection is entitled to remove what does not reproduce; this says how
     much of the substochastic violation does."""
     pairs = list(itertools.combinations(range(np.shape(Ta)[-1]), k))
-    e = lambda T: np.array([A[np.ix_(o, i)].sum(1) - 1 for A in T for o in pairs
-                            for i in pairs]).ravel()
+    e = lambda T: np.array(
+        [A[np.ix_(o, i)].sum(1) - 1 for A in T for o in pairs for i in pairs]
+    ).ravel()
     return float(np.corrcoef(e(Ta), e(Tb))[0, 1])
 
 
-def controlled_split(trials: int = 12, eps: float = 0.0, gain: float = 0.0,
-                     noise: float = 0.02, seed: int = 7) -> dict:
+def controlled_split(
+    trials: int = 12, eps: float = 0.0, gain: float = 0.0, noise: float = 0.02, seed: int = 7
+) -> dict:
     """A known tangential rotation and a known normal gain, applied to a known orthogonal
     matrix. The point of controlling both is that on real data the split is inferred and
     here it is imposed, so what polar does to each is measured rather than argued."""
@@ -428,13 +457,19 @@ def controlled_split(trials: int = 12, eps: float = 0.0, gain: float = 0.0,
         cli.append(float(np.linalg.norm(clip(M) - Q) / np.sqrt(2)))
         dis.append(manifold_dist(M))
         t, n = normal_tangential(M - Q, Q)
-        tan.append(t ** 2 / max(t ** 2 + n ** 2, 1e-30))
-    return {"eps": eps, "gain": gain, "raw": float(np.mean(raw)), "polar": float(np.mean(pol)),
-            "clip": float(np.mean(cli)), "manifold_dist": float(np.mean(dis)),
-            "tangential_frac": float(np.mean(tan)),
-            # a pure rotation by eps moves an orthogonal matrix by exactly 2 sin(eps/2) per
-            # entry, and no projection onto O(k) can remove any of it
-            "tangential_floor": float(2 * abs(np.sin(eps / 2)))}
+        tan.append(t**2 / max(t**2 + n**2, 1e-30))
+    return {
+        "eps": eps,
+        "gain": gain,
+        "raw": float(np.mean(raw)),
+        "polar": float(np.mean(pol)),
+        "clip": float(np.mean(cli)),
+        "manifold_dist": float(np.mean(dis)),
+        "tangential_frac": float(np.mean(tan)),
+        # a pure rotation by eps moves an orthogonal matrix by exactly 2 sin(eps/2) per
+        # entry, and no projection onto O(k) can remove any of it
+        "tangential_floor": float(2 * abs(np.sin(eps / 2))),
+    }
 
 
 def _bench_compose(tables, trials: int = 12, seed: int = 1) -> dict | None:
@@ -461,8 +496,22 @@ def _bench_compose(tables, trials: int = 12, seed: int = 1) -> dict | None:
     box = bench_box(Calibration.load_or_nominal())
     rng = np.random.default_rng(seed)
     rel = lambda M, B: float(np.linalg.norm(M - B) / np.linalg.norm(B))
-    acc = {k: [] for k in ("host", "raw", "polar", "clip", "clip_s", "qr", "anchored",
-                           "anchored_polar", "dist", "tan_host", "tan_drift")}
+    acc = {
+        k: []
+        for k in (
+            "host",
+            "raw",
+            "polar",
+            "clip",
+            "clip_s",
+            "qr",
+            "anchored",
+            "anchored_polar",
+            "dist",
+            "tan_host",
+            "tan_drift",
+        )
+    }
     for _ in range(trials):
         Oa, Ob = random_orthogonal(rng, 2), random_orthogonal(rng, 2)
         Ct = Ob @ Oa
@@ -482,7 +531,7 @@ def _bench_compose(tables, trials: int = 12, seed: int = 1) -> dict | None:
         acc["dist"].append(manifold_dist(Ch))
         for key, E in (("tan_host", Cs - Ct), ("tan_drift", Ch - Cs)):
             t, n = normal_tangential(E, Ct)
-            acc[key].append(t ** 2 / max(t ** 2 + n ** 2, 1e-30))
+            acc[key].append(t**2 / max(t**2 + n**2, 1e-30))
     out = {k: float(np.mean(v)) for k, v in acc.items()}
     out["corr_dist_err"] = float(np.corrcoef(acc["dist"], acc["raw"])[0, 1])
 
@@ -494,8 +543,12 @@ def _bench_compose(tables, trials: int = 12, seed: int = 1) -> dict | None:
         trap_raw.append(rel(M, B))
         trap_pol.append(rel(polar(M), B))
         trap_clip.append(rel(clip(M), B))
-    out |= {"trap_raw": float(np.mean(trap_raw)), "trap_polar": float(np.mean(trap_pol)),
-            "trap_clip": float(np.mean(trap_clip)), "trials": trials}
+    out |= {
+        "trap_raw": float(np.mean(trap_raw)),
+        "trap_polar": float(np.mean(trap_pol)),
+        "trap_clip": float(np.mean(trap_clip)),
+        "trials": trials,
+    }
     return out
 
 
@@ -512,7 +565,7 @@ def _symbolic() -> dict:
 
     q = sp.Matrix(4, 4, sp.symbols("q0:16", real=True))
     G = q.T * q
-    blk = lambda M, i, j: M[2 * i:2 * i + 2, 2 * j:2 * j + 2]
+    blk = lambda M, i, j: M[2 * i : 2 * i + 2, 2 * j : 2 * j + 2]
     A, B, C, D = blk(q, 0, 0), blk(q, 0, 1), blk(q, 1, 0), blk(q, 1, 1)
     Z = sp.zeros(2, 2)
     out = {
@@ -525,7 +578,7 @@ def _symbolic() -> dict:
     }
     c1, c2, a, b, e = sp.symbols("c1 c2 a b e", real=True)
     rot = lambda t: sp.Matrix([[sp.cos(t), -sp.sin(t)], [sp.sin(t), sp.cos(t)]])
-    S, Gm = sp.diag(c1, c2), sp.diag(sp.sqrt(1 - c1 ** 2), sp.sqrt(1 - c2 ** 2))
+    S, Gm = sp.diag(c1, c2), sp.diag(sp.sqrt(1 - c1**2), sp.sqrt(1 - c2**2))
     U, V, Zr, W = rot(a), rot(b), rot(e), rot(a + b)
     Q = sp.Matrix(sp.BlockMatrix([[U * S * V.T, U * Gm * W.T], [-Zr * Gm * V.T, Zr * S * W.T]]))
     out["embedding"] = sp.simplify(sp.trigsimp(sp.expand(Q.T * Q - sp.eye(4)))) == sp.zeros(4, 4)
@@ -569,9 +622,13 @@ def _selftest(seed: int = 0) -> dict:
     print(f"  clip is nonexpansive toward a true contraction (worst increase {worst:+.2e})")
 
     # polar has no such guarantee, and the counterexample is the ordinary case
-    hurt = [np.linalg.norm(polar(M) - A) > np.linalg.norm(M - A)
-            for A, M in ((lambda B: (B, B + 0.05 * rng.normal(size=(2, 2))))(
-                clip(0.5 * rng.normal(size=(2, 2)))) for _ in range(200))]
+    hurt = [
+        np.linalg.norm(polar(M) - A) > np.linalg.norm(M - A)
+        for A, M in (
+            (lambda B: (B, B + 0.05 * rng.normal(size=(2, 2))))(clip(0.5 * rng.normal(size=(2, 2))))
+            for _ in range(200)
+        )
+    ]
     print(f"  polar moves AWAY from a true contraction in {100 * np.mean(hurt):.0f}% of draws")
     assert np.mean(hurt) > 0.5
 
@@ -579,18 +636,28 @@ def _selftest(seed: int = 0) -> dict:
     R = random_orthogonal(rng, 2)
     M = rng.normal(size=(2, 2))
     assert np.allclose(polar(M @ R), polar(M) @ R, atol=1e-12)
-    print("  polar(M R) == polar(M) R for orthogonal R: the ordering changes evidence, "
-          "not the answer")
+    print(
+        "  polar(M R) == polar(M) R for orthogonal R: the ordering changes evidence, "
+        "not the answer"
+    )
 
     print("\ncontrolled normal/tangential split (12 draws each, 2% read noise)")
-    print(f"  {'perturbation':22s}{'tangential':>12}{'raw':>9}{'polar':>9}{'gain':>8}"
-          f"{'m_dist':>9}{'floor':>8}")
-    for eps, gain, name in ((0.0, 0.0, "noise only"), (0.0, 0.05, "+5% gain (normal)"),
-                            (0.15, 0.0, "0.15 rad (tangential)"), (0.15, 0.05, "both")):
+    print(
+        f"  {'perturbation':22s}{'tangential':>12}{'raw':>9}{'polar':>9}{'gain':>8}"
+        f"{'m_dist':>9}{'floor':>8}"
+    )
+    for eps, gain, name in (
+        (0.0, 0.0, "noise only"),
+        (0.0, 0.05, "+5% gain (normal)"),
+        (0.15, 0.0, "0.15 rad (tangential)"),
+        (0.15, 0.05, "both"),
+    ):
         r = controlled_split(eps=eps, gain=gain)
-        print(f"  {name:22s}{100 * r['tangential_frac']:>11.0f}%{r['raw']:>9.4f}"
-              f"{r['polar']:>9.4f}{r['raw'] / r['polar']:>7.2f}x{r['manifold_dist']:>9.4f}"
-              f"{r['tangential_floor']:>8.4f}")
+        print(
+            f"  {name:22s}{100 * r['tangential_frac']:>11.0f}%{r['raw']:>9.4f}"
+            f"{r['polar']:>9.4f}{r['raw'] / r['polar']:>7.2f}x{r['manifold_dist']:>9.4f}"
+            f"{r['tangential_floor']:>8.4f}"
+        )
     assert controlled_split(gain=0.05)["raw"] / controlled_split(gain=0.05)["polar"] > 3
     tang = controlled_split(eps=0.15)
     assert tang["raw"] / tang["polar"] < 1.1
@@ -609,23 +676,31 @@ def _selftest(seed: int = 0) -> dict:
     for k in ("birkhoff", "unistochastic", "orthostochastic"):
         print(f"    {k:18s}{np.median([s[k] for s in sets]):.4f}")
     b, u = np.median([s["birkhoff"] for s in sets]), np.median([s["unistochastic"] for s in sets])
-    assert u >= b - 1e-6 and u < 1.1 * b, (b, u)   # unistochastic costs almost nothing extra
+    assert u >= b - 1e-6 and u < 1.1 * b, (b, u)  # unistochastic costs almost nothing extra
 
     cen = subblock_census(T25)
-    print(f"  {cen['n']} 2x2 sub-blocks: row sums exceed 1 in {100 * cen['row_viol']:.1f}%, "
-          f"column sums in {100 * cen['col_viol']:.1f}% (columns are 1 by construction)")
-    print(f"    amplitudes, no signs: sigma_max > 1 in {100 * cen['naive_viol']:.0f}% "
-          f"(max {cen['sigma_naive'].max():.2f});  best sign class "
-          f"{100 * cen['best_viol']:.0f}% (max {cen['sigma_best'].max():.2f})")
+    print(
+        f"  {cen['n']} 2x2 sub-blocks: row sums exceed 1 in {100 * cen['row_viol']:.1f}%, "
+        f"column sums in {100 * cen['col_viol']:.1f}% (columns are 1 by construction)"
+    )
+    print(
+        f"    amplitudes, no signs: sigma_max > 1 in {100 * cen['naive_viol']:.0f}% "
+        f"(max {cen['sigma_naive'].max():.2f});  best sign class "
+        f"{100 * cen['best_viol']:.0f}% (max {cen['sigma_best'].max():.2f})"
+    )
     assert cen["col_viol"] < 1e-9 and cen["naive_viol"] > cen["best_viol"]
 
     sub = compare_subblocks(T25, T20)
-    print(f"  substochastic projection vs the same state at 20 C: identity "
-          f"{sub['identity']:.4f} -> {sub['substochastic']:.4f}, moved "
-          f"{100 * sub['moved']:.1f}% of blocks, helped {100 * sub['helped']:.1f}%")
-    print(f"    the row-sum excess reproduces across the two temperatures at r = "
-          f"{sub['excess_repeat']:+.3f}, so it is systematic and not noise to remove")
-    assert sub["substochastic"] > sub["identity"]   # it is a refusal; keep it one
+    print(
+        f"  substochastic projection vs the same state at 20 C: identity "
+        f"{sub['identity']:.4f} -> {sub['substochastic']:.4f}, moved "
+        f"{100 * sub['moved']:.1f}% of blocks, helped {100 * sub['helped']:.1f}%"
+    )
+    print(
+        f"    the row-sum excess reproduces across the two temperatures at r = "
+        f"{sub['excess_repeat']:+.3f}, so it is systematic and not noise to remove"
+    )
+    assert sub["substochastic"] > sub["identity"]  # it is a refusal; keep it one
 
     r = _bench_compose(tables)
     if r is None:
@@ -633,23 +708,35 @@ def _selftest(seed: int = 0) -> dict:
         return {"symbolic": sym, "sets": sets, "census": cen, "subblocks": sub}
     print(f"\ncomposed product of two hosted ORTHOGONAL matrices, {r['trials']} pairs")
     print(f"  planned and read on the 25 C table (hosting residual alone) {r['host']:.4f}")
-    print(f"  planned on 25 C, read on 20 C (real drift + read noise)     {r['raw']:.4f}"
-          f"   manifold_dist {r['dist']:.4f}")
-    for k, name in (("polar", "polar -> O(2)"), ("clip", "clip sigma <= 1"),
-                    ("clip_s", "clip sigma <= mean sigma"), ("qr", "QR"),
-                    ("anchored", "re-anchor the plan on the 20 C table"),
-                    ("anchored_polar", "re-anchor, then polar")):
+    print(
+        f"  planned on 25 C, read on 20 C (real drift + read noise)     {r['raw']:.4f}"
+        f"   manifold_dist {r['dist']:.4f}"
+    )
+    for k, name in (
+        ("polar", "polar -> O(2)"),
+        ("clip", "clip sigma <= 1"),
+        ("clip_s", "clip sigma <= mean sigma"),
+        ("qr", "QR"),
+        ("anchored", "re-anchor the plan on the 20 C table"),
+        ("anchored_polar", "re-anchor, then polar"),
+    ):
         print(f"    {name:38s}{r[k]:.4f}   {r['raw'] / r[k]:4.2f}x")
-    print(f"  tangential fraction: hosting residual {100 * r['tan_host']:.0f}%, "
-          f"drift {100 * r['tan_drift']:.0f}%  (isotropic would be 25%)")
-    print(f"  corr(manifold_dist, true error) over the unprojected products "
-          f"{r['corr_dist_err']:+.3f}; after polar it is 0 for every one")
-    print(f"  arbitrary non-orthogonal target: raw {r['trap_raw']:.4f}, "
-          f"polar {r['trap_polar']:.4f} ({r['trap_polar'] / r['trap_raw']:.0f}x WORSE), "
-          f"clip {r['trap_clip']:.4f}")
-    assert r["polar"] < r["clip"] < r["raw"]          # polar wins; clip barely helps
-    assert r["trap_polar"] > 5 * r["trap_raw"]        # and on a general target it is a trap
-    assert r["tan_drift"] < 0.25                      # the drift here is normal, not tangential
+    print(
+        f"  tangential fraction: hosting residual {100 * r['tan_host']:.0f}%, "
+        f"drift {100 * r['tan_drift']:.0f}%  (isotropic would be 25%)"
+    )
+    print(
+        f"  corr(manifold_dist, true error) over the unprojected products "
+        f"{r['corr_dist_err']:+.3f}; after polar it is 0 for every one"
+    )
+    print(
+        f"  arbitrary non-orthogonal target: raw {r['trap_raw']:.4f}, "
+        f"polar {r['trap_polar']:.4f} ({r['trap_polar'] / r['trap_raw']:.0f}x WORSE), "
+        f"clip {r['trap_clip']:.4f}"
+    )
+    assert r["polar"] < r["clip"] < r["raw"]  # polar wins; clip barely helps
+    assert r["trap_polar"] > 5 * r["trap_raw"]  # and on a general target it is a trap
+    assert r["tan_drift"] < 0.25  # the drift here is normal, not tangential
     return {"symbolic": sym, "sets": sets, "census": cen, "subblocks": sub, "compose": r}
 
 

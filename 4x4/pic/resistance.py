@@ -92,9 +92,11 @@ def _drive(rig, volts, settle_s=SETTLE_S, reads=READS, poll_s=POLL_S) -> tuple[f
     for _ in range(reads):
         s = rig.tec.status()
         if "drive_v" not in s:
-            raise RuntimeError("this TEC reports no drive_v, so it cannot be used as a "
-                               "calorimeter; resistance by substitution needs the hardware "
-                               "controller, not the mock or the open-loop stub")
+            raise RuntimeError(
+                "this TEC reports no drive_v, so it cannot be used as a "
+                "calorimeter; resistance by substitution needs the hardware "
+                "controller, not the mock or the open-loop stub"
+            )
         xs.append(float(s["drive_v"]))
         time.sleep(poll_s)
     x = np.asarray(xs, float)
@@ -117,8 +119,16 @@ def _single(dac: int, v: float) -> np.ndarray:
     return out
 
 
-def balance(rig, dac_u: int, dac_k: int, v_u: float | None = None, sigma: float | None = None,
-            tol: float = 0.02, max_steps: int = 4, **kw) -> Balance:
+def balance(
+    rig,
+    dac_u: int,
+    dac_k: int,
+    v_u: float | None = None,
+    sigma: float | None = None,
+    tol: float = 0.02,
+    max_steps: int = 4,
+    **kw,
+) -> Balance:
     """Match `dac_u` at `v_u` against known `dac_k`, and return the balance.
 
     Interleaved u,k,u,k rather than u then k: the die drifts over the minutes this takes, and
@@ -141,7 +151,8 @@ def balance(rig, dac_u: int, dac_k: int, v_u: float | None = None, sigma: float 
         raise RuntimeError(
             f"DAC {dac_u} at {v_u:.2f} V moves the TEC drive by {abs(du-d0)*1e3:.1f} mV "
             f"against a {sigma*1e3:.1f} mV floor -- below the {SNR_MIN}x gate. The heater is "
-            f"too weak to weigh against this calorimeter; measure it with an ohmmeter.")
+            f"too weak to weigh against this calorimeter; measure it with an ohmmeter."
+        )
 
     # Seed from the nominal pairing, then correct. Starting at the far end of the reference's
     # range instead would put the first probe where drive is least linear.
@@ -201,8 +212,13 @@ def _selftest():
             self.t += 1.0
             # offset + gain + curvature + a slow ramp + white noise: nothing here is known
             # to the routine, and none of it may reach the answer
-            d = (-0.813 + 4.02 * self.load - 1.7 * self.load ** 2
-                 + 2e-5 * self.t + self.rng.normal(0, 3e-4))
+            d = (
+                -0.813
+                + 4.02 * self.load
+                - 1.7 * self.load**2
+                + 2e-5 * self.t
+                + self.rng.normal(0, 3e-4)
+            )
             return {"drive_v": d}
 
     class FakeRig:
@@ -210,13 +226,34 @@ def _selftest():
             self.ohms, self.tec = ohms, FakeTEC(rng)
 
         def measure(self, v):
-            self.tec.load = float(sum(vi ** 2 / r for vi, r in zip(v, self.ohms) if r))
+            self.tec.load = float(sum(vi**2 / r for vi, r in zip(v, self.ohms) if r))
             return np.zeros(4)
 
     rng = np.random.default_rng(0)
-    truth = [r if r is not None else t for r, t in
-             zip(HEATER_OHMS, [114.1, 62.3, 118.8, 114.1, 57.8, 113.5, 117.4, 57.2,
-                               112.6, 114.9, 56.4, 115.8, 116.1, 117.1, 116.8, 114.1])]
+    truth = [
+        r if r is not None else t
+        for r, t in zip(
+            HEATER_OHMS,
+            [
+                114.1,
+                62.3,
+                118.8,
+                114.1,
+                57.8,
+                113.5,
+                117.4,
+                57.2,
+                112.6,
+                114.9,
+                56.4,
+                115.8,
+                116.1,
+                117.1,
+                116.8,
+                114.1,
+            ],
+        )
+    ]
     rig = FakeRig(truth, rng)
     fast = dict(settle_s=0.0, reads=8, poll_s=0.0)
 
@@ -236,8 +273,10 @@ def _selftest():
         b = balance(rig, dac, 3, sigma=sigma, **fast)
         err = abs(b.ohms - truth[dac]) / truth[dac]
         assert err < 0.06, f"DAC {dac}: {truth[dac]:.1f} -> {b.ohms:.1f} ohm, {err:.1%}"
-        print(f"  DAC {dac:2d}  {b.ohms:6.1f} ohm  (true {truth[dac]:.1f}, "
-              f"{err:+.2%}, snr {b.snr:.0f}, residual {b.residual:.1f})")
+        print(
+            f"  DAC {dac:2d}  {b.ohms:6.1f} ohm  (true {truth[dac]:.1f}, "
+            f"{err:+.2%}, snr {b.snr:.0f}, residual {b.residual:.1f})"
+        )
 
     # a heater too weak to weigh must be refused, not guessed at
     weak = FakeRig([1e6] * N_HEATERS, np.random.default_rng(1))
@@ -273,13 +312,13 @@ def curve(rig, dac_k: int, n: int = 4, volts=None, **kw) -> tuple[np.ndarray, np
     # 114 ohm case below its floor. `from_curve` refuses to extrapolate, so getting this
     # wrong costs the whole run rather than silently biasing it.
     if volts is None:
-        p_lo, p_hi = 0.5 * V_UNMEASURED ** 2 / 120.0, 2.0 * V_UNMEASURED ** 2 / 56.0
+        p_lo, p_hi = 0.5 * V_UNMEASURED**2 / 120.0, 2.0 * V_UNMEASURED**2 / 56.0
         v = np.sqrt(np.linspace(p_lo, p_hi, n) * r_k)
     else:
         v = np.asarray(volts, float)
     v = np.clip(v, 0.05, VOLTAGE_MAX_CH[dac_k])
     d0, _ = _drive(rig, np.zeros(N_HEATERS), **kw)
-    p = v ** 2 / r_k
+    p = v**2 / r_k
     d = np.array([_drive(rig, _single(dac_k, vi), **kw)[0] for vi in v])
     return p, d - d0, d0
 
@@ -294,5 +333,6 @@ def from_curve(rig, dac: int, p, dd, d0, v: float | None = None, **kw) -> float:
         raise RuntimeError(
             f"DAC {dac} at {v:.2f} V lands at {y*1e3:+.1f} mV, outside the reference curve's "
             f"{dd.min()*1e3:+.1f}..{dd.max()*1e3:+.1f} mV -- extrapolating a calorimeter is "
-            f"how a resistance gets invented. Widen the curve or use `balance`.")
-    return v ** 2 / float(np.interp(y, dd[order], np.asarray(p)[order]))
+            f"how a resistance gets invented. Widen the curve or use `balance`."
+        )
+    return v**2 / float(np.interp(y, dd[order], np.asarray(p)[order]))
