@@ -1,0 +1,349 @@
+/* Predictors. A healthy tile is quiet: a full ring, a full meter, its actions tucked away.
+   A tile that needs something is tinted by its status and carries one big primary button.
+   The ring is freshness (it drains over a day) and, while the tile's job runs, progress. */
+.pgrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)); /* 2x2: room for each tile to breathe */
+  gap: var(--gap);
+}
+@media (max-width: 440px) {
+  .pgrid {
+    grid-template-columns: 1fr;
+  }
+}
+.ptile {
+  --st: var(--off);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--well);
+  transition:
+    opacity 0.3s,
+    border-color 0.3s;
+}
+.ptile.s-pass {
+  --st: var(--ok);
+}
+.ptile.s-warn {
+  --st: var(--warn);
+}
+.ptile.s-fail {
+  --st: var(--bad);
+}
+.ptile.need {
+  border-color: color-mix(in srgb, var(--st) 45%, transparent);
+  background:
+    radial-gradient(
+      120% 70% at 0 0,
+      color-mix(in srgb, var(--st) 14%, transparent),
+      transparent 70%
+    ),
+    var(--well);
+}
+.ptop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.pring {
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  color: var(--ink-2);
+}
+.pring .ico {
+  margin: 0;
+}
+.ring {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+  fill: none;
+  stroke-width: 3;
+}
+.ring .rt {
+  stroke: var(--pane);
+}
+.ring .rf {
+  stroke-linecap: round;
+  transition: stroke-dasharray 1.8s linear;
+}
+.f-ok .rf {
+  stroke: var(--ok);
+}
+.f-mid .rf {
+  stroke: var(--warn);
+}
+.f-old .rt {
+  stroke: color-mix(in srgb, var(--warn) 35%, transparent);
+}
+.pid {
+  flex: 1;
+  min-width: 0;
+}
+.pn {
+  font-weight: 600;
+  line-height: 1.25;
+}
+.pa {
+  font-size: 16px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+/* status sits on the ring like a badge: shape and colour, no word */
+.pst {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  display: grid;
+  border-radius: 50%;
+  background: var(--bg-2);
+  padding: 1px;
+}
+.pst svg {
+  width: 18px;
+  height: 18px;
+}
+.pq {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 2px;
+}
+.pq b {
+  font-size: 28px;
+  font-weight: 500;
+  line-height: 1.1;
+}
+.pq small {
+  font-size: 16px;
+  color: var(--dim);
+}
+.pmeter {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--pane);
+}
+.pmeter i,
+.pseg i.on {
+  background: var(--st);
+}
+.pmeter i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+}
+/* the threshold: the fill has to pass this line */
+.pmeter s {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--ink-2);
+  border-radius: 1px;
+}
+.pseg {
+  display: flex;
+  gap: 3px;
+  height: 6px;
+}
+.pseg i {
+  flex: 1;
+  border-radius: 2px;
+  background: var(--pane);
+}
+.ptag {
+  align-self: flex-start;
+  font-size: 16px;
+  line-height: 1.35;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.ptile .calv {
+  margin-top: auto;
+  padding-top: 4px;
+  gap: 6px;
+  align-items: center;
+}
+.pgo {
+  flex: 0 0 auto; /* its own width, not the tile's: highlighted, not huge */
+}
+/* secondary actions: icon only, and faint on a healthy tile until it is pointed at */
+.pgh {
+  border-color: transparent;
+  background: none;
+  color: var(--dim);
+}
+@media (hover: hover) {
+  .ptile:not(.need) .pgh {
+    opacity: 0.35;
+    transition: opacity 0.15s;
+  }
+  .ptile:hover .pgh,
+  .ptile .pgh:focus-visible {
+    opacity: 1;
+  }
+}
+/* the tile being refreshed: its facts step back, the ring fills, a light runs round the edge */
+.ptile.busy {
+  border-color: var(--accent);
+}
+.ptile.busy .pq,
+.ptile.busy .pmeter,
+.ptile.busy .pseg,
+.ptile.busy .ptag,
+.ptile.busy .pst {
+  opacity: 0.3;
+}
+.ptile.busy .pa {
+  color: var(--accent);
+}
+.ptile.busy .ring .rf {
+  stroke: var(--accent);
+}
+.ptile.busy .ring .rt {
+  stroke: var(--pane);
+}
+.ptile.busy .calv button.spin {
+  opacity: 1;
+  color: var(--accent);
+}
+.ptile button.spin .ico {
+  -webkit-mask-image: url(/icons/reload.svg);
+  mask-image: url(/icons/reload.svg);
+}
+/* the same progress along the tile's foot, where a bar is expected */
+.ptile.busy:after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  bottom: 0;
+  height: 3px;
+  width: calc((100% - 24px) * var(--pf, 0));
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 1.8s linear;
+}
+.ptile.busy .pring {
+  color: var(--accent);
+}
+.ptile.busy.ind .ring {
+  animation: spin 1.2s linear infinite;
+}
+.ptile.busy.ind:after {
+  width: 30%;
+  animation: ptrack 1.6s ease-in-out infinite alternate;
+}
+@keyframes ptrack {
+  to {
+    left: calc(70% - 12px);
+  }
+}
+.job .ptile:not(.busy) {
+  opacity: 0.55;
+}
+/* die out of band, or files mid-write: a lock or flame in the header and greyed buttons,
+   nothing over the tiles themselves */
+.pjob {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  font-size: 16px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.pjob.hide {
+  display: none;
+}
+.pjob .pw {
+  color: var(--ink);
+}
+.pbar {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--pane);
+  overflow: hidden;
+}
+.pbar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 1.8s linear;
+}
+.pjob.bad {
+  color: var(--bad-ink);
+}
+.pjob.bad .pbar i {
+  background: var(--bad);
+}
+/* no expected duration yet: a sliding segment instead of a fraction */
+.pbar.ind i {
+  width: 30% !important;
+  animation: pslide 1.6s ease-in-out infinite alternate;
+}
+@keyframes pslide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(333%);
+  }
+}
+/* heaters table during a sweep: the row being measured carries the accent, like its tile */
+tr.q-running td {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+tr.q-running td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.pdur {
+  margin-left: 8px;
+  font-size: 16px;
+  opacity: 0.7;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.pgh .pdur {
+  margin-left: 4px;
+}
+/* a tile's actions: related quiet actions joined into one group, the primary always last */
+.pact {
+  align-items: center;
+  gap: 8px;
+}
+.bgroup {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.bgroup button {
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.bgroup button + button {
+  border-left: 1px solid var(--line);
+}
+.bgroup button:hover {
+  background: var(--pane);
+}
+.hact {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto; /* header actions together on the right; the CTA last */
+}

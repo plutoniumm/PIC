@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import time
 
 import numpy as np
@@ -56,7 +57,9 @@ from pic.config import (
     drive_volts_raw,
 )
 from pic.__main__ import _find_tec
+from pic.config import port_of
 from pic.devices.tec import auto_tec
+from pic.log import ev
 from pic.session import WatchdogTripped
 from theory.calib import Calibration
 from theory.clements import NMODE
@@ -113,11 +116,16 @@ def collect_round(rig, n, *, dbm, settle_s, repeats, rng, ports, channels=None):
                 rig.select_input(port)
                 for d in random_vectors(per, rng=rng, channels=channels, vmax=DRIVE_MAX_V):
                     if s.expired():
-                        print(
-                            "    watchdog deadline reached; keeping the partial round "
-                            "(every sample below was taken before it)."
+                        ev(
+                            "dpnn",
+                            "partial",
+                            "watchdog deadline reached; keeping the partial round "
+                            "(every sample below was taken before it).",
+                            "warn",
+                            points=len(Ds),
                         )
                         return (np.asarray(Ds), np.asarray(Ps, int), np.asarray(Ts), np.asarray(Ys))
+                    rig.hold_band(s)  # out of band: rest at 0 V until it is back
                     y = settled_read(rig.board, drive_to_volts(d), settle_s, repeats)
                     bfm, dtemp, mA, chip = s.telemetry()
                     Ds.append(d)
@@ -125,9 +133,16 @@ def collect_round(rig, n, *, dbm, settle_s, repeats, rng, ports, channels=None):
                     Ts.append([dbm, bfm, dtemp, mA, chip])
                     Ys.append(y[list(OUT_PDS)])
                     s.keepalive()
+                    if len(Ds) % 10 == 0:  # within-round progress: a round is minutes long
+                        ev("dpnn", "sample", k=len(Ds), n=per * len(ports))
         except WatchdogTripped as e:
-            print(f"    {e}")
-            print(f"    keeping the {len(Ds)} sample(s) taken before the trip.")
+            ev(
+                "dpnn",
+                "partial",
+                f"{e} Keeping the {len(Ds)} sample(s) taken before the trip.",
+                "warn",
+                points=len(Ds),
+            )
     return np.asarray(Ds), np.asarray(Ps, int), np.asarray(Ts), np.asarray(Ys)
 
 
@@ -308,6 +323,13 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     a.out = a.out or (TABLE_CKPT if a.from_table else CKPT)
+    # Rounds are written to <out>.partial and swapped into <out> only when the whole run
+    # finishes: an aborted or failed run leaves the previous model in force, never half of
+    # a new one.
+    final, a.out = a.out, a.out + ".partial"
+    shutil.rmtree(a.out, ignore_errors=True)
+    if a.resume and os.path.isdir(final):
+        shutil.copytree(final, a.out)
     offline = net_channels = None
     if a.from_table:
         print(f"fitting stored captures -- no hardware:")
@@ -362,9 +384,11 @@ def main(argv=None):
             laser=kind,
             board="sim" if a.sim else kind,
             switch=kind,
-            tec="mock" if (a.mock or a.sim) else (auto_tec(_find_tec) if a.tec == "auto" else a.tec),
-            laser_port=a.laser_port,
-            pic_port=a.pic_port,
+            tec=(
+                "mock" if (a.mock or a.sim) else (auto_tec(_find_tec) if a.tec == "auto" else a.tec)
+            ),
+            laser_port=port_of(a.laser_port),
+            pic_port=port_of(a.pic_port),
         ).open()
     )
     r0 = meta["rounds_done"]
@@ -374,9 +398,13 @@ def main(argv=None):
             if offline:
                 D, P, T, Y = offline
             else:
-                print(
-                    f"\n[round {r + 1}] collecting {a.n_per_round} points over ports "
-                    f"{ports} ..."
+                ev(
+                    "dpnn",
+                    "round",
+                    f"[round {r + 1}] collecting {a.n_per_round} points over ports {ports} ...",
+                    round=r + 1,
+                    k=r - r0,
+                    n=a.rounds,
                 )
                 D, P, T, Y = collect_round(
                     rig,
@@ -394,7 +422,14 @@ def main(argv=None):
                 "tel": np.vstack([buf["tel"], T]),
                 "Y": np.vstack([buf["Y"], Y]),
             }
-            print(f"    {len(D)} points in {time.time() - t0:.0f}s; buffer {len(buf['D'])}")
+            ev(
+                "dpnn",
+                "points",
+                f"{len(D)} points in {time.time() - t0:.0f}s; buffer {len(buf['D'])}",
+                points=len(D),
+                buffer=len(buf["D"]),
+                secs=time.time() - t0,
+            )
 
             # The physics fit is minutes where the network is seconds -- restarts x steps
             # of gradient descent through the twin, against one pass of backprop on a
@@ -439,15 +474,35 @@ def main(argv=None):
                 ports=sorted(set(buf["ports"].tolist())),
             )
             json.dump(meta, open(os.path.join(a.out, "meta.json"), "w"), indent=2)
-            print(
-                f"    physics ({np_phys}p) R2 {r2p:+.4f} | "
-                f"dpnn ({dmeta['n_params']}p) R2 {float(np.mean(r2d)):+.4f} -> {a.out}/"
+            ev(
+                "dpnn",
+                "fit",
+                f"physics ({np_phys}p) R2 {r2p:+.4f} | "
+                f"dpnn ({dmeta['n_params']}p) R2 {float(np.mean(r2d)):+.4f} -> {a.out}/",
+                "ok",
+                round=r + 1,
+                k=r - r0 + 1,
+                n=a.rounds,
+                r2_physics=r2p,
+                r2_dpnn=float(np.mean(r2d)),
             )
+        completed = True
     except KeyboardInterrupt:
-        print("\ninterrupted -- last checkpoint is saved.")
+        completed = False
+        ev("dpnn", "interrupted", f"interrupted -- the previous model in {final} is kept.", "warn")
     finally:
         if rig is not None:
             rig.close()
+
+    if not completed:
+        return 1
+    old = final + ".old"
+    shutil.rmtree(old, ignore_errors=True)
+    if os.path.isdir(final):
+        os.replace(final, old)
+    os.replace(a.out, final)
+    shutil.rmtree(old, ignore_errors=True)
+    ev("dpnn", "done", f"all {a.rounds} rounds done -> {final}/", "ok", path=final)
 
     if len(meta.get("ports", [])) < 2:
         print(

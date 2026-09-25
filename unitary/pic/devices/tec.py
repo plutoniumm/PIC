@@ -119,6 +119,7 @@ class SerialTEC(TEC):
 
     def __init__(self, port: str, baud: int = 115200, timeout_s: float = 2.0, **kw):
         self.port, self.baud, self.timeout_s, self.ser = port, baud, timeout_s, None
+        self.status_line = None
         self._last = None
         super().__init__(**kw)
 
@@ -167,6 +168,9 @@ class SerialTEC(TEC):
             raw = self.ser.readline().decode("utf-8", "ignore").strip()
             if not raw:
                 continue  # a read timeout, not the end of the stream
+            if raw.startswith(("STATUS 0x", "FAULT 0x")):
+                self.status_line = raw  # the LT8722's own word, printed every 5 s
+                continue
             parts = raw.split(",")
             if len(parts) == 3:
                 try:
@@ -279,6 +283,7 @@ class FeedTEC(TEC):
 
     def temperature(self) -> float:
         self._last = self._read_fn()
+        self._setpoint = self._last[1]  # the controller's own setpoint, whoever set it
         return self._last[0]
 
     def status(self) -> dict:

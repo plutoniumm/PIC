@@ -25,9 +25,10 @@ const uint8_t ADDR_UV_CLAMP = 0x0C;
 // 3. TEC DRIVER LIMITS
 // =======================================================
 
-// ILIMP = 6.8 A - code * 13.28 mA (datasheet Eq. 9). 0x1B5 was +0.997 A; raised to +2.006 A
-// on 2026-09-23 (the loop sat in current limit, STATUS bit 1). LT8722 rating is 4 A.
-const uint32_t POS_CURRENT_2A  = 0x00000169;
+// ILIMP = 6.8 A - code * 13.28 mA (datasheet Eq. 9). 0x1B5 = +0.997 A, 0x169 = +2.006 A,
+// 0x11E = +3.002 A. 3 A was tried on 2026-09-25 and cooled no better than 2 A (still in current
+// limit, die flat): the hot side's heat rejection is the bottleneck, not current. Kept at 2 A.
+const uint32_t POS_CURRENT_LIMIT = 0x00000169;
 // Eq. 10 is ILIMN = code * -13.28 mA, NOT Eq. 9's downward scale, so 0x1B5 is -5.80 A --
 // past the part's own -4.5 A sink rating. 0x4B (75) is the -1 A this constant claims.
 const uint32_t NEG_CURRENT_1A  = 0x0000004B;
@@ -231,7 +232,7 @@ void setup()
     lt8722_write(ADDR_COMMAND, CMD_ENABLE);
     delay(10);
     lt8722_write(ADDR_DAC, 0xFF000000);  // LDR to GND when the linear stage turns on
-    lt8722_write(ADDR_ILIMP, POS_CURRENT_2A);
+    lt8722_write(ADDR_ILIMP, POS_CURRENT_LIMIT);
     lt8722_write(ADDR_ILIMN, NEG_CURRENT_1A);
     lt8722_write(ADDR_OV_CLAMP, VOLT_CLAMP_6V);
     lt8722_write(ADDR_UV_CLAMP, VOLT_CLAMP_0V);
@@ -314,8 +315,19 @@ void loop()
     if (millis() - lastStatus > 5000)
     {
         lastStatus = millis();
+        uint32_t st = lt8722_read(ADDR_STATUS);
         Serial.print("STATUS 0x");
-        Serial.println(lt8722_read(ADDR_STATUS), HEX);
+        Serial.println(st, HEX);
+        // A latched fault (over-current, TSD, UVLOs: bits 4..10) switches the output stage off
+        // until STATUS is cleared, and nothing else ever cleared it -- the die then warmed
+        // with the drive pinned at its cap. Clearing it is the datasheet's own recovery.
+        if (st & 0x7F0)
+        {
+            lt8722_write(ADDR_STATUS, 0x00000000);
+            Serial.print("FAULT 0x");
+            Serial.print(st & 0x7F0, HEX);
+            Serial.println(" cleared");
+        }
     }
     tecPID.Compute();
 

@@ -77,6 +77,7 @@ from pathlib import Path
 import numpy as np
 
 from pic import Rig
+from pic.log import ev
 from pic.apply import ReadoutError, apply_unitary, box_for, table_for
 
 TOL_ORTH = 1e-5  # Frobenius, on U^T U - I
@@ -181,14 +182,25 @@ def orth_dev(U) -> float:
 # One page per tab, so a reload lands where it was. The markup, the stylesheet and the script
 # are files under static/; this module only fills in which page is showing and serves data.
 STATIC = Path(__file__).resolve().parent / "static"
-PAGES = {"/": "mv", "/calibration": "cal", "/diagnostics": "diag"}
+PAGES = {"/": "mv", "/calibration": "cal", "/diagnostics": "diag", "/logs": "logs"}
 MIME = {".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml", ".html": "text/html"}
 
 
 _LASER_LOCK = threading.Lock()  # the page polls; two opens of one FTDI must never overlap
 
 
+_LASER_READ = {}  # a few seconds' cache of the plain read: the page and the state strip both poll
+
+
 def laser(b=None):
+    if b is None and _LASER_READ.get("t", 0) > time.time() - 3:
+        return _LASER_READ["v"]
+    out = _laser_call(b)
+    _LASER_READ.update(t=time.time(), v=out) if b is None else _LASER_READ.clear()
+    return out
+
+
+def _laser_call(b=None):
     # validated first: a bad request is refused whatever holds the port, and must never
     # half-switch the diode
     if b is not None and b.get("on") is True:
@@ -196,12 +208,8 @@ def laser(b=None):
         if not -10.0 <= dbm <= 12.0:  # 12 dBm cap agreed at the bench
             raise ValueError(f"dbm must be between -10 and 12, got {dbm:g}")
     if JOB and JOB["p"].poll() is None and not JOB["mock"]:
-        try:
-            lines = JOB["log"].read_text(errors="replace").splitlines()
-        except OSError:
-            lines = []
-        # the job owns the laser's port until it ends; its log says whether it is lit
-        return {"held": JOB["what"], "on": _job_laser(lines)}
+        # the job owns the laser's port until it ends; its events say whether it is lit
+        return {"held": JOB["what"], "on": _job_laser(_job_events())}
     if _LASER_HELD:
         return {"held": _LASER_HELD[0], "on": None}
     ext = sweeps_running()
@@ -244,6 +252,48 @@ def ago(t: float) -> str:
     if sec < 86400:
         return f"{int(sec // 3600)} hrs ago"
     return f"{int(sec // 86400)} days ago"
+
+
+from events import EventLog
+
+EVENTS = EventLog(Path("pic_data/logs/events.jsonl"))  # every printed line, as events
+
+
+class _Tee:
+    """Every print this server makes also lands in pic_data/logs/server.log, for the Logs tab."""
+
+    def __init__(self, stream, fh):
+        self.stream, self.fh = stream, fh
+
+    def write(self, s):
+        from pic.log import human
+
+        # the terminal gets sentences; the log file and the event stream get the JSON
+        self.stream.write("\n".join(human(ln) for ln in s.split("\n")))
+        self.fh.write(s)
+        self.fh.flush()
+        EVENTS.feed("server", s)
+        return len(s)
+
+    def isatty(self):
+        return False  # so the server's own events are emitted as JSON, then shown readable
+
+    def flush(self):
+        self.stream.flush()
+
+
+def logs(name=None, lines: int = 400):
+    """Every log file, newest first; with `name`, the last `lines` lines of that one."""
+    files = sorted(LOG_DIR.glob("*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
+    out = {"files": [{"name": p.name, "ago": ago(p.stat().st_mtime)} for p in files]}
+    if name:
+        p = LOG_DIR / Path(name).name  # a bare file name: nothing outside the log directory
+        if not p.is_file() or p.suffix != ".log":
+            raise ValueError(f"no such log: {name}")
+        out["name"], out["text"] = p.name, "\n".join(
+            p.read_text(errors="replace").splitlines()[-lines:]
+        )
+    return out
 
 
 def render(page: str) -> str:
@@ -301,13 +351,20 @@ def run_once(payload, default_mock):
     tec = "mock" if mock else TEC.view()
     with _board_held(mock), _laser_held("matvec run", mock):
         with Rig(laser=kind, board=kind, switch=kind, tec=tec) as rig:
-            # the fake TEC would make a fake run wait out a real-time settle
+            # A run never waits on the TEC: the settle gate used to sit silent for up to five
+            # minutes whenever the die was a hair outside the band. Check once and say so.
+            if not mock and not rig.tec.stable:
+                raise Busy(
+                    f"TEC: die at {rig.tec.temperature():.2f} C, outside "
+                    f"{rig.tec.target:.2f} ± {rig.tec.tolerance:.2f} C. The loop is pulling it "
+                    "back; run again once the header turns green."
+                )
             with rig.session(
                 # the hard laser-off cutoff, not the run time: the run ends and switches the
                 # laser off as soon as it is done. Sized to a few times a bench run's reads.
                 duration_s=30 + 10 * X.shape[1],
                 power_dbm=dbm,
-                require_stable=not mock,
+                require_stable=False,  # checked above, once
             ) as s:
                 if not s.emitted:
                     raise ReadoutError(
@@ -344,7 +401,7 @@ def run_once(payload, default_mock):
                 "null": bool(np.linalg.norm(ux) == 0),
             }
         )
-    return {
+    out = {
         "rails_out": list(range(4)),
         "orth_dev": dev,
         "vectors": vecs,
@@ -353,6 +410,79 @@ def run_once(payload, default_mock):
         "reach": float(rn.raw.get("reachable", float("nan"))),
         "dpnn": dmeta,
     }
+    if not mock:
+        _record_errors(vecs)
+    return out
+
+
+ERRORS_PATH = Path("pic_data/errors.jsonl")
+
+
+def _record_errors(vecs):
+    """One line per bench run: the live error of each predictor, measured on the chip. The
+    full hosting leans only on the heater calibration, the tiled one on the transfer table,
+    and the DPNN is judged against what the chip actually read for the full hosting."""
+    med = lambda xs: float(np.median(xs)) if xs else None
+    full = [v["normal"]["fid"] for v in vecs if np.isfinite(v["normal"]["fid"])]
+    tiled = [v["tiled"]["fid"] for v in vecs if np.isfinite(v["tiled"]["fid"])]
+    dpnn = [
+        float(
+            np.linalg.norm(np.subtract(v["dpnn"], v["normal"]["device"]))
+            / max(np.linalg.norm(v["normal"]["device"]), 1e-12)
+        )
+        for v in vecs
+        if v.get("dpnn") is not None
+    ]
+    try:
+        chip = TEC.mean()[0]
+    except Exception:
+        chip = None
+    rec = {
+        "t": time.time(),
+        "heaters": med(full),
+        "table": med(tiled),
+        "dpnn": -med(dpnn) if dpnn else None,
+        "chip_c": chip,
+    }  # every column: higher is better
+    with open(ERRORS_PATH, "a") as f:
+        f.write(json.dumps(rec) + "\n")
+
+
+RECENT = 5  # runs judged against everything since the last refresh; see `_live`
+
+
+def _live(pid, since):
+    """(now, best, n, declined) for one predictor from the runs since it was last refreshed.
+
+    Declined is a one-sided rank test of the last RECENT runs against the ones before them,
+    at theory.stat.ALPHA -- no threshold of its own. With five on each side the smallest
+    p a rank test can reach is 1/252, so it needs 2*RECENT runs before it can say anything."""
+    from theory.stat import ALPHA, p_worse
+
+    vals = []
+    try:
+        for ln in ERRORS_PATH.read_text().splitlines():
+            r = json.loads(ln)
+            if r["t"] > since and r.get(pid) is not None:
+                vals.append(r[pid])
+    except (OSError, ValueError):
+        pass
+    if not vals:
+        return None, None, 0, False
+    now = float(np.median(vals[-RECENT:]))
+    best = max(
+        float(np.median(vals[i : i + RECENT])) for i in range(max(1, len(vals) - RECENT + 1))
+    )
+    declined = len(vals) >= 2 * RECENT and p_worse(vals[-RECENT:], vals[:-RECENT]) < ALPHA
+    return now, best, len(vals), declined
+
+
+def _live_text(pid, since, label, sign=1):
+    now, best, n, declined = _live(pid, since)
+    if n == 0:
+        return "", False
+    f = lambda x: f"{sign * x:.3f}"
+    return f" · {label} now: {f(now)} · best: {f(best)} · runs since refresh: {n}", declined
 
 
 DPNN_CKPT = Path("runs/hw")
@@ -718,6 +848,7 @@ def calib_state():
                     if span is not None and vpi and (fit or {}).get("vpi_sd") is not None
                     else None
                 ),
+                "phi0_sd": (fit or {}).get("phi0_sd"),
                 "nominal": nominal,
                 "fit_span": (fit or {}).get("span_pi"),
                 "fit_vpi": (fit or {}).get("vpi"),
@@ -772,12 +903,7 @@ def calib_state():
     key = {"green": "ok", "yellow": "weak", "red": "broken", "grey": "grey"}
     for r in rows + pds:
         counts[key[r["status"]]] += 1
-    busy = sweeps_running()
-    if busy:
-        warnings.append(
-            f"a pic process is running (pid {', '.join(map(str, busy))}): these "
-            f"files may be mid-write"
-        )
+    busy = sweeps_running()  # a sweep may be mid-write: the page locks rather than warns
 
     stamp = "  ".join(
         x
@@ -799,6 +925,7 @@ def calib_state():
         "running": bool(busy),
         "stamp": stamp,
         "rev": f"{cal_t or 0:.0f}/{char_t or 0:.0f}/{bool(busy)}",
+        "locked": bool(busy),
     }
 
 
@@ -830,32 +957,29 @@ JOB = {}  # the one calibration subprocess this page started: p, cmd, what, t0, 
 LOG_DIR = Path("pic_data/logs")
 
 
-_DONE = re.compile(r"\b(H\d+):\S+\s.*\b(ok|OK|REJECTED|well|scan)\b")
-_SEEN = re.compile(r"\b(H\d+):\S+")
+_FINISHED = {"fit", "recal"}  # a heater's result
+_LIVE = {"prescan", "sweeping"}  # a heater being measured right now
 
 
-def _row_states(targets, lines, running):
-    """pad -> queued | running | done, read off the job's own log: a heater's result line
-    ends in one of the markers the CLIs print, and the last heater named is the live one."""
-    done = {m.group(1) for m in map(_DONE.search, lines) if m}
-    # only the latest line can name the live heater, and only if it is a progress line: a
-    # sweep prints each heater when it finishes, so between results nobody is "running"
-    last = next((ln for ln in reversed(lines) if ln.strip()), "")
-    m = _SEEN.search(last)
-    live = m.group(1) if running and m and not _DONE.search(last) else None
+def _job_events():
+    """This job's own events, out of the shared stream every source feeds."""
+    return EVENTS.since(0, None, job=JOB["id"]) if JOB else []
+
+
+def _row_states(targets, evs, running):
+    """pad -> queued | running | done, from the job's heater events: a fit or recal is done,
+    and only the latest heater event can name the live one, and only while it measures."""
+    hs = [e for e in evs if e.get("c") == "heater" and e.get("pad")]
+    done = {e["pad"] for e in hs if e["s"] in _FINISHED}
+    live = hs[-1]["pad"] if running and hs and hs[-1]["s"] in _LIVE else None
     return {p: "done" if p in done else "running" if p == live else "queued" for p in targets}
 
 
-def _job_laser(lines):
-    """Whether the job has the laser lit, from its own log: pic.devices.laser prints
-    LASER ON / LASER OFF on every switch. While a job holds the port this is the only
-    honest answer, and "not yet" is not "on"."""
-    for ln in reversed(lines):
-        if "LASER ON" in ln:
-            return True
-        if "LASER OFF" in ln:
-            return False
-    return False
+def _job_laser(evs):
+    """Whether the job has the laser lit, from its own laser events. While a job holds the
+    port this is the only honest answer, and "not yet" is not "on"."""
+    sw = [e["s"] for e in evs if e.get("c") == "laser" and e.get("s") in ("on", "off")]
+    return bool(sw) and sw[-1] == "on"
 
 
 HISTORY = LOG_DIR / "history.json"  # how long each finished job took, for the next estimate
@@ -872,7 +996,7 @@ def _record(rc):
     h, _, _ = _read_json(HISTORY)
     h = (h or []) + [
         {
-            "kind": JOB["cmd"].split()[3],
+            "kind": _kind(JOB["cmd"]),
             "mock": JOB["mock"],
             "secs": round(time.time() - JOB["t0"]),
             "rc": rc,
@@ -881,6 +1005,95 @@ def _record(rc):
     ]
     HISTORY.write_text(json.dumps(h, indent=1))
     JOB["recorded"], JOB["t1"] = True, time.time()
+    if not JOB["mock"]:
+        # However the job ended -- finished, stopped, crashed, or its laser link dropped and
+        # it could not switch the diode off itself -- the laser goes off here too.
+        try:
+            laser({"on": False})
+        except Exception as e:
+            ev(
+                "server",
+                "laser",
+                f"job end: laser off failed ({_short(e)}); switch it off by hand",
+                "error",
+            )
+
+
+def _row_fits(evs):
+    """pad -> the fit a heater event reports, so the table can show it before the file is
+    written. fastchar/char report vpi, phi0 and span; recal reports phi0 alone."""
+    out = {}
+    for e in evs:
+        if e.get("c") != "heater" or e.get("s") not in _FINISHED or not e.get("pad"):
+            continue
+        if e["s"] == "recal":
+            out[e["pad"]] = {"phi0_pi": e.get("phi0_pi"), "ok": True}
+        else:
+            out[e["pad"]] = {k: e.get(k) for k in ("vpi", "phi0_pi", "span")}
+            out[e["pad"]]["ok"] = bool(e.get("ok"))
+    return out
+
+
+def _progress(kind, evs, rows):
+    """0..1 from the job's own events, or None when it reports nothing countable."""
+
+    def frac(c, *states):
+        e = next(
+            (e for e in reversed(evs) if e.get("c") == c and e.get("s") in states and e.get("n")),
+            None,
+        )
+        return min(1.0, e["k"] / e["n"]) if e else 0.0
+
+    done = sum(v == "done" for v in rows.values())
+    if kind == "capture":
+        return frac("table", "progress")
+    if kind == "fastchar":  # prescan is the first half, the per-heater fits the second
+        return 0.5 * frac("heater", "prescan") + 0.5 * (done / len(rows) if rows else 0.0)
+    if kind in ("char", "recal"):
+        return done / len(rows) if rows else None
+    if kind == "learn.train_hw":
+        # rounds finished (k of n on the round event) plus how far into this round it is
+        r = next((e for e in reversed(evs) if e.get("c") == "dpnn" and e.get("s") == "round"), None)
+        if not r or not r.get("n"):
+            return 0.0
+        i = evs.index(r)
+        smp = [e for e in evs[i:] if e.get("c") == "dpnn" and e.get("s") == "sample" and e.get("n")]
+        within = min(1.0, smp[-1]["k"] / smp[-1]["n"]) if smp else 0.0
+        return min(1.0, (r["k"] + within) / r["n"])
+    return None
+
+
+def _stage(kind, evs, rows):
+    """Where the job is, in its own units: the counts that make a percentage mean something."""
+    last = lambda c, *s: next(
+        (e for e in reversed(evs) if e.get("c") == c and e.get("s") in s and e.get("n")), None
+    )
+    if kind == "learn.train_hw":
+        r = next((e for e in reversed(evs) if e.get("c") == "dpnn" and e.get("s") == "round"), None)
+        if not r:
+            return None
+        smp = [e for e in evs[evs.index(r) :] if e.get("s") == "sample" and e.get("n")]
+        pts = f" · {smp[-1]['k']}/{smp[-1]['n']} pts" if smp else ""
+        return f"round {r.get('round', r['k'] + 1)}/{r['n']}{pts}"
+    if kind == "capture":
+        e = last("table", "progress")
+        return e and f"{e['k']}/{e['n']} states"
+    if kind in ("fastchar", "char", "recal"):
+        done = sum(v == "done" for v in rows.values())
+        e = last("heater", "prescan")
+        if e and not done:
+            return f"prescan {e['k']}/{e['n']}"
+        return rows and f"fits {done}/{len(rows)}"
+    return None
+
+
+def _waiting(evs):
+    """Blocked at the TEC gate, not working: the session's latest state says so."""
+    s = [e["s"] for e in evs if e.get("c") == "session" and e.get("s") in _SESSION]
+    return bool(s) and s[-1] in ("waiting", "paused")
+
+
+_SESSION = {"waiting", "lit", "paused", "resumed", "closed", "tripped"}
 
 
 def job_state():
@@ -892,22 +1105,25 @@ def job_state():
         rc = JOB["p"].poll()
         if rc is not None and not JOB.get("recorded"):
             _record(rc)
-        try:
-            lines = JOB["log"].read_text(errors="replace").splitlines()
-        except OSError:
-            lines = []
-        tail = lines[-12:]
+        evs = _job_events()
+        run = rc is None
         out = {
             "running": rc is None,
             "rc": rc,
             "cmd": JOB["cmd"],
             "what": JOB["what"],
+            "level": JOB.get("level"),
             "mock": JOB["mock"],
             "elapsed": round((JOB.get("t1") or time.time()) - JOB["t0"], 1),
-            "expected": _expected(JOB["cmd"].split()[3], JOB["mock"]),
-            "tail": tail,
+            "expected": _expected(_kind(JOB["cmd"]), JOB["mock"]),
+            "tail": [e["text"] for e in evs[-12:]],
             "log": str(JOB["log"]),
-            "rows": _row_states(JOB["targets"], lines, rc is None),
+            "rows": _row_states(JOB["targets"], evs, run),
+            "progress": _progress(_kind(JOB["cmd"]), evs, _row_states(JOB["targets"], evs, False)),
+            "stage": _stage(_kind(JOB["cmd"]), evs, _row_states(JOB["targets"], evs, False)),
+            # the job is blocked at the TEC gate, not working: the page says so, not a timer
+            "waiting": run and _waiting(evs),
+            "fits": _row_fits(evs) if run else {},
         }
     if CHAIN:
         out["chain"] = {k: CHAIN.get(k) for k in ("running", "at", "steps", "failed")}
@@ -961,24 +1177,62 @@ def _targets(cmd):
     return []  # sync touches the transfer table, not a row
 
 
+def _tec_ready(what):
+    """Refuse a bench job the TEC would only make wait: every one of them opens a laser
+    session, and the session will not light until the die is in band."""
+    from pic.config import TEC_SETPOINT_C, TEC_TOLERANCE_C
+
+    try:
+        t, TEC_SETPOINT_C = TEC.mean()[:2]
+    except Exception:
+        return  # the job's own gate reports a TEC it cannot read
+    if abs(t - TEC_SETPOINT_C) > TEC_TOLERANCE_C:
+        raise Busy(
+            f"not starting {what}: TEC: die at {t:.2f} C, outside {TEC_SETPOINT_C:.2f} ± "
+            f"{TEC_TOLERANCE_C:.2f} C, and the job would only wait for it. Start it once the "
+            "header turns green."
+        )
+
+
+def _kind(cmd):
+    """`python -m pic fastchar ...` -> fastchar; `python -m learn.train_hw ...` -> learn.train_hw."""
+    p = cmd.split()
+    return p[3] if p[2] == "pic" else p[2]
+
+
 def _start_job(cmd, what, mock):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log = LOG_DIR / f"{time.strftime('%Y%m%d-%H%M%S')}-{cmd.split()[3]}.log"
-    with open(log, "w") as fh:
-        p = subprocess.Popen(
-            [sys.executable, "-u", *cmd.split()[1:]],
-            stdout=fh,
-            stderr=subprocess.STDOUT,
-            # a server started in the background passes SIGINT down as ignored, and then
-            # Stop could never interrupt the job cleanly; give the child the default back
-            preexec_fn=(
-                (lambda: signal.signal(signal.SIGINT, signal.SIG_DFL)) if os.name != "nt" else None
-            ),
-        )
+    log = LOG_DIR / f"{time.strftime('%Y%m%d-%H%M%S')}-{_kind(cmd)}.log"
+    fh = open(log, "w")
+    p = subprocess.Popen(
+        # UTF-8 mode: logs and JSON carry ±, °, → and φ; Windows' cp1252 default mangles them
+        [sys.executable, "-X", "utf8", "-u", *cmd.split()[1:]],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        # a server started in the background passes SIGINT down as ignored, and then
+        # Stop could never interrupt the job cleanly; give the child the default back
+        preexec_fn=(
+            (lambda: signal.signal(signal.SIGINT, signal.SIG_DFL)) if os.name != "nt" else None
+        ),
+    )
+    src, jid = _kind(cmd), f"{log.stem}-{p.pid}"
+
+    def pump():  # the raw log for the file view, and every line as an event for the Logs tab
+        with fh:
+            for ln in p.stdout:
+                fh.write(ln)
+                fh.flush()
+                EVENTS.feed(src, ln, job=jid)
+
+    threading.Thread(target=pump, daemon=True, name=f"log-{src}").start()
     if JOB and not JOB.get("recorded") and JOB["p"].poll() is not None:
         _record(JOB["p"].poll())  # a chain can start the next job before anyone polled
     JOB.clear()
-    JOB.update(p=p, cmd=cmd, what=what, t0=time.time(), log=log, mock=mock, targets=_targets(cmd))
+    JOB.update(
+        p=p, id=jid, cmd=cmd, what=what, t0=time.time(), log=log, mock=mock, targets=_targets(cmd)
+    )
     return {"ok": True, "cmd": cmd, "pid": p.pid}
 
 
@@ -1029,6 +1283,7 @@ def recal_request(payload):
             "sweep": ("python -m pic fastchar --write", "full sweep"),
             "recenter": ("python -m pic recal --write", "recenter"),
             "table": ("python -m pic sync", "table sync"),
+            "capture": ("python -m pic capture --states 200", "table recapture"),
             # the detectors with every heater at 0 V: dark level and full scale per PD
             "pd": ("python -m pic calibrate --write", "PD sweep"),
             # ~200 lit points a round across all four ports; about a minute a round
@@ -1058,7 +1313,9 @@ def recal_request(payload):
         cmd = cmd.replace(" --write", "") + " --mock"
         cmd += " --out runs/mock" if "train_hw" in cmd else ""  # never over the bench model
         cmd += " --dry-run" if " sync" in cmd else ""
-        return _start_job(cmd, what, True)
+        r = _start_job(cmd, what, True)
+        JOB["level"] = level
+        return r
     busy = sweeps_running()
     if busy is None:
         raise Busy(
@@ -1077,7 +1334,10 @@ def recal_request(payload):
             f"refusing to re-characterize {what}: this server was started without "
             f"--arm, so it will not drive a heater. Run it yourself:\n  {cmd}"
         )
-    return _start_job(cmd, what, False)
+    _tec_ready(what)
+    r = _start_job(cmd, what, False)
+    JOB["level"] = level
+    return r
 
 
 PD_READS = 24  # frames behind each detector's dark level and its read noise
@@ -1093,7 +1353,7 @@ CHECKS = {
     "ports": {
         "name": "Serial ports",
         "auto": True,
-        "tip": "USB serial devices, named by serial number (pic.config.USB_SERIAL); the rig has three -- the "
+        "tip": "USB devices by chip id (pic.config.USB_SERIAL); pass an id to any --*-port flag. The rig has three -- the "
         "board, the TEC controller and the laser's FTDI",
     },
     "board": {
@@ -1244,7 +1504,10 @@ def _ck_ports(mock: bool):
     from pic.config import usb_ports
 
     found = usb_ports()
-    val = " · ".join(f"{r}: {Path(d).name}" for d, r, _ in found)
+    from pic.config import _serial_of
+
+    # the chip id, not the device path: the id survives a replug, the path does not
+    val = " · ".join(f"{r}: {_serial_of(d) or Path(d).name}" for d, r, _ in found)
     if not found:
         return _row("ports", "fail", "nothing plugged in")
     missing = sorted({"board", "tec", "laser"} - {r for _, r, _ in found})
@@ -1478,7 +1741,7 @@ def _ck_heaters():
 
     cal, cal_t, err = _read_json(CALIB_PATH)
     if cal is None:
-        return "fail", f"{err} · recommend: full sweep"
+        return "fail", err
     res, _, _ = _read_json(CHAR_PATH)
     fits = [(res or {}).get(str(int(d))) or {} for d in ACTIVE_IDX]
     ok = [f for f in fits if f.get("ok")]
@@ -1487,11 +1750,37 @@ def _ck_heaters():
         f"{len(ok)}/{len(ACTIVE_IDX)} heaters fitted · last sweep: {ago(cal_t)} · "
         f"fit residual: {score:.2f} of the fringe"
     )
-    if time.localtime(cal_t).tm_yday != time.localtime().tm_yday:
-        return "warn", val + " · recommend: full sweep; the map moves overnight"
-    if len(ok) < len(ACTIVE_IDX) - len(_BLIND):
-        return "warn", val + " · recommend: full sweep of the rejected heaters"
-    return "pass", val + " · recommend: recenter when runs drift"
+    chip = (cal.get("meta") or {}).get("chip_c")
+    if chip is not None:
+        val += f" · calibrated at: {float(chip):.1f} C"
+    live, declined = _live_text("heaters", cal_t, "fidelity")
+    return ("warn" if declined else "pass"), val + live
+
+
+# the button a predictor's state calls for; the page highlights it instead of saying so
+_REC = {
+    # a measured decline: recenter first, it is the cheap fix for drift; a failure: sweep
+    "heaters": lambda st, v: "recenter" if st == "warn" else "sweep" if st == "fail" else None,
+    "table": lambda st, v: (
+        "capture" if "worse than answering zero" in v else "table" if st != "pass" else None
+    ),
+    "dpnn": lambda st, v: "dpnn" if st != "pass" else None,
+    "pds": lambda st, v: "pd" if st != "pass" else None,
+}
+
+
+def _ck_pds_pred():
+    """The detectors as a predictor: how many pass their own check, and how fresh."""
+    cal, _, err = _read_json(CALIB_PATH)
+    if cal is None:
+        return "fail", err
+    pds = calib_state()["pds"]
+    ok = sum(p["status"] == "green" for p in pds)
+    when = (cal.get("meta") or {}).get("calibrated_at")
+    val = f"{ok}/{len(pds)} detectors healthy · last PD sweep: {when or 'never'}"
+    if ok < len(pds):
+        return "fail", val
+    return ("warn" if not when or when[:10] != time.strftime("%Y-%m-%d") else "pass"), val
 
 
 def predictors():
@@ -1499,40 +1788,57 @@ def predictors():
     The same checks the diagnostics run, so the two tabs cannot disagree."""
     st, val = _ck_heaters()
     out = [{"id": "heaters", "name": "Heaters", "status": st, "value": val}]
+    pst, pval = _ck_pds_pred()
+    out.append({"id": "pds", "name": "Photodiodes", "status": pst, "value": pval})
     for i in ("table", "dpnn"):
         r = _SOLO_FN[i](False)
         out.append({"id": i, "name": r["name"], "status": r["status"], "value": r["value"]})
+    for p in out:
+        p["rec"] = _REC[p["id"]](p["status"], p["value"])
     return out
+
+
+# level -> the job it runs, for "how long will this take": the median of that job's past
+# successful bench runs, so a planner (or a demo) knows before pressing
+_LEVEL_KIND = {
+    "sweep": "fastchar",
+    "recenter": "recal",
+    "pd": "calibrate",
+    "table": "sync",
+    "capture": "capture",
+    "dpnn": "learn.train_hw",
+}
+
+
+def estimates():
+    est = {lv: _expected(k, False) for lv, k in _LEVEL_KIND.items()}
+    known = [est[lv] for lv in CHAIN_LEVELS]
+    est["all"] = sum(known) if all(x is not None for x in known) else None
+    return est
 
 
 def _ck_dpnn(mock):
     """Is there a DPNN worth believing, and does it answer?"""
-    from pic.characterize import STRONG_R2
 
     t0 = time.time()
     T, meta = _dpnn_transfer(np.zeros(16))
     if T is None:
-        return _row("dpnn", "fail", meta["error"] + " · recommend: train")
+        return _row("dpnn", "fail", meta["error"] + "")
     ms = 1e3 * (time.time() - t0)
     if not np.all(np.isfinite(T)):
         return _row("dpnn", "fail", "inference returned NaN")
     ck = (DPNN_CKPT / "ckpt.pt").stat().st_mtime
     _, cal_t, _ = _read_json(CALIB_PATH)
     r2 = meta.get("r2") or 0.0
-    val = (
-        f"R² {r2:.2f} · trained on: {meta.get('source')} · age: {ago(ck)} · inference: {ms:.0f} ms"
-    )
+    val = f"R² {r2:.2f} · age: {ago(ck)}"
     if meta.get("source") != "hw":
         return _row(
             "dpnn",
             "fail",
-            val + " · trained on the simulator · recommend: train on the bench",
+            val + " · trained on the simulator",
         )
-    if cal_t and ck < cal_t:
-        return _row("dpnn", "warn", val + " · older than the calibration · recommend: retrain")
-    if r2 < STRONG_R2:
-        return _row("dpnn", "warn", val + f" · R² under {STRONG_R2} · recommend: retrain")
-    return _row("dpnn", "pass", val + " · recommend: nothing")
+    live, declined = _live_text("dpnn", ck, "error vs chip", sign=-1)
+    return _row("dpnn", "warn" if declined else "pass", val + live)
 
 
 def _ck_table(mock):
@@ -1550,15 +1856,11 @@ def _ck_table(mock):
     plan = plan_from_table(B, tr, box=bench_box())
     err = float(np.linalg.norm(plan.predict() - B) / np.linalg.norm(B))
     ms = 1e3 * (time.time() - t0)
-    val = (
-        f"{len(tr)} states · age: {ago(age) if age else '?'} · "
-        f"one 2x2 plan: error {err:.3f} in {ms:.0f} ms"
-    )
+    val = f"{len(tr)} states · age: {ago(age) if age else '?'} · " f"one 2x2 plan: error {err:.3f}"
     if not np.isfinite(err) or err >= 1.0:  # 1.0 is what answering zero scores
-        return _row("table", "fail", val + " · worse than answering zero · recommend: sync")
-    if age and time.localtime(age).tm_yday != time.localtime().tm_yday:
-        return _row("table", "warn", val + " · taken on an earlier day · recommend: sync")
-    return _row("table", "pass", val + " · recommend: nothing")
+        return _row("table", "fail", val + " · worse than answering zero")
+    live, declined = _live_text("table", age or 0, "tiled fidelity")
+    return _row("table", "warn" if declined else "pass", val + live)
 
 
 _BOARD_FN = {"board": _ck_board, "switch": _ck_switch, "pds": _ck_pds}
@@ -1571,11 +1873,14 @@ _SOLO_FN = {
 }
 
 
+DIAG_LAST = {}  # check id -> its last row, so leaving the tab does not throw a result away
+
+
 def diag_catalog():
     """Every row at `unknown`, so the page can draw the list without touching anything.
 
     The tab must be openable with no consequence: two of these rows move the rig."""
-    return [_row(i, "unknown", "not run") for i in CHECKS]
+    return [DIAG_LAST.get(i) or _row(i, "unknown", "not run") for i in CHECKS]
 
 
 def diag_run(ids=None, mock: bool = False):
@@ -1625,25 +1930,17 @@ def diag_run(ids=None, mock: bool = False):
             out[i] = _SOLO_FN[i](mock)
         except Exception as e:
             out[i] = _row(i, "fail", _short(e))
+    if not mock:  # the bench's results are what the tab shows on its next visit
+        for i, r in out.items():
+            DIAG_LAST[i] = {**r, "value": r["value"] + f" · run: {time.strftime('%H:%M')}"}
     return [out[i] for i in CHECKS if i in out]
 
 
 def power_test(mock):
-    """Quarter heater power, then full, and the verdict comes from the pair: a TEC that
-    holds a quarter but not the whole load works and is short of headroom; one that cannot
-    hold a quarter is not working."""
-    q = diag_hold({"mock": mock, "fraction": 0.25}, mock)["row"]
-    f = diag_hold({"mock": mock, "fraction": 1.0}, mock)["row"]
-    held = lambda r: r["status"] == "pass"
-    if held(q) and held(f):
-        st, head = "pass", "TEC holds at quarter and full power"
-    elif held(q):
-        st, head = "warn", "TEC works but runs out of headroom at full heater power"
-    elif q["status"] == "fail":
-        st, head = "fail", "TEC not holding even at quarter power: it is not working"
-    else:
-        st, head = "unknown", "no verdict"
-    return _row("rail", st, f"{head} · quarter: {q['short']} · full: {f['short']}")
+    """Every heater at a quarter of its power while the TEC is watched. A quarter is enough
+    to see whether the loop holds, without dumping the full load into the chip and the
+    TEC's heatsink, which then takes many minutes to recover."""
+    return diag_hold({"mock": mock, "fraction": 0.25}, mock)["row"]
 
 
 def diag_hold(payload, default_mock: bool = False):
@@ -1722,9 +2019,20 @@ class _TecOwner:
             ext = [p for p in (sweeps_running() or []) if not JOB or p != JOB["p"].pid]
             if ext:
                 raise Busy(f"the TEC port is held by pid {', '.join(map(str, ext))}")
+            # another UI server (a second tab's `make run`, a test instance) may own it already
+            import psutil
+
+            lock = Path("pic_data/.tec_owner")
+            try:
+                other = int(lock.read_text())
+            except (OSError, ValueError):
+                other = None
+            if other and other != os.getpid() and psutil.pid_exists(other):
+                raise Busy(f"the TEC port is held by another UI server (pid {other})")
+            lock.write_text(str(os.getpid()))
             from pic.devices.tec import SerialTEC
 
-            self.tec = SerialTEC(_tec_port()).open()
+            self.tec = SerialTEC(_tec_port()).open()  # open() writes TEC_SETPOINT_C
             self.err = None
             threading.Thread(target=self._pump, daemon=True).start()
 
@@ -1753,8 +2061,10 @@ class _TecOwner:
         r = self.rows(n=n)
         if not r or time.time() - r[-1][0] > 3.0:
             raise ValueError(f"no fresh TEC telemetry{f' ({self.err})' if self.err else ''}")
-        t, sp, d = np.mean([x[1:] for x in r], axis=0)
-        return float(t), float(sp), float(d), len(r)
+        t, _, d = np.mean([x[1:] for x in r], axis=0)
+        # the band everything gates on is the operating temperature, not the controller's
+        # target: the controller always aims TEC_SETPOINT_C, and may not get there
+        return float(t), op_temp(), float(d), len(r)
 
     def view(self):
         """A TEC object for a Rig, fed from this connection; its close() leaves the port open."""
@@ -1766,6 +2076,29 @@ class _TecOwner:
 TEC = _TecOwner()
 
 
+OP_PATH = Path("pic_data/op_temp.json")
+
+
+def op_temp():
+    from pic.config import TEC_SETPOINT_C
+
+    saved, _, _ = _read_json(OP_PATH)
+    return float(saved["c"]) if saved else TEC_SETPOINT_C
+
+
+def op_set(b):
+    """Set the operating temperature runs gate and pause on (±TEC_TOLERANCE_C). The TEC is
+    not retargeted: it keeps aiming TEC_SETPOINT_C, so a die stuck warm can still be run at."""
+    from pic.devices.tec import T_MAX_C, T_MIN_C
+
+    c = _finite(b.get("set"), "set", 1)[0]
+    if not T_MIN_C <= c <= T_MAX_C:
+        raise ValueError(f"operating temperature must be {T_MIN_C:.0f}..{T_MAX_C:.0f} C, got {c:g}")
+    OP_PATH.write_text(json.dumps({"c": c, "at": time.strftime("%Y-%m-%d %H:%M")}))
+    ev("tec", "op", f"operating temperature -> {c:.2f} C", set_c=c)
+    return {"ok": True, "set": c}
+
+
 def tec_now(n: int = 5):
     """Die temperature for the header: the mean of the last n readings on the shared port."""
     from pic.config import TEC_SETPOINT_C, TEC_TOLERANCE_C
@@ -1774,12 +2107,14 @@ def tec_now(n: int = 5):
         t, sp, d, k = TEC.mean(n)
     except Busy:
         return {"held": True}
+    TEC_SETPOINT_C = sp  # the operating temperature
     return {
         "c": round(t, 2),
         "drive": round(d, 2),
         "n": k,
         "set": TEC_SETPOINT_C,
         "tol": TEC_TOLERANCE_C,
+        "status": getattr(TEC.tec, "status_line", None),
     }
 
 
@@ -1804,7 +2139,7 @@ def _tec_verdict(samples):
         )
     if t1 - t0 > CALIB_TEMP_TOL_C:
         why = (
-            "drive at its limit, so the TEC is out of authority at full heater power; "
+            "drive at its limit, so the TEC is out of authority under this heater load; "
             "check the TEC supply and current limit"
             if abs(d1) >= TEC_RAIL_V
             else "drive stayed below its limit yet the die heated; check the TEC wiring and polarity"
@@ -1855,6 +2190,221 @@ def _where(e) -> str:
     return "input" if isinstance(e, ValueError) else "server"
 
 
+# The rig as a set of explicit states. `classify` is pure -- probes in, states out -- so every
+# transition can be driven in the self-test without hardware; `rig_state` does the probing.
+# Each state names who acts: "auto" (the rig already handles it; nothing to do) or "user"
+# (the one thing to do). "ok" states have no fix.
+def classify(p):
+    from pic.config import TEC_SETPOINT_C, TEC_TOLERANCE_C
+
+    S = []
+
+    def add(comp, state, level, detail="", who=None, fix=""):
+        S.append(
+            {
+                "component": comp,
+                "state": state,
+                "level": level,
+                "detail": detail,
+                "who": who,
+                "fix": fix,
+            }
+        )
+
+    missing = sorted({"board", "tec", "laser"} - set(p.get("ports", [])))
+    if missing:
+        add(
+            "ports",
+            "missing",
+            "fail",
+            ", ".join(missing),
+            "user",
+            f"plug in / power the {', '.join(missing)}; they are named by chip id",
+        )
+    else:
+        add("ports", "ok", "pass")
+
+    L = p.get("laser") or {}
+    if L.get("error"):
+        add("laser", "unreachable", "fail", L["error"], "user", "check the laser's USB and power")
+    elif L.get("held"):
+        add(
+            "laser",
+            "held",
+            "pass",
+            f"{L['held']} ({'on' if L.get('on') else 'off'})",
+            "auto",
+            "the job switches it off when it ends; the server does too",
+        )
+    elif not L.get("key", True):
+        add("laser", "key off", "fail", "", "user", "turn the laser key on")
+    elif not (L.get("bnc", True) and L.get("ext", True)):
+        add("laser", "interlock open", "fail", "", "user", "close the laser interlocks")
+    elif L.get("on"):
+        add(
+            "laser",
+            "on, idle",
+            "warn",
+            f"{L.get('mA')} mA with no job",
+            "user",
+            "switch it off unless you are aligning by hand",
+        )
+    else:
+        add("laser", "off", "pass")
+
+    T = p.get("tec") or {}
+    st = T.get("status") or ""
+    if T.get("error") or T.get("held"):
+        add(
+            "tec",
+            "unreachable" if T.get("error") else "held",
+            "fail" if T.get("error") else "warn",
+            T.get("error") or "another process has the port",
+            "user",
+            "check the TEC's USB" if T.get("error") else "wait for that process",
+        )
+    elif "FAULT" in st:
+        add(
+            "tec",
+            "fault cleared",
+            "warn",
+            st,
+            "auto",
+            "the firmware clears latched faults every 5 s",
+        )
+    elif abs(T["c"] - T.get("set", TEC_SETPOINT_C)) > T.get("tol", TEC_TOLERANCE_C):
+        railed = abs(T.get("drive", 0)) >= TEC_RAIL_V
+        if railed and not p.get("job_running"):
+            add(
+                "tec",
+                "at its limit",
+                "fail",
+                f"{T['c']:.2f} C, drive railed with no load",
+                "user",
+                "the heatsink is not shedding heat: cool the TEC's hot side, or wait",
+            )
+        else:
+            add(
+                "tec",
+                "settling",
+                "warn",
+                f"{T['c']:.2f} C",
+                "auto",
+                "bench actions stay disabled until the die is back in band",
+            )
+    else:
+        add("tec", "in band", "pass", f"{T['c']:.2f} C")
+
+    ext = p.get("external") or []
+    if ext:
+        add(
+            "board",
+            "held elsewhere",
+            "warn",
+            f"pid {', '.join(map(str, ext))}",
+            "user",
+            "a pic process outside this page holds the rig: let it finish or stop it",
+        )
+    elif p.get("board_busy"):
+        add("board", "busy", "pass", "a run or check from this page", "auto", "it frees itself")
+    else:
+        add("board", "free", "pass")
+
+    J = p.get("job") or {}
+    if J.get("running"):
+        add(
+            "job",
+            "waiting for TEC" if J.get("waiting") else "running",
+            "warn" if J.get("waiting") else "pass",
+            J.get("what", ""),
+            "auto" if J.get("waiting") else None,
+            "it resumes when the die is in band" if J.get("waiting") else "",
+        )
+    elif J.get("rc") not in (None, 0):
+        add(
+            "job",
+            "failed",
+            "fail",
+            f"{J.get('what')}: {J.get('reason') or 'exit ' + str(J.get('rc'))}",
+            "user",
+            "see the Logs tab; the laser was switched off",
+        )
+    else:
+        add("job", "idle" if not J else "finished", "pass", J.get("what", ""))
+    return S
+
+
+def _fail_reason(evs):
+    """What a failed job died of, in one line: its last error, before the bare `exit N` the
+    CLI ends on; failing that, the last line it printed raw, which is where a SystemExit's
+    message lands."""
+    errs = [e for e in evs if e.get("lvl") == "error"]
+    real = [e for e in errs if not (e.get("c") == "job" and e.get("s") == "failed")]
+    raw = [e for e in evs if e.get("lvl") == "raw"]
+    e = (real or raw or errs or [None])[-1]
+    return e and e["text"][:160]
+
+
+def rig_state():
+    """Probe everything cheaply -- no board open, no laser switched -- and classify."""
+    from pic.config import usb_ports
+
+    p = {"ports": [r for _, r, _ in usb_ports()]}
+    try:
+        p["laser"] = laser()
+    except Exception as e:
+        p["laser"] = {"error": _short(e)}
+    try:
+        p["tec"] = tec_now()
+    except Exception as e:
+        p["tec"] = {"error": _short(e)}
+    j = job_state()
+    if j.get("rc") not in (None, 0):
+        try:
+            j["reason"] = _fail_reason(_job_events())
+        except Exception:
+            pass
+    p["job"], p["job_running"] = j, j.get("running", False)
+    p["external"] = j.get("external") or []
+    p["board_busy"] = _BOARD_LOCK.locked()
+    return {"states": classify(p), "probes": p}
+
+
+# A browser that closes a tab or navigates away mid-poll hangs up on a reply in flight. That is
+# normal, not an error, and each one used to print a 30-line traceback.
+_HANGUP = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
+
+
+class Server(ThreadingHTTPServer):
+    daemon_threads = True  # Ctrl-C does not wait on a poll that is mid-flight
+
+    def handle_error(self, request, client_address):
+        if not isinstance(sys.exc_info()[1], _HANGUP):
+            super().handle_error(request, client_address)
+
+
+_LAST_REFUSAL = {}  # route -> the last message logged for it: a poll repeats itself
+
+
+def _log_refusal(path, e, lvl, tb=None):
+    """Every refusal or error the page is sent also goes to the Logs tab -- once per change,
+    not once per 5 s poll that hits the same one."""
+    route = path.split("?")[0]
+    msg = f"{type(e).__name__}: {e}".splitlines()[0][:200]
+    if _LAST_REFUSAL.get(route) == msg:
+        return
+    _LAST_REFUSAL[route] = msg
+    ev(
+        "server",
+        "refused" if lvl == "warn" else "error",
+        msg,
+        lvl,
+        route=route,
+        where=_where(e),
+        **({"trace": tb[-1500:]} if tb else {}),
+    )
+
+
 class Handler(BaseHTTPRequestHandler):
     default_mock = True
 
@@ -1871,12 +2421,14 @@ class Handler(BaseHTTPRequestHandler):
             out = fn()
         except (ReadoutError, NotOrthogonal, Busy, ValueError) as e:  # actionable refusals
             out = {"error": str(e), "ok": False, "where": _where(e)}
+            _log_refusal(self.path, e, "warn")
         except Exception as e:  # the page must survive a bad run
             out = {
                 "error": f"{_where(e)}: {type(e).__name__}: {e}\n\n{traceback.format_exc()}",
                 "ok": False,
                 "where": _where(e),
             }
+            _log_refusal(self.path, e, "error", traceback.format_exc())
         try:
             txt = json.dumps(out, allow_nan=False)
         except ValueError:  # NaN/inf: invalid JSON to a browser, so it would kill the page
@@ -1892,7 +2444,19 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/laser":
             self._json(laser)
         elif route == "/api/predictors":
-            self._json(predictors)
+            self._json(lambda: {"preds": predictors(), "est": estimates()})
+        elif route == "/api/events":
+            from urllib.parse import parse_qs, urlparse
+
+            qs = parse_qs(urlparse(self.path).query)
+            self._json(lambda: {"events": EVENTS.since(float((qs.get("after") or [0])[0]))})
+        elif route == "/api/logs":
+            from urllib.parse import parse_qs, urlparse
+
+            name = (parse_qs(urlparse(self.path).query).get("name") or [None])[0]
+            self._json(lambda: logs(name))
+        elif route == "/api/state":
+            self._json(rig_state)
         elif route == "/api/tec":
             self._json(tec_now)
         elif route == "/api/job":
@@ -1924,7 +2488,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         route = self.path.split("?")[0]
-        if route not in ("/api/laser", "/api/recal", "/api/diag", "/api/run", "/api/job/stop"):
+        if route not in (
+            "/api/laser",
+            "/api/recal",
+            "/api/diag",
+            "/api/run",
+            "/api/job/stop",
+            "/api/tec",
+        ):
             return self._json(lambda: _raise(ValueError(f"no such endpoint: {route}")), 404)
         try:
             body = self._body()
@@ -1934,6 +2505,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(lambda: laser(body))
         elif route == "/api/recal":
             self._json(lambda: recal_request(body))
+        elif route == "/api/tec":
+            self._json(lambda: op_set(body))
         elif route == "/api/job/stop":
             self._json(job_stop)
         elif route == "/api/diag":
@@ -2060,10 +2633,16 @@ def _selftest(cols: int = 3):
         == '{"a": [null, 1.0]}'
     )
 
-    L = ["prescan  1/12 H1:phi0  best PD3", "  H10:phi4  PD1 port2 vpi 5 OK"]
-    assert _row_states(["H1", "H10"], L, True) == {"H1": "queued", "H10": "done"}
-    assert _row_states(["H1", "H10"], L[:1], True)["H1"] == "running"
+    _check_job_events()
 
+    _check_states()
+    _check_live()
+    import tempfile
+
+    import events
+
+    with tempfile.TemporaryDirectory() as d:
+        events._selftest(d)
     diag = _check_diag()
 
     print(
@@ -2148,6 +2727,130 @@ def _check_diagram(s):
             raise AssertionError(r)
     assert sorted(drawn.get("theta", [])) == sorted(THETA_DAC.values()), drawn
     assert sorted(drawn.get("phi", [])) == sorted(PHI_DAC.values()), drawn
+
+
+def _check_live():
+    """Advice comes from measured decline only: steady runs never trigger it, a real drop does,
+    and too few runs say nothing rather than guess."""
+    import tempfile
+
+    global ERRORS_PATH
+    keep = ERRORS_PATH
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            ERRORS_PATH = Path(d) / "e.jsonl"
+            rows = [0.95, 0.94, 0.96, 0.95, 0.94] * 2
+            ERRORS_PATH.write_text(
+                "".join(json.dumps({"t": i + 1, "heaters": v}) + "\n" for i, v in enumerate(rows))
+            )
+            assert _live("heaters", 0)[3] is False  # steady: no advice
+            ERRORS_PATH.write_text(
+                "".join(
+                    json.dumps({"t": i + 1, "heaters": v}) + "\n"
+                    for i, v in enumerate(rows[:5] + [0.80, 0.81, 0.79, 0.82, 0.80])
+                )
+            )
+            now, best, n, declined = _live("heaters", 0)
+            assert declined and n == 10 and now < best, (now, best, n)
+            assert _live("heaters", 6)[3] is False  # only runs since the refresh count
+    finally:
+        ERRORS_PATH = keep
+
+
+def _check_states():
+    """Every component through its transitions: each lands in the right state, and the fix
+    goes to the right party -- the rig when it recovers by itself, the user when only they can."""
+    ok = {
+        "ports": ["board", "tec", "laser"],
+        "laser": {"on": False, "key": True, "bnc": True, "ext": True},
+        "tec": {"c": 25.1, "drive": 1.0, "status": "STATUS 0x3"},
+        "job": {},
+    }
+    cases = [
+        ({}, {"ports": "ok", "laser": "off", "tec": "in band", "board": "free", "job": "idle"}),
+        ({"ports": ["board", "laser"]}, {"ports": "missing"}),
+        ({"laser": {"error": "no FTDI"}}, {"laser": "unreachable"}),
+        ({"laser": {"key": False, "bnc": True, "ext": True}}, {"laser": "key off"}),
+        ({"laser": {"key": True, "bnc": True, "ext": False}}, {"laser": "interlock open"}),
+        ({"laser": {"on": True, "mA": 50, "key": True, "bnc": 1, "ext": 1}}, {"laser": "on, idle"}),
+        ({"laser": {"held": "table recapture", "on": True}}, {"laser": "held"}),
+        ({"tec": {"error": "TEC sent no telemetry"}}, {"tec": "unreachable"}),
+        ({"tec": {"held": True}}, {"tec": "held"}),
+        (
+            {"tec": {"c": 25.2, "drive": 1, "status": "FAULT 0x20 cleared"}},
+            {"tec": "fault cleared"},
+        ),
+        ({"tec": {"c": 26.4, "drive": 2.0}}, {"tec": "settling"}),
+        ({"tec": {"c": 26.4, "drive": 5.0}}, {"tec": "at its limit"}),
+        (
+            {
+                "tec": {"c": 26.4, "drive": 5.0},
+                "job_running": True,
+                "job": {"running": True, "what": "sweep"},
+            },
+            {"tec": "settling", "job": "running"},
+        ),
+        ({"job": {"running": True, "waiting": True, "what": "DPNN"}}, {"job": "waiting for TEC"}),
+        (
+            {"job": {"running": False, "rc": 1, "what": "capture", "reason": "TECError: x"}},
+            {"job": "failed"},
+        ),
+        ({"job": {"running": False, "rc": 0, "what": "sync"}}, {"job": "finished"}),
+        ({"external": [4242]}, {"board": "held elsewhere"}),
+        ({"board_busy": True}, {"board": "busy"}),
+    ]
+    for over, want in cases:
+        got = {s["component"]: s for s in classify({**ok, **over})}
+        for comp, state in want.items():
+            assert got[comp]["state"] == state, (over, comp, got[comp])
+        for s in got.values():  # a problem always says who acts, and a fine state never nags
+            assert (s["level"] == "pass") or s["who"] in ("auto", "user"), s
+            assert s["who"] != "user" or s["fix"], s
+    who = {s["component"]: s["who"] for s in classify({**ok, "tec": {"c": 26.4, "drive": 5.0}})}
+    assert who["tec"] == "user"  # railed at rest is the heatsink: only a person can fix that
+    return len(cases)
+
+
+def _check_job_events():
+    """The job's view -- rows, fits, progress, laser, waiting, failure -- read off its events
+    exactly as `EventLog` parses them from the printed `@ev` lines."""
+    import contextlib
+    import io
+    import tempfile
+
+    import events
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        ev("session", "waiting", "waiting for the TEC")
+        ev("laser", "on", "LASER ON")
+        ev("session", "lit", "emission verified", "ok")
+        ev("heater", "prescan", "prescan 1/2 H1", k=1, n=2, pad="H1")
+        ev("heater", "prescan", "prescan 2/2 H10", k=2, n=2, pad="H10")
+        ev("heater", "fit", "H10 ok", "ok", pad="H10", vpi=5.0, phi0_pi=0.25, span=0.4, ok=True)
+        ev("heater", "sweeping", "sweeping H1", pad="H1")
+        ev("session", "paused", "paused: die at 26", "warn")
+        print("an unconverted line")
+        ev("job", "failed", "exit 2", "error", rc=2)
+    with tempfile.TemporaryDirectory() as d:
+        log = events.EventLog(Path(d) / "e.jsonl")
+        log.feed("fastchar", buf.getvalue(), job="j")
+        E = log.since(0, None, job="j")
+    rows = _row_states(["H1", "H10"], E, True)
+    assert rows == {"H1": "running", "H10": "done"}, rows
+    assert _row_states(["H1", "H10"], E, False)["H1"] == "queued"
+    assert _row_fits(E) == {"H10": {"vpi": 5.0, "phi0_pi": 0.25, "span": 0.4, "ok": True}}
+    assert _progress("fastchar", E, _row_states(["H1", "H10"], E, False)) == 0.75
+    assert _job_laser(E) and _waiting(E) and not _waiting(E[:3])
+    assert _fail_reason(E) == "an unconverted line"  # the raw line beats a bare exit code
+    E.append({"lvl": "error", "kind": "error", "text": "pic.devices.tec.TECError: chip"})
+    assert _fail_reason(E).startswith("pic.devices.tec.TECError")
+    E.append({"c": "laser", "s": "off", "lvl": "ok", "text": "LASER OFF"})
+    assert not _job_laser(E)
+    rec = [{"c": "heater", "s": "recal", "pad": "H4", "phi0_pi": -0.5, "k": 1, "n": 2}]
+    assert _row_fits(rec) == {"H4": {"phi0_pi": -0.5, "ok": True}}
+    cap = [{"c": "table", "s": "progress", "k": 3, "n": 12}]
+    assert _progress("capture", cap, {}) == 0.25 and _progress("capture", [], {}) == 0.0
 
 
 def _check_diag():
@@ -2254,6 +2957,11 @@ def _check_calib(s):
 
 
 def main():
+    os.chdir(Path(__file__).resolve().parent)  # data paths are relative to this directory
+    # Windows: the server itself must be in UTF-8 mode too (files, console, the events it
+    # writes). A plain `python ui.py` there re-launches itself once with -X utf8.
+    if os.name == "nt" and not sys.flags.utf8_mode:
+        raise SystemExit(subprocess.call([sys.executable, "-X", "utf8", *sys.argv]))
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--mock", action="store_true", help="default the page to the mock chip")
     p.add_argument("--selftest", action="store_true", help="run the gate, no server")
@@ -2265,6 +2973,11 @@ def main():
     )
     p.add_argument("--port", type=int, default=8744)
     a = p.parse_args()
+    if not a.selftest:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        fh = open(LOG_DIR / "server.log", "a")
+        sys.stdout, sys.stderr = _Tee(sys.stdout, fh), _Tee(sys.stderr, fh)
+        ev("server", "started", "started", at=time.strftime("%Y-%m-%d %H:%M:%S"), pid=os.getpid())
     if a.selftest:
         _selftest()
         return
@@ -2272,22 +2985,54 @@ def main():
     ARMED = a.arm
     Handler.default_mock = a.mock
     # a crash leaves the laser in whatever state it was; a restart must not inherit it lit
+    # A second UI server (a test instance) must not touch a rig another one is running: the
+    # laser-off below would cut a beam that server's job has lit.
+    import psutil
+
     try:
-        print("laser:", laser({"on": False}))
-    except Exception as e:
-        print("laser: not reached,", _short(e))
-    try:  # the one TEC connection, opened before any job so every job reads through it
-        TEC.ensure()
-        print("TEC: holding the port; jobs read it through /api/tec")
-    except Exception as e:
-        print("TEC: not opened,", _short(e))
-    srv = ThreadingHTTPServer(("127.0.0.1", a.port), Handler)
-    print(
-        f"4x4 UI -> http://127.0.0.1:{a.port}   (ctrl-c to stop)"
-        + ("" if a.arm else "   [recal disarmed]"),
-        flush=True,
-    )  # backgrounded: unbuffered
-    srv.serve_forever()
+        owner = int(Path("pic_data/.tec_owner").read_text())
+    except (OSError, ValueError):
+        owner = None
+    if owner and owner != os.getpid() and psutil.pid_exists(owner):
+        ev(
+            "server",
+            "note",
+            f"another UI server (pid {owner}) runs this rig: laser and TEC left alone",
+            "warn",
+            pid=owner,
+        )
+    else:
+        try:
+            st = laser({"on": False})
+            ev("server", "laser", "laser off at start", "ok", **st)
+        except Exception as e:
+            ev("server", "laser", "laser not reached", "error", error=_short(e))
+        try:  # the one TEC connection, opened before any job so every job reads through it
+            TEC.ensure()
+            ev("server", "tec", "holding the TEC port; jobs read it through the server", "ok")
+        except Exception as e:
+            ev("server", "tec", "TEC not opened", "error", error=_short(e))
+    srv = Server(("127.0.0.1", a.port), Handler)
+    ev(
+        "server",
+        "listening",
+        f"UI at http://127.0.0.1:{a.port} (ctrl-c to stop)",
+        "ok",
+        armed=bool(a.arm),
+    )
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        # Ctrl-C is how this server is stopped, not an error: leave the rig safe, say one line
+        if JOB and JOB["p"].poll() is None:
+            job_stop()  # the job's own cleanup runs; it switches its laser off
+        try:
+            laser({"on": False})
+        except Exception:
+            pass
+        if TEC.tec is not None:
+            TEC.tec.close()
+        ev("server", "stopped", "stopped: laser off, TEC released", "ok")
 
 
 if __name__ == "__main__":

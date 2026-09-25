@@ -167,6 +167,8 @@ class PDMv5:
         last = None
         for attempt in range(retries + 1):
             try:
+                if self.ser is None:  # a reopen that failed last time: still a dropped link
+                    raise OSError("port is not open")
                 self.ser.reset_input_buffer()
                 self.ser.write(pkt)
                 self.ser.flush()

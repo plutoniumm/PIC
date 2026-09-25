@@ -27,6 +27,7 @@ from __future__ import annotations
 import numpy as np
 
 from .config import VOLTAGE_MAX_CH, VPI_NOMINAL
+from .log import ev
 from .session import WatchdogTripped, check_active
 from theory.clements import NMODE
 
@@ -587,6 +588,9 @@ def characterize(
                     )
                 break
             levels = levels_for(c)
+            if verbose:
+                pad = role[int(c)].split(":")[0]
+                ev("heater", "sweeping", f"sweeping {role[int(c)]}", pad=pad, dac=int(c))
             if levels is None:
                 f = dict(NO_FIT)
                 f["dac"], f["label"] = int(c), role[int(c)]
@@ -594,7 +598,15 @@ def characterize(
                 f["note"] = "held at 0 V (resistance unconfirmed); not swept"
                 results[int(c)] = f
                 if verbose:
-                    print(f"  {role[int(c)]:<14} held at 0 V, not swept")
+                    ev(
+                        "heater",
+                        "fit",
+                        f"{role[int(c)]:<14} held at 0 V, not swept",
+                        "warn",
+                        pad=pad,
+                        dac=int(c),
+                        ok=False,
+                    )
                 continue
             f = dict(NO_FIT)
             # Modulation depth on every (port, detector), not just the winning one. `better`
@@ -654,12 +666,25 @@ def characterize(
                 vpi[c], phi0[c] = f["vpi"], f["phi0"]
             results[int(c)] = f
             if verbose:
-                print(
-                    f"  {role[int(c)]:<14} PD{f.get('pd')} port{f.get('port')} base{f.get('base')}  "
-                    f"vis {f['visibility']:.3f}  amp {1e3 * f.get('amplitude', 0):5.1f}mV  "
-                    f"r2 {f.get('r2', 0):+.3f}  "
-                    f"Vpi {f.get('vpi', float('nan')):.2f}  "
-                    f"{'ok' if f['ok'] else 'REJECTED (invisible in intensity)'}"
+                vpi_c, amp = f.get("vpi", float("nan")), 1e3 * f.get("amplitude", 0)
+                phi, span = f.get("phi0", float("nan")) / np.pi, f.get("span_pi", float("nan"))
+                ev(
+                    "heater",
+                    "fit",
+                    f"{role[int(c)]:<14} PD{f.get('pd')} port{f.get('port')} base{f.get('base')}  "
+                    f"vis {f['visibility']:.3f}  amp {amp:5.1f}mV  r2 {f.get('r2', 0):+.3f}  "
+                    f"Vpi {vpi_c:.2f}  phi0 {phi:.3f}p  span {span:.2f}  "
+                    f"{'ok' if f['ok'] else 'REJECTED (invisible in intensity)'}",
+                    "ok" if f["ok"] else "warn",
+                    pad=pad,
+                    dac=int(c),
+                    pd=f.get("pd"),
+                    port=f.get("port"),
+                    vpi=vpi_c,
+                    phi0_pi=phi,
+                    span=span,
+                    amp_mv=amp,
+                    ok=bool(f["ok"]),
                 )
     except WatchdogTripped as e:
         truncated = "watchdog tripped mid-sweep"

@@ -32,6 +32,7 @@ import time
 from contextlib import contextmanager
 
 from .devices.laser import Laser
+from .log import ev
 from .devices.mock import MockLaser
 from .devices.tec import MockTEC, NoTEC, make_tec
 from .config import BAUD_RATE, READY_BANNER, RESET_WAIT_S
@@ -203,8 +204,9 @@ def laser_session(
     fired there is no light, so a measurement raises rather than returning dark volts.
     """
     if tec is not None and require_stable and not isinstance(tec, NoTEC):
-        print("waiting for the TEC to settle before lighting the laser", flush=True)
-        tec.wait_stable()
+        ev("session", "waiting", "waiting for the TEC to settle before lighting the laser", "warn")
+        waited = tec.wait_stable()
+        ev("tec", "stable", f"in band after {waited:.0f} s", "ok", secs=waited)
 
     lock = threading.Lock()
     stopped = threading.Event()
@@ -219,13 +221,17 @@ def laser_session(
         s.tripped = True
         with lock:
             try:
-                print(
-                    f"\n[watchdog] {duration_s:.0f}s reached -> forcing laser OFF; "
-                    f"the run is aborted, not continued"
+                ev(
+                    "session",
+                    "tripped",
+                    f"[watchdog] {duration_s:.0f}s reached -> forcing laser OFF; "
+                    "the run is aborted, not continued",
+                    "error",
+                    secs=duration_s,
                 )
                 laser.off()
             except Exception as e:
-                print(f"[watchdog] hw_off error: {e}")
+                ev("session", "tripped", f"[watchdog] hw_off error: {e}", "error")
         stopped.set()
 
     s = _Session()
@@ -262,6 +268,18 @@ def laser_session(
                     f"{s.bfm_on - s.bfm_off:+.3f} V"
                 )
         s.chip_c = float("nan") if tec is None else tec.temperature()
+        via = getattr(s, "emitted_via", "beam monitor")
+        ev(
+            "session",
+            "lit",
+            f"emission verified via {via}" if s.emitted else "laser on but no emission seen",
+            "ok" if s.emitted else "warn",
+            emitted=s.emitted,
+            bfm_off=s.bfm_off,
+            bfm_on=s.bfm_on,
+            chip_c=s.chip_c,
+            secs=duration_s,
+        )
 
         # Rate-limited, because callers poke it per sample. `characterize` calls it once per
         # sweep level -- 252 times per channel -- and each call is a serial write to the
@@ -277,8 +295,12 @@ def laser_session(
             now = time.time()
             if force or now - last[0] >= KEEPALIVE_S:
                 last[0] = now
-                with lock:
-                    laser.dev.write_setting("cw_current", s.sp, verify=False)
+                try:
+                    with lock:
+                        laser.dev.write_setting("cw_current", s.sp, verify=False)
+                except Exception as e:  # said here, raised on: the beam may already be down
+                    ev("session", "keepalive_failed", f"keepalive write failed: {e}", "error")
+                    raise
             if sleep_s:
                 time.sleep(sleep_s)
 
@@ -319,3 +341,4 @@ def laser_session(
         with lock:
             if not stopped.is_set():
                 laser.off()
+        ev("session", "closed", "laser session closed", tripped=s.tripped)

@@ -12,12 +12,15 @@ mock, so every path in this package can be exercised with nothing plugged in.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import time
 
 import numpy as np
 
 from .config import TEC_SETPOINT_C, VOLTAGE_MAX, VOLTAGE_MAX_CH, out_mask, ADC_REF_V, ADC_SAT_V
 from .devices.laser import Laser
+from .log import ev
 from .devices.mock import MockLaser
 from .devices.switch import make_switch
 from theory.clements import NMODE
@@ -142,21 +145,26 @@ def assert_calib_temperature(
     if not meta:
         return None  # nominal: no measurement, so nothing to disagree with
     if chip_c is None or not np.isfinite(float(chip_c)):
-        print(
-            f"  note: the calibration records no chip temperature, so it cannot be "
-            f"checked against the {setpoint_c:.2f} C setpoint. Re-run `python -m pic char --write` "
-            f"to anchor it."
+        ev(
+            "session",
+            "note",
+            "the calibration records no chip temperature, so it cannot be checked against the "
+            f"{setpoint_c:.2f} C setpoint. Re-run `python -m pic char --write` to anchor it.",
+            "warn",
+            set_c=setpoint_c,
         )
         return None
     chip_c = float(chip_c)
     if abs(chip_c - setpoint_c) > tol_c:
-        raise CalibrationTemperatureError(
-            f"calibration was fitted at chip_c = {chip_c:.2f} C but the TEC setpoint is "
-            f"TEC_SETPOINT_C = {setpoint_c:.2f} C ({abs(chip_c - setpoint_c):.2f} C apart, "
-            f"tolerance {tol_c:.2f}). Every phi0 in pic_data/calib.json is anchored to "
-            f"{chip_c:.2f} C, so running at {setpoint_c:.2f} C applies a uniform thermo-"
-            f"optic phase offset across the whole mesh. Recalibrate at the setpoint "
-            f"(`python -m pic char --write`) -- do not edit the constant to match."
+        # the operator's call, not a gate: say it once and carry on
+        ev(
+            "session",
+            "note",
+            f"calibration taken at {chip_c:.2f} C, TEC set to {setpoint_c:.2f} C "
+            f"({abs(chip_c - setpoint_c):.2f} C apart); phi0 carries that as a uniform offset",
+            "warn",
+            calib_c=chip_c,
+            set_c=setpoint_c,
         )
     return chip_c
 
@@ -280,22 +288,79 @@ class Rig:
         a characterization has to visit more than one."""
         return self.switch.select(port)
 
-    def session(self, *, duration_s, power_dbm, **kw):
+    def session(self, *, duration_s, power_dbm, calibrating=False, **kw):
         """Guarded laser session: background watchdog, emission verify, TEC gate.
 
         The calibration/setpoint temperature check sits here and not inside `laser_session`
         because it is a property of the rig rather than of the beam, but it runs at the same
         moment as the TEC settle gate so that every hardware entry point -- all of them open
         a session -- is covered by both."""
-        assert_calib_temperature(self.calib, self.tec.target)
-        return laser_session(
-            self.laser,
-            duration_s=duration_s,
-            power_dbm=power_dbm,
-            tec=self.tec,
-            read_pds=lambda: self.outputs(np.zeros(N_HEATERS)),
-            **kw,
+        # a calibration establishes the temperature the others are checked against
+        if not calibrating:
+            assert_calib_temperature(self.calib, self.tec.target)
+        return self._session(duration_s, power_dbm, kw)
+
+    @contextmanager
+    def _session(self, duration_s, power_dbm, kw):
+        # Heaters to 0 V on the way in and on the way out. A multi-round job used to leave the
+        # last operating point on through its fit and through the next round's TEC wait, so
+        # the die kept heating and the settle gate never passed.
+        self._zero()
+        try:
+            with laser_session(
+                self.laser,
+                duration_s=duration_s,
+                power_dbm=power_dbm,
+                tec=self.tec,
+                read_pds=lambda: self.outputs(np.zeros(N_HEATERS)),
+                **kw,
+            ) as s:
+                yield s
+        finally:
+            self._zero()
+
+    def hold_band(self, s, timeout_s: float = 600.0, resume: float = 0.5) -> float:
+        """Before a heater state: if the die has left the TEC band, rest the heaters at 0 V and
+        wait -- keeping the laser alive -- until it is back. Every state is then measured in
+        band; a job that heats the die just takes longer. Returns the die temperature."""
+        t = self.tec.temperature()
+        if abs(t - self.tec.target) <= self.tec.tolerance:
+            return t
+        ev(
+            "session",
+            "paused",
+            f"paused: die at {t:.2f} C, outside {self.tec.target:.2f} ± {self.tec.tolerance:.2f}; "
+            "heaters at 0 V until it is back",
+            "warn",
+            die_c=t,
+            set_c=self.tec.target,
+            tol=self.tec.tolerance,
         )
+        self._zero()
+        t0 = time.time()
+        # Hysteresis: pause at the band's edge, resume only well inside it. Resuming at the
+        # edge let the next heater state push it straight back out -- a pause every few states.
+        while abs(t - self.tec.target) > resume * self.tec.tolerance:
+            if time.time() - t0 > timeout_s:
+                raise TimeoutError(f"die did not come back into band in {timeout_s:.0f} s")
+            s.keepalive(sleep_s=2.0)
+            t = self.tec.temperature()
+        ev(
+            "session",
+            "resumed",
+            f"resumed after {time.time() - t0:.0f} s at {t:.2f} C",
+            "ok",
+            die_c=t,
+            secs=time.time() - t0,
+        )
+        return t
+
+    def _zero(self):
+        if self.board is not None:
+            try:
+                self.board.set_zero()
+            except Exception:
+                pass  # a board that cannot be reached is not driving anything either
 
     def measure(self, v) -> np.ndarray:
         """Set the 18 DAC volts, return the raw photodiode volts."""

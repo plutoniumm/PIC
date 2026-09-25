@@ -25,16 +25,42 @@ USB_SERIAL = {"board": "1344A47423035130E988", "tec": "1344A474230351308829", "l
 FTDI_VID = 0x0403
 
 
+def port_of(x):
+    """A chip id (USB serial number) or a role name -> its device path; anything else as given.
+    Lets every --*-port flag take the id printed on the Tools tab, which does not change when
+    a cable moves, instead of a path that does."""
+    if not x:
+        return x
+    for dev, role, _ in usb_ports():
+        if x == role or x == USB_SERIAL.get(role) or x == _serial_of(dev):
+            return dev
+    return x
+
+
+def _chip(sn):
+    """Windows' FTDI driver appends a channel letter to the chip id (AU05XLI8 -> AU05XLI8A)."""
+    if sn and sn not in USB_SERIAL.values() and sn[:-1] in USB_SERIAL.values():
+        return sn[:-1]
+    return sn
+
+
+def _serial_of(dev):
+    from serial.tools import list_ports
+
+    return next((_chip(p.serial_number) for p in list_ports.comports() if p.device == dev), None)
+
+
 def usb_ports():
     """[(device, role, vid)] for every USB serial device; role from USB_SERIAL, else '?'."""
     from serial.tools import list_ports
 
     role = {v: k for k, v in USB_SERIAL.items()}
     return sorted(
-        (p.device, role.get(p.serial_number, "?"), p.vid)
+        (p.device, role.get(_chip(p.serial_number), "?"), p.vid)
         for p in list_ports.comports()
         if p.vid
     )
+
 
 RESET_WAIT_S = 2.0  # the board resets when the serial port is opened
 READY_BANNER = "pic4x4 ready"
@@ -284,7 +310,9 @@ TEC_SETPOINT_C = 25.0
 # Was 0.05 C (a ~4 sigma gate on the sd 0.012 hold). Widened to 0.5 C on 2026-09-23: the TEC
 # power stage cannot pull the die below ~25.3 C (drive +1.63 V of 2.00 at idle, railed under
 # any heater load), so 0.05 blocked every bench run. Restore 0.05 once the TEC holds again.
-TEC_TOLERANCE_C = 0.5
+# 1.0 since 2026-09-25: at 2-3 A the TEC sits at its current limit and holds ~25.7 C at rest,
+# limited by the heatsink, not the drive. Tighten once the hot side is cooled better.
+TEC_TOLERANCE_C = 1.0
 # A reset lands the chip near ambient, and pulling back down runs at ~0.5 C/min. The old
 # 60 s gate was sized for holding a setpoint, not for reaching one from cold, and it failed a
 # capture that was merely still on its way.

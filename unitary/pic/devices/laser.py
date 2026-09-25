@@ -36,6 +36,7 @@ both places or neither; do not let them drift.
 from __future__ import annotations
 import time
 
+from ..log import ev
 from .pdmv5 import PDMv5, PDMv5Error, _fmt_status
 
 
@@ -149,6 +150,7 @@ class Laser:
         try:
             self.dev.open()
         except Exception as e:
+            ev("laser", "unreachable", "cannot open its serial port", "error", error=str(e))
             raise LaserError(f"laser not connected / cannot open serial: {e}")
 
         self._serial_open = True
@@ -192,7 +194,9 @@ class Laser:
         if not (checks["BNC interlock closed"] and checks["EXT interlock closed"]):
             fixes.append("close the interlock(s)")
 
-        raise LaserError("cannot enable -- " + "; ".join(fixes) + f"   (unmet: {bad})")
+        msg = "cannot enable -- " + "; ".join(fixes) + f"   (unmet: {bad})"
+        ev("laser", "interlock", msg, "error", unmet=bad)
+        raise LaserError(msg)
 
     def ramp_to(self, target_sp: float) -> float:
         target = max(0.0, min(float(target_sp), self.sp_max))
@@ -204,7 +208,14 @@ class Laser:
             return target
 
         dur = span / self.rate
-        print(f"  ramp setpoint {start:.1f} -> {target:.1f}  ({dur:.1f}s @ {self.rate:.0f}/s)")
+        ev(
+            "laser",
+            "ramping",
+            "ramping",
+            sp_from=start,
+            sp_to=target,
+            secs=dur,
+        )
 
         t0 = time.monotonic()
         while True:
@@ -242,9 +253,9 @@ class Laser:
         return False
 
     def hw_on(self):
-        print("hw 1: powering on")
+        ev("laser", "connecting", "powering on")
         self._require_ready()
-        print("  [OK] connected, key ON, interlocks closed")
+        ev("laser", "connecting", "connected", key="on", interlocks="closed")
 
         # 0 = ACC (constant-current) mode; 0 = internal current source
         self.dev.write_setting("operating_mode", 0, verify=False)
@@ -268,19 +279,23 @@ class Laser:
             "cw_max_current",
         ):
             self.dev.write_setting(reg, self.CEIL_MA, verify=False)
-        print(f"  ceilings clamped to {self.CEIL_MA:.0f} mA")
+        ev("laser", "connecting", "current ceilings clamped", ceiling_mA=self.CEIL_MA)
 
         self.dev.write_setting("tec_status", 1 if self.USE_TEC else 0, verify=False)
-        print(f"  TEC {'on' if self.USE_TEC else 'OFF (open-loop; room temp-controlled)'}")
+        ev("laser", "connecting", "diode TEC " + ("on" if self.USE_TEC else "off (open loop)"))
 
         _, emW = self.setpoint_to_dbm(self.dev.read_setting("cw_current"))
-        print(
-            f"  LASER ON at floor setpoint {self.dev.read_setting('cw_current'):.0f} "
-            f"(~{emW:.1f} mW). Use `set <dBm>` to ramp."
+        sp = self.dev.read_setting("cw_current")
+        ev(
+            "laser",
+            "on",
+            "on at the floor setpoint",
+            sp=sp,
+            mW=emW,
         )
 
     def hw_off(self):
-        print("hw 0: powering off")
+        ev("laser", "stopping", "powering off")
 
         if self.is_on():
             self.ramp_to(0.0)
@@ -297,8 +312,11 @@ class Laser:
             self.dev.write_setting("cw_laser_status", 0, verify=False)
 
         self.dev.write_setting("tec_status", 0, verify=False)
-        print(
-            "  LASER OFF -- current 0, output disabled, TEC off. Safe to turn the key off / unplug."
+        ev(
+            "laser",
+            "off",
+            "off: current 0, output disabled; safe to turn the key off",
+            "ok",
         )
 
     def set(self, dbm: float, *, raw: bool = False):
@@ -310,22 +328,39 @@ class Laser:
             self.ramp_to(sp)
 
             edbm, emW = self.setpoint_to_dbm(sp)
-            print(f"  raw setpoint {sp:.1f}  (~{emW:.1f} mW / {edbm:+.1f} dBm expected)")
+            ev(
+                "laser",
+                "set",
+                "set (raw setpoint)",
+                sp=sp,
+                dbm=edbm,
+                mW=emW,
+            )
             return
 
         want = float(dbm)
         sp, mW = self.dbm_to_setpoint(want)
 
         if want > self.PMAX_DBM:
-            print(
-                f"  clamping {want:+.1f} -> +{self.PMAX_DBM:.1f} dBm "
-                f"(optical ceiling {self.PMAX_MW:.0f} mW, current-limited)"
+            ev(
+                "laser",
+                "set",
+                "clamped to the optical ceiling",
+                "warn",
+                asked_dbm=want,
+                ceiling_dbm=self.PMAX_DBM,
             )
 
         self.ramp_to(sp)
-        print(
-            f"  {want:+.1f} dBm -> setpoint {sp:.1f}  "
-            f"(~{mW:.1f} mW; measured I {self.measured_mA():.0f} mA)"
+        mA = self.measured_mA()
+        ev(
+            "laser",
+            "set",
+            "set",
+            sp=sp,
+            dbm=want,
+            mW=mW,
+            mA=mA,
         )
 
     def on(self, power_dbm: float | None = None, *, time: float | None = None, raw: bool = False):

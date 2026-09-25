@@ -45,7 +45,12 @@ def find_port(explicit: str | None = None) -> tuple[str | None, list[str]]:
     from .config import usb_ports
 
     ports = usb_ports()
-    cands = [d for d, r, _ in ports if r == "board"] or [d for d, r, _ in ports if r == "?"]
+    from .config import FTDI_VID
+
+    # an unknown FTDI adapter is an SPD or a laser, never the board (an Arduino)
+    cands = [d for d, r, _ in ports if r == "board"] or [
+        d for d, r, v in ports if r == "?" and v != FTDI_VID
+    ]
     return (cands[0] if cands else None), cands
 
 

@@ -1,33 +1,15 @@
-# make        -> .venv with the four dependencies (uv if installed, else python -m venv)
-# make run    -> browser UI on http://127.0.0.1:8744, armed: it can drive heaters
-# make test   -> every self-test, no hardware
-ifeq ($(OS),Windows_NT)
-PY := .venv/Scripts/python.exe
-SYS ?= python
-else
-PY := .venv/bin/python
-SYS ?= python3
-endif
-UV := $(shell command -v uv 2>/dev/null)
+# macOS / Linux shorthand for bootstrap.py, which is what Windows uses directly:
+#   make        -> .venv with the requirements
+#   make run    -> the UI on http://127.0.0.1:8744, armed
+#   make test   -> every self-test, no hardware
+PY3 ?= python3
 
 .PHONY: venv run test clean
-venv: $(PY)
-$(PY): requirements.txt
-ifdef UV
-	uv venv -q --allow-existing .venv
-	uv pip install -q --python $(PY) -r requirements.txt
-else
-	$(SYS) -m venv .venv
-	$(PY) -m pip install -q -r requirements.txt
-endif
-	@touch $(PY)
-
-run: $(PY)
-	$(PY) ui.py --arm $(ARGS)
-
-test: $(PY)
-	$(PY) -m pic selftest
-	$(PY) ui.py --selftest
-
+venv:
+	$(PY3) bootstrap.py
+run:
+	$(PY3) bootstrap.py run $(ARGS)
+test:
+	$(PY3) bootstrap.py test
 clean:
-	rm -rf .venv
+	$(PY3) -c "import shutil; shutil.rmtree('.venv', ignore_errors=True)"

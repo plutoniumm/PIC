@@ -51,6 +51,17 @@ def p_shape(y, model, n_params: int = 4) -> float:
     return float(fdist.sf(fstat, n_params - 1, dof))
 
 
+def p_worse(recent, earlier) -> float:
+    """One-sided rank test: how likely a sample at least this much lower than `earlier` would be
+    if `recent` came from the same distribution. Ranks, not means, so one outlier run cannot
+    call a decline on its own. 1.0 when either side is empty."""
+    from scipy.stats import mannwhitneyu
+
+    if len(recent) == 0 or len(earlier) == 0:
+        return 1.0
+    return float(mannwhitneyu(recent, earlier, alternative="less").pvalue)
+
+
 def accepts(p_amp: float, p_shp: float, alpha: float = ALPHA) -> bool:
     """A fit is real only if it clears BOTH tests: tall enough, and the right shape.
 
@@ -60,6 +71,8 @@ def accepts(p_amp: float, p_shp: float, alpha: float = ALPHA) -> bool:
 
 
 def _selftest(n: int = 21, seed: int = 0):
+    assert p_worse([0.80, 0.81, 0.79, 0.80, 0.82], [0.95, 0.94, 0.96, 0.95, 0.93]) < ALPHA
+    assert p_worse([0.95, 0.94, 0.96, 0.93, 0.95], [0.95, 0.94, 0.96, 0.95, 0.93]) > ALPHA
     """Noise must be rejected and a real fringe accepted, with no threshold in volts."""
     rng = np.random.default_rng(seed)
     v = np.sqrt(np.linspace(0, 4.5**2, n))

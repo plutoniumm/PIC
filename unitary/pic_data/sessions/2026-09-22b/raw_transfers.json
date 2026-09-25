@@ -2775,5 +2775,38 @@
  ],
  "dbm": 5.0,
  "repeats": 2,
- "note": "60-state table captured AFTER the DAC chip-select fix (CS 10 -> 7). The 2026-09-22 table predates it and its states differ by ~1%, which is noise."
+ "note": "60-state table captured AFTER the DAC chip-select fix (CS 10 -> 7). The 2026-09-22 table predates it and its states differ by ~1%, which is noise.",
+ "meta": {
+  "sync_mixing": [
+   [
+    2.886765171491888,
+    0.035490751575357436,
+    0.31804182115749313,
+    6.03505345804661
+   ],
+   [
+    -1.5243330171449827,
+    8.162938677520893,
+    0.5937355862624826,
+    1.508836130044518
+   ],
+   [
+    -2.0339914629672795,
+    -0.29110600255085417,
+    9.766412625993643,
+    1.5530105775673662
+   ],
+   [
+    -0.40758287402718985,
+    -0.28646761947191707,
+    0.4341420025791068,
+    9.792239985992289
+   ]
+  ],
+  "synced": {
+   "at": "2026-09-23 17:27",
+   "anchors": 10,
+   "moved_per_entry": 0.0312637874676064
+  }
+ }
 }

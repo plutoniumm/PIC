@@ -30,6 +30,7 @@ from .config import ADC_BITS, ADC_REF_V, VOLTAGE_MAX_CH
 from .characterize import NO_FIT, best_fringe, fringe, read_noise
 from .config import mirror_pairs
 from .layout import ACTIVE_DACS, LABEL_OF_DAC, N_HEATERS
+from .log import ev
 from .schedule import schedule, summary
 from theory.clements import NMODE
 from theory.stat import accepts, p_amplitude, p_shape
@@ -106,13 +107,26 @@ def prescan(
         if verbose:
             pi, bi, pd = np.unravel_index(int(np.argmax(fp)), fp.shape)
             top = fp.reshape(-1, NMODE).max(axis=0)  # in PD order, NOT sorted
-            print(
-                f"  prescan {ci + 1:>2}/{len(channels)} {LABEL_OF_DAC[int(c)]:<14} "
+            ev(
+                "heater",
+                "prescan",
+                f"prescan {ci + 1:>2}/{len(channels)} {LABEL_OF_DAC[int(c)]:<14} "
                 f"best PD{pd} port{ports[pi]} base{bi} depth {1e3 * fp[pi, bi, pd]:7.2f}mV"
                 f"   per-PD {np.round(1e3 * top, 1)}",
-                flush=True,
+                k=ci + 1,
+                n=len(channels),
+                pad=_pad(c),
+                dac=int(c),
+                pd=int(pd),
+                port=int(ports[pi]),
+                depth_mv=1e3 * fp[pi, bi, pd],
+                per_pd_mv=1e3 * top,
             )
     return fps, ports, bases
+
+
+def _pad(c):
+    return LABEL_OF_DAC[int(c)].split(":")[0]
 
 
 def _best_setting(members, fps, noise, n_ports, n_bases):
@@ -157,7 +171,7 @@ def run(
     noise = read_noise(pic) if noise is None else np.asarray(noise, float)
     noise = np.maximum(noise, ADC_REF_V / (2**ADC_BITS - 1))
     if verbose:
-        print(f"  read noise per PD (mV): {np.round(1e3 * np.asarray(noise), 2)}", flush=True)
+        ev("pd", "noise", f"read noise per PD (mV): {np.round(1e3 * noise, 2)}", mv=1e3 * noise)
 
     fps, ports, bases = prescan(
         pic, switch, session, channels, ports=ports, bases=bases, settle_s=settle_s, verbose=verbose
@@ -179,10 +193,15 @@ def run(
         best[c] = (int(pi), int(bi), int(pd))
         if verbose:
             d = fps[c].reshape(-1, NMODE).max(axis=0)
-            print(
-                f"    {LABEL_OF_DAC[c]:<14} depth {np.round(1e3 * d, 1)} -> "
+            ev(
+                "heater",
+                "queued",
+                f"{LABEL_OF_DAC[c]:<14} depth {np.round(1e3 * d, 1)} -> "
                 f"PD{pd} port{ports[pi]} base{bi}",
-                flush=True,
+                pad=_pad(c),
+                dac=c,
+                pd=int(pd),
+                port=int(ports[pi]),
             )
 
     results = {}
@@ -192,6 +211,8 @@ def run(
         if switch is not None:
             switch.select(ports[pi])
 
+        if verbose:
+            ev("heater", "sweeping", f"sweeping {LABEL_OF_DAC[c]}", pad=_pad(c), dac=c)
         grid = {c: _levels(c, levels_n) for c in members}
         ys = []
         for i in range(levels_n):
@@ -217,9 +238,22 @@ def run(
             f["noise_v"] = float(noise[p])  # the detector's read noise this fit was judged by
             results[c] = f
             if verbose:
-                print(
-                    f"  {f['label']:<14} PD{p} port{ports[pi]} with {len(members) - 1} other(s)"
-                    f"  vpi {f.get('vpi', float('nan')):5.2f}  amp {1e3 * f.get('amplitude', 0):6.1f}mV"
-                    f"  {'OK' if f['ok'] else 'REJECTED'}"
+                vpi, amp = f.get("vpi", float("nan")), 1e3 * f.get("amplitude", 0)
+                phi0, span = f.get("phi0", float("nan")) / np.pi, f.get("span_pi", float("nan"))
+                ev(
+                    "heater",
+                    "fit",
+                    f"{f['label']:<14} PD{p} port{ports[pi]}  vpi {vpi:5.2f}  amp {amp:6.1f}mV"
+                    f"  phi0 {phi0:.3f}p  span {span:.2f}  {'OK' if f['ok'] else 'REJECTED'}",
+                    "ok" if f["ok"] else "warn",
+                    pad=_pad(c),
+                    dac=c,
+                    pd=p,
+                    port=int(ports[pi]),
+                    vpi=vpi,
+                    phi0_pi=phi0,
+                    span=span,
+                    amp_mv=amp,
+                    ok=bool(f["ok"]),
                 )
     return results, fps, [], []

@@ -15,16 +15,18 @@ measured noise -- which is what to run before booking time on the real one.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 import os
 import sys
 import time
 
 import numpy as np
 
-from .config import VOLTAGE_MAX
+from .config import VOLTAGE_MAX, port_of
 from theory.clements import NMODE
 from .config import TEC_TOLERANCE_C, VOLTAGE_MAX_CH
 from .layout import LABEL_OF_DAC, N_HEATERS
+from .log import ev
 from .rig import Rig
 from .devices.tec import auto_tec
 from .session import WatchdogTripped
@@ -37,10 +39,14 @@ def _rig(a, model=None):
         laser=kind,
         board="sim" if sim else kind,
         switch=kind,
-        tec="mock" if (a.mock or sim) else (auto_tec(_find_tec) if a.tec == "auto" else a.tec),
+        tec=(
+            "mock"
+            if (a.mock or sim)
+            else (auto_tec(_find_tec) if a.tec == "auto" else port_of(a.tec))
+        ),
         model=model,
-        laser_port=a.laser_port,
-        pic_port=a.pic_port,
+        laser_port=port_of(a.laser_port),
+        pic_port=port_of(a.pic_port),
         dynamic=getattr(a, "dynamic", False),
         keep_laser=getattr(a, "keep_laser", False),
     ).open()
@@ -49,6 +55,10 @@ def _rig(a, model=None):
 def cmd_selftest(a):
     from theory import calib, clements, layout, program, twin
 
+    from . import log
+
+    log._selftest()
+    print("log       one @ev JSON line per event; unknown components and levels refused")
     print("clements  ", end="", flush=True)
     print(f"round trip {clements._selftest():.1e}")
     print("layout    ", end="", flush=True)
@@ -320,7 +330,7 @@ def cmd_calibrate(a):
         # 4. the one absolute quantity in `to_transfer`; everything else cancels in the
         #    per-column normalisation, this does not
         if getattr(a, "dark", True):
-            with rig.session(duration_s=180, power_dbm=a.dbm):
+            with rig.session(duration_s=180, power_dbm=a.dbm, calibrating=True):
                 # through the switch object, not the board: a mock or sim board has no serial
                 # port to send `P0` down, and this command has to run with --mock
                 try:
@@ -417,8 +427,9 @@ def cmd_calibrate(a):
         if k in writes:
             d.setdefault("meta", {})[k] = writes[k]
     d.setdefault("meta", {})["calibrated_at"] = time.strftime("%Y-%m-%d %H:%M")
+    d["meta"]["chip_c"] = float(rig.tec.target)
     path.write_text(json.dumps(d, indent=1))
-    print(f"\nwrote {path.relative_to(ROOT)}")
+    ev("job", "wrote", f"wrote {path.relative_to(ROOT)}", "ok", path=str(path.relative_to(ROOT)))
     return 0
 
 
@@ -466,7 +477,7 @@ def cmd_sync(a):
         calib = rig.calib
         tab = load_transfers(calib=calib)
         if tab is None:
-            print("no measured transfer table on file; capture one before syncing")
+            ev("sync", "failed", "no measured transfer table on file; capture one first", "error")
             return 3
         print(f"table: {len(tab)} states from {tab.path.name}")
         rig.tec.wait_stable()
@@ -478,9 +489,9 @@ def cmd_sync(a):
 
     moved = float(np.abs(np.asarray(out.T) - np.asarray(tab.T)).mean())
     if moved < 1e-12:
-        print("declined -- nothing written")
+        ev("sync", "declined", "declined -- nothing written", "warn", moved=0.0)
         return 0
-    print(f"correction moved the table by {moved:.4f} per entry")
+    ev("sync", "done", f"correction moved the table by {moved:.4f} per entry", "ok", moved=moved)
     if not a.write:
         print("(--dry-run: the mixing was fitted and discarded)")
         return 0
@@ -498,7 +509,13 @@ def cmd_sync(a):
         "moved_per_entry": moved,
     }
     tab.path.write_text(json.dumps(d, indent=1))
-    print(f"wrote the mixing into {tab.path.name}; every load now applies it")
+    ev(
+        "job",
+        "wrote",
+        f"wrote the mixing into {tab.path.name}; every load now applies it",
+        "ok",
+        path=str(tab.path),
+    )
     return 0
 
 
@@ -534,7 +551,7 @@ def cmd_recal(a):
             f"re-anchoring {len(fits)} channel(s) x {a.levels} levels "
             f"(~{n_reads} reads, {dur / 60:.0f} min budget)"
         )
-        with rig.session(duration_s=dur, power_dbm=a.dbm) as s:
+        with rig.session(duration_s=dur, power_dbm=a.dbm, calibrating=True) as s:
             print(f"{'heater':<14} {'phi0 was':>9} {'now':>9} {'drift':>9} {'rmse/amp':>9}  how")
             moved = {}
             for dac, f in sorted(fits.items()):
@@ -566,15 +583,31 @@ def cmd_recal(a):
                     how = "scan"
                 d = (phi - f["phi0"] + np.pi) % (2 * np.pi) - np.pi
                 moved[dac] = phi
-                print(
+                rel = rmse / max(abs(f["B"]), 1e-9)
+                ev(
+                    "heater",
+                    "recal",
                     f"{f['label']:<14} {f['phi0'] / np.pi:>8.3f}p {phi / np.pi:>8.3f}p "
-                    f"{d:>+8.3f}r {rmse / max(abs(f['B']), 1e-9):>9.2f}  {how}"
+                    f"{d:>+8.3f}r {rel:>9.2f}  {how}",
+                    "ok",
+                    pad=f["label"].split(":")[0],
+                    dac=dac,
+                    was_pi=f["phi0"] / np.pi,
+                    phi0_pi=phi / np.pi,
+                    drift_rad=d,
+                    rmse_rel=rel,
+                    how=how,
+                    ok=True,
+                    k=len(moved),
+                    n=len(fits),
                 )
             for dac, phi in moved.items():
                 cal.phi0[dac] = phi
     cal.meta["reanchored"] = {"channels": sorted(moved), "levels": a.levels}
     if a.write:
-        print(f"wrote {cal.save()}")
+        cal.meta["chip_c"] = float(rig.tec.target)  # the temperature this fit belongs to
+        out = cal.save()
+        ev("job", "wrote", f"wrote {out}", "ok", path=str(out))
     else:
         print("(not written -- pass --write to update pic_data/calib.json)")
     return 0
@@ -689,7 +722,7 @@ def _save_results(res, path="pic_data/char_results.json", merge=False):
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(out, indent=2, default=float))
-    print(f"wrote {p}")
+    ev("job", "wrote", f"wrote {p}", "ok", path=str(p))
     return p
 
 
@@ -716,7 +749,7 @@ def cmd_fastchar(a):
     from theory.calib import Calibration
 
     with _rig(a) as rig:
-        with rig.session(duration_s=1800, power_dbm=a.dbm) as s:
+        with rig.session(duration_s=1800, power_dbm=a.dbm, calibrating=True) as s:
             if not s.emitted and not a.allow_dark:
                 print(
                     "no emission detected: every fit would be noise. Check coupling, "
@@ -736,14 +769,23 @@ def cmd_fastchar(a):
             )
 
     ok = {c: f for c, f in res.items() if f["ok"]}
-    print(f"\n{len(ok)}/{len(res)} channels accepted")
+    ev(
+        "job",
+        "summary",
+        f"{len(ok)}/{len(res)} channels accepted",
+        "ok" if ok else "warn",
+        k=len(ok),
+        n=len(res),
+    )
     if a.write:
         cal = Calibration.load_or_nominal()
         for c, f in ok.items():
             cal.vpi[c], cal.phi0[c] = f["vpi"], f["phi0"]
         cal.meta["fitted_this_run"] = sorted(int(c) for c in ok)
         cal.meta["source"] = "pic.fastchar.run"
-        print(f"wrote {cal.save()}")
+        cal.meta["chip_c"] = float(rig.tec.target)  # the temperature this fit belongs to
+        out = cal.save()
+        ev("job", "wrote", f"wrote {out}", "ok", path=str(out))
         # MERGE, never replace. A run over a subset of channels used to clobber the file
         # with just those channels, so every earlier fit vanished and the calibration tab
         # reported eight characterized heaters as having no fit on record.
@@ -753,6 +795,7 @@ def cmd_fastchar(a):
             {str(int(k)): {kk: _jsonable(vv) for kk, vv in v.items()} for k, v in res.items()}
         )
         rp.write_text(json.dumps(prev, indent=1, allow_nan=False))
+        ev("job", "wrote", f"wrote {rp}", "ok", path=str(rp))
     return 0
 
 
@@ -770,7 +813,7 @@ def cmd_char(a):
             f"characterizing {N_HEATERS} heaters x {levels.size} levels x {len(bases)} "
             f"base biases x {n_ports} input port(s); session {dur / 60:.0f} min"
         )
-        with rig.session(duration_s=dur, power_dbm=a.dbm) as s:
+        with rig.session(duration_s=dur, power_dbm=a.dbm, calibrating=True) as s:
             if not s.emitted and not a.allow_dark:
                 # Was a warning, and a warning on a `--write` run is how a calibration
                 # fitted to 18 noise traces reaches disk looking exactly like a measured
@@ -833,6 +876,7 @@ def cmd_char(a):
                 "(see pic.characterize.probe_inputs)."
             )
         if a.write:
+            calib.meta["chip_c"] = float(rig.tec.target)
             print(f"\nwrote {calib.save()}")
     return 0
 
@@ -892,7 +936,95 @@ def cmd_matvec(a):
             return matvec_main(rig, a)
 
 
+def cmd_capture(a):
+    """A fresh transfer table: random heater states, each read at all four input ports.
+
+    One settle and one batched four-port sweep per state. Written to a new session
+    directory, which `pic.matvec.load_transfers` then prefers as the newest. Whatever was
+    measured is written even if the run dies part-way: every state in it was read lit."""
+    import json
+    from pathlib import Path
+
+    from .acquisition import random_vectors
+    from .config import DRIVE_MAX_V, NUM_DAC, drive_to_volts, mirror_pairs
+
+    rng = np.random.default_rng(a.seed)
+    V = []
+    for d in random_vectors(a.states, rng=rng, vmax=DRIVE_MAX_V):
+        v = np.asarray(drive_to_volts(d), float)
+        mirror_pairs(v)
+        V.append(v)
+
+    def dark(rig):
+        return np.mean([rig.board.measure_raw(np.zeros(NUM_DAC))[:NMODE] for _ in range(8)], 0)
+
+    states, darks, t0 = [], {}, time.time()
+    try:
+        with _rig(a) as rig:
+            rig.switch.dark()
+            darks["off"] = dark(rig)  # laser off, mirror parked
+            per = a.settle + 0.15 * a.repeats + 0.2
+            with rig.session(duration_s=60 + len(V) * per * 2, power_dbm=a.dbm) as s:
+                rig.switch.dark()
+                darks["sw"] = dark(rig)  # laser on, mirror parked
+                for i, v in enumerate(V):
+                    chip = rig.hold_band(s)  # out of band: rest at 0 V until it is back
+                    rig.board.measure_raw(v)  # apply, then wait out the thermal settle
+                    time.sleep(a.settle)
+                    T = rig.sweep_ports(cycles=a.repeats)
+                    if T is None:  # no batched sweep: the host visits the ports itself
+                        T = np.stack(
+                            [rig.outputs(v) for p in range(NMODE) if rig.select_input(p) or True], 1
+                        )
+                    states.append(
+                        {"volts": v.tolist(), "raw": np.asarray(T).T.tolist(), "chip_c": chip}
+                    )
+                    s.keepalive()
+                    ev(
+                        "table",
+                        "progress",
+                        f"{i + 1}/{len(V)} states, {time.time() - t0:.0f} s",
+                        k=i + 1,
+                        n=len(V),
+                    )
+    finally:
+        if a.mock:  # a fake table must never become the newest real one
+            ev("table", "discarded", f"--mock: {len(states)} states captured, not written")
+        elif states and "sw" in darks:
+            out = (
+                Path("pic_data/sessions")
+                / time.strftime("%Y-%m-%d-capture-%H%M")
+                / "raw_transfers.json"
+            )
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(
+                json.dumps(
+                    {
+                        "states": states,
+                        "dark_switch_off": darks["sw"].tolist(),
+                        "dark_laser_off": darks["off"].tolist(),
+                        "dbm": a.dbm,
+                        "repeats": a.repeats,
+                        "note": f"{len(states)}/{len(V)} random states over the modelled "
+                        "heaters, python -m pic capture",
+                        "meta": {"seed": a.seed, "settle_s": a.settle},
+                    }
+                )
+            )
+            ev(
+                "table",
+                "wrote",
+                f"wrote {out}: {len(states)}/{len(V)} states in {time.time() - t0:.0f} s",
+                "ok",
+                path=str(out),
+                k=len(states),
+                n=len(V),
+            )
+    return 0
+
+
 def main(argv=None):
+    os.chdir(Path(__file__).resolve().parents[1])  # data paths are relative to unitary/
     # common options live on a parent parser so they can be given after the subcommand,
     # which is how anyone actually types them
     common = argparse.ArgumentParser(add_help=False)
@@ -1268,15 +1400,38 @@ def main(argv=None):
     )
     p.set_defaults(fn=cmd_matvec)
 
+    p = sub.add_parser("capture", help="record a fresh transfer table", parents=[common])
+    p.add_argument("--states", type=int, default=200)
+    p.add_argument("--settle", type=float, default=0.5)
+    p.add_argument("--repeats", type=int, default=2)
+    p.add_argument("--seed", type=int, default=0)
+    p.set_defaults(fn=cmd_capture)
+
     a = ap.parse_args(argv)
+    what = a.fn.__name__.removeprefix("cmd_")
+    ev("job", "started", " ".join(sys.argv[1:] if argv is None else argv), cmd=what)
     try:
-        return a.fn(a)
+        rc = a.fn(a)
     except WatchdogTripped as e:
         # Loud and non-zero, not a traceback and not a partial result: any command that did
         # not catch this itself has no data worth keeping, because the beam was off for an
         # unknown part of it.
-        print(f"\nABORTED: {e}", file=sys.stderr)
+        ev("job", "failed", f"ABORTED: {e}", "error", cmd=what, rc=3)
         return 3
+    except KeyboardInterrupt:
+        # Stop in the UI sends exactly this. Every `with` block above has already run its
+        # cleanup (laser off, heaters to 0) on the way out, so a traceback would add nothing.
+        ev("job", "interrupted", "stopped", "warn", cmd=what)
+        return 130
+    ev(
+        "job",
+        "failed" if rc else "done",
+        f"exit {rc or 0}",
+        "error" if rc else "ok",
+        cmd=what,
+        rc=rc or 0,
+    )
+    return rc
 
 
 if __name__ == "__main__":

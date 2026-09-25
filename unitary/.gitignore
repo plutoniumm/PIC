@@ -2,3 +2,4 @@
 __pycache__/
 laser/*.exe
 pic_data/logs/
+pic_data/.tec_owner
