@@ -409,30 +409,31 @@ def run_once(payload, default_mock):
         "spread": {"normal": rn.spread, "tiled": rt.spread},
         "reach": float(rn.raw.get("reachable", float("nan"))),
         "dpnn": dmeta,
+        # the transfer the chip measured and the one the DPNN predicts for the same volts
+        "T": np.asarray(rn.raw["T"]).tolist(),
+        "dpnn_T": None if Td is None else np.asarray(Td).tolist(),
     }
     if not mock:
-        _record_errors(vecs)
+        _record_errors(vecs, rn.raw["T"], Td)
     return out
 
 
 ERRORS_PATH = Path("pic_data/errors.jsonl")
 
 
-def _record_errors(vecs):
+def _record_errors(vecs, T=None, Td=None):
     """One line per bench run: the live error of each predictor, measured on the chip. The
     full hosting leans only on the heater calibration, the tiled one on the transfer table,
-    and the DPNN is judged against what the chip actually read for the full hosting."""
+    and the DPNN is judged on the transfer matrix the chip measured for the full hosting --
+    not on T x, which with a signed x can nearly cancel and make a close T look far off."""
     med = lambda xs: float(np.median(xs)) if xs else None
     full = [v["normal"]["fid"] for v in vecs if np.isfinite(v["normal"]["fid"])]
     tiled = [v["tiled"]["fid"] for v in vecs if np.isfinite(v["tiled"]["fid"])]
-    dpnn = [
-        float(
-            np.linalg.norm(np.subtract(v["dpnn"], v["normal"]["device"]))
-            / max(np.linalg.norm(v["normal"]["device"]), 1e-12)
-        )
-        for v in vecs
-        if v.get("dpnn") is not None
-    ]
+    dpnn = (
+        [float(np.linalg.norm(np.subtract(Td, T)) / max(np.linalg.norm(T), 1e-12))]
+        if T is not None and Td is not None
+        else []
+    )
     try:
         chip = TEC.mean()[0]
     except Exception:
@@ -1286,8 +1287,9 @@ def recal_request(payload):
             "capture": ("python -m pic capture --states 200", "table recapture"),
             # the detectors with every heater at 0 V: dark level and full scale per PD
             "pd": ("python -m pic calibrate --write", "PD sweep"),
-            # ~200 lit points a round across all four ports; about a minute a round
-            "dpnn": ("python -m learn.train_hw --rounds 4 --n-per-round 200", "DPNN training"),
+            # physics with input gain and rank-2 crosstalk: held-out R^2 0.95 at 200 points,
+            # 0.965 at 400 (bench, 2026-09-25); a checkpoint at 200, done at 400
+            "dpnn": ("python -m learn.train_hw --rounds 2 --n-per-round 200", "DPNN training"),
         }.get(level, (None, None))
         if cmd is None:
             raise ValueError(f"no such calibration level: {level!r}")

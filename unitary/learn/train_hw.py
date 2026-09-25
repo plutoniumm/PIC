@@ -79,11 +79,9 @@ DRIVABLE_DACS = np.array([h.h for h in HEATERS if h.role != "aux" and DRIVE_SCAL
 def pick_channels(spec):
     """`--channels`: which DAC channels a round randomises.
 
-    The default 'model' is `dpnn.MODEL_DACS` -- the six the bench says move a detector, and
-    the six the network has features for. 'all' adds the external channels, which is the
-    experiment that would prove one of them live; it costs nothing to take and the physics
-    fit does model them, but until one modulates it only adds unexplained variance to the
-    network's residual."""
+    The default 'model' is `dpnn.MODEL_DACS`, every theta and phi: what a run drives, and
+    what the network has features for. 'all' adds the output phases, which cannot move an
+    intensity."""
     if spec == "model":
         return np.asarray(dpnn.MODEL_DACS, int)
     if spec == "all":
@@ -91,8 +89,36 @@ def pick_channels(spec):
     return np.array(sorted({int(x) for x in spec.split(",")}), int)
 
 
-def collect_round(rig, n, *, dbm, settle_s, repeats, rng, ports, channels=None):
-    """One lit session of `n` random operating points, split evenly over `ports`.
+PROGRAM_JITTER = 0.1  # of DRIVE_MAX_V: spread around each program, so a point is not a run
+
+
+def program_drives(n, rng, calib):
+    """`n` drive vectors where runs actually go: a Haar-random 4x4 orthogonal U, programmed
+    through the calibration exactly as `pic.apply` does, clipped at each channel's ceiling,
+    then jittered. A run pins about 7 of the 12 modelled heaters at their ceiling (bench,
+    2026-09-25), a corner uniform sampling never reached (0 of 3189 points), and the model
+    was off by 0.11-0.21 on every run there."""
+    from scipy.stats import ortho_group
+
+    from pic.config import VOLTAGE_MAX_CH, mirror_pairs, volts_to_drive
+    from theory.program import phases_for
+
+    vmax = np.asarray(VOLTAGE_MAX_CH, float)
+    out = []
+    for _ in range(n):
+        U = ortho_group.rvs(NMODE, random_state=int(rng.integers(2**31)))
+        v, _ = calib.volts(phases_for(U), vmax=vmax)
+        d = volts_to_drive(np.clip(v, 0.0, vmax))
+        d = d + rng.normal(0.0, PROGRAM_JITTER * DRIVE_MAX_V, d.size) * (d > 0)
+        # a bonded pair is one heater: the jitter must not split it (the board refuses)
+        out.append(mirror_pairs(np.clip(d, 0.0, DRIVE_MAX_V)))
+    return out
+
+
+def collect_round(rig, n, *, dbm, settle_s, repeats, rng, ports, channels=None, calib=None,
+                  programs=0.5):
+    """One lit session of `n` operating points, split evenly over `ports`: a `programs`
+    share where runs go (`program_drives`, needs `calib`), the rest uniform over `channels`.
 
     Blocked by port rather than interleaved: the switch needs about a second to settle
     after a SET, so cycling it per sample would spend most of the round waiting. Returns
@@ -114,7 +140,11 @@ def collect_round(rig, n, *, dbm, settle_s, repeats, rng, ports, channels=None):
         try:
             for port in ports:
                 rig.select_input(port)
-                for d in random_vectors(per, rng=rng, channels=channels, vmax=DRIVE_MAX_V):
+                k = round(per * programs) if calib is not None else 0
+                draws = list(random_vectors(per - k, rng=rng, channels=channels, vmax=DRIVE_MAX_V))
+                draws += program_drives(k, rng, calib)
+                for i in rng.permutation(len(draws)):
+                    d = draws[i]
                     if s.expired():
                         ev(
                             "dpnn",
@@ -248,8 +278,7 @@ def sheet_buffer(paths):
 def varying_channels(D, tol: float = 1e-6):
     """The channels a buffer actually moved.
 
-    The online default is `dpnn.MODEL_DACS`, the six theta the bench had shown modulate a
-    detector when that list was written. A stored capture may have swept more -- the 25 C
+    The online default is `dpnn.MODEL_DACS`, every theta and phi. A stored capture may have swept more -- the 25 C
     table moved eight -- and a channel that moved the chip but has no feature column lands
     in the network's residual as unexplained variance. Reading it off the data keeps the
     two in step without either list having to be maintained."""
@@ -269,8 +298,14 @@ def main(argv=None):
     ap.add_argument(
         "--channels",
         default="model",
-        help="DAC channels to randomise: 'model' (the six the network has "
-        "features for), 'all' (every drivable mesh channel), or a list",
+        help="DAC channels to randomise: 'model' (every theta and phi, the "
+        "network's features), 'all' (every drivable mesh channel), or a list",
+    )
+    ap.add_argument(
+        "--programs",
+        type=float,
+        default=0.5,
+        help="share of each round drawn around real Clements programs, where runs go",
     )
     ap.add_argument("--dbm", type=float, default=8.0)
     ap.add_argument("--settle", type=float, default=0.2)
@@ -291,6 +326,16 @@ def main(argv=None):
         f"its buffer must not be resumed into a lit one)",
     )
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument(
+        "--fresh",
+        action="store_true",
+        help="fit the physics from the calibration, not from the last saved model",
+    )
+    ap.add_argument(
+        "--refit",
+        action="store_true",
+        help="refit the saved buffer in --out with the current code; no hardware",
+    )
     ap.add_argument("--epochs", type=int, default=200, help="DPNN epochs per round")
     ap.add_argument(
         "--steps",
@@ -327,6 +372,13 @@ def main(argv=None):
     # finishes: an aborted or failed run leaves the previous model in force, never half of
     # a new one.
     final, a.out = a.out, a.out + ".partial"
+    if a.refit:
+        # an unfinished run's data counts too, and is read before its directory is cleared
+        src = a.out if os.path.exists(os.path.join(a.out, "buffer.npz")) else final
+        b = np.load(os.path.join(src, "buffer.npz"))
+        refit_buf = (b["D"], b["ports"], b["tel"], b["Y"])
+        refit_meta = json.load(open(os.path.join(src, "meta.json")))
+        print(f"refitting {len(b['D'])} points from {src}")
     shutil.rmtree(a.out, ignore_errors=True)
     if a.resume and os.path.isdir(final):
         shutil.copytree(final, a.out)
@@ -340,6 +392,9 @@ def main(argv=None):
         ]
         offline = tuple(np.concatenate(x) for x in zip(*parts))
         net_channels = varying_channels(offline[0])
+        a.rounds, a.resume = 1, False
+    elif a.refit:
+        offline = refit_buf
         a.rounds, a.resume = 1, False
 
     ports = [int(x) for x in a.ports.split(",")]
@@ -363,6 +418,9 @@ def main(argv=None):
     else:
         print(f"bootstrap calibration: {calib.meta}")
     meta = {"rounds_done": 0}
+    if a.refit:  # the refit replaces the last round's fit, it is not a round of its own
+        meta = refit_meta
+        meta["rounds_done"] -= 1
     bpath = os.path.join(a.out, "buffer.npz")
     if a.resume and os.path.exists(bpath):
         b = np.load(bpath)
@@ -392,6 +450,17 @@ def main(argv=None):
         ).open()
     )
     r0 = meta["rounds_done"]
+    # Warm start from the last saved physics: after drift the chip is near where it was, so
+    # one restart from there beats eight from the calibration. A checkpoint from an older
+    # model shape does not load and the fit starts cold, as it would with --fresh.
+    warm = None
+    if not (a.fresh or a.from_table):
+        try:
+            warm = dpnn.load_physics(final)
+        except Exception as e:
+            print(f"no warm start ({type(e).__name__}); fitting the physics from the calibration")
+    if warm is not None:
+        print(f"warm start: physics from {final}")
     try:
         for r in range(r0, r0 + a.rounds):
             t0 = time.time()
@@ -415,6 +484,8 @@ def main(argv=None):
                     rng=rng,
                     ports=ports,
                     channels=channels,
+                    calib=Calibration.load_or_nominal(),
+                    programs=a.programs,
                 )
             buf = {
                 "D": np.vstack([buf["D"], D]),
@@ -444,10 +515,14 @@ def main(argv=None):
                     X,
                     calib0=calib,
                     steps=a.steps,
-                    restarts=1 if r > r0 else a.restarts,
+                    restarts=1 if warm is not None else a.restarts,
                     seed=a.seed,
+                    init=warm,
                 )
+                warm = phys  # the next round starts where this one ended
                 np_phys = phys.n_params()  # 52 at 16 heaters; 56 when there were 18
+            # the net learns what the physics gets wrong, on top of it
+            ref = phys if a.steps > 0 else unitary_fit.InstrumentModel(calib)
             model, norm, r2d, dmeta = dpnn.fit(
                 buf["D"],
                 buf["ports"],
@@ -456,11 +531,12 @@ def main(argv=None):
                 channels=net_channels,
                 epochs=a.epochs,
                 seed=a.seed,
+                physics=ref,
             )
 
             if calib is not None:
                 calib.save(os.path.join(a.out, "calib.json"))
-            dpnn.save_ckpt(a.out, model, norm, buf, dmeta)
+            dpnn.save_ckpt(a.out, model, norm, buf, dmeta, physics=ref)
             np.savez(bpath, **buf)
             meta.update(
                 source=a.from_table or ("sim" if a.sim else kind),
@@ -478,13 +554,17 @@ def main(argv=None):
                 "dpnn",
                 "fit",
                 f"physics ({np_phys}p) R2 {r2p:+.4f} | "
-                f"dpnn ({dmeta['n_params']}p) R2 {float(np.mean(r2d)):+.4f} -> {a.out}/",
+                f"dpnn ({dmeta['n_params']}p{' on physics' if dmeta['residual'] else ', not kept'}) "
+                f"R2 {float(np.mean(r2d)):+.4f} -> {a.out}/",
                 "ok",
                 round=r + 1,
                 k=r - r0 + 1,
                 n=a.rounds,
                 r2_physics=r2p,
                 r2_dpnn=float(np.mean(r2d)),
+                residual=dmeta["residual"],
+                r2_physics_only=dmeta["r2_physics_only"],
+                r2_with_net=dmeta["r2_with_net"],
             )
         completed = True
     except KeyboardInterrupt:

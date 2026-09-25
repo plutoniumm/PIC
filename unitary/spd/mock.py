@@ -14,6 +14,9 @@ Board behaviour it reproduces:
   * `timing=False` sends zero cycles and zero timer Hz, as the board does without a timer.
 
 The reply format ("<cmd>\\r\\nOK\\r\\n") is a placeholder: the real console's is not documented.
+
+`count_hz` switches it to the counting firmware: no vaults, one `PHOTON_COUNT=n` line per
+FRAME_S with n ~ Poisson(count_hz * FRAME_S), as the dark stream measured on the bench is.
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ import time
 
 import numpy as np
 
-from .vega import BAUD, frame
+from .vega import BAUD, FRAME_S, frame
 
 
 class MockVega:
@@ -43,11 +46,13 @@ class MockVega:
         timing=True,
         seed=0,
         timeout=0.05,
+        count_hz=None,
     ):
         self.port, self.baud, self.timeout = port, baud, timeout
         self.samples, self.signal_hz, self.dark_hz = samples, signal_hz, dark_hz
         self.tof_ps, self.jitter_ps, self.window_ps = tof_ps, jitter_ps, window_ps
         self.timer_hz, self.timing = timer_hz, timing
+        self.count_hz = count_hz
         self.rng = np.random.default_rng(seed)
         self.is_open = True
         self.lost: list[str] = []
@@ -60,6 +65,9 @@ class MockVega:
         self._start_acq(self._t)
 
     def _start_acq(self, t0):
+        if self.count_hz is not None:
+            self._acq_done = t0 + FRAME_S
+            return
         self._acq_s = self.rng.gamma(self.samples, 1.0 / (self.signal_hz + self.dark_hz))
         self._acq_done = t0 + self._acq_s
 
@@ -78,6 +86,14 @@ class MockVega:
 
     def _pump(self):
         now = time.monotonic()
+        if self.count_hz is not None:
+            while self._acq_done <= now:
+                n = self.rng.poisson(self.count_hz * FRAME_S)
+                self._out += f"PHOTON_COUNT={n}\r\n".encode()
+                self._acq_done += FRAME_S
+            self._rx += self._out
+            self._out.clear()
+            return
         while True:
             if not self._out:
                 if self._acq_done > now:

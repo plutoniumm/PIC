@@ -1,10 +1,11 @@
 """The efficient surrogate: fit the instrument itself, not a function of it.
 
-Fifty-two parameters describe this chip completely.
+Fifty-six parameters describe this chip completely.
 
     Vpi, phi0   per heater            32
     coupler kappa   per MZI, two each 12
     gain, offset    per photodiode     8
+    gain            per input port     4
 
 (36 + 12 + 8 = 56 was the count at 18 heaters; the DAC81416 drives 16.)
 
@@ -49,13 +50,14 @@ from theory.layout import COLUMN_OF_HEATER, N_HEATERS, PHI_IDX, THETA_IDX
 from theory.twin import MeshError, Twin
 
 KAPPA_HALF_RANGE = 0.45  # kappa stays in 0.5 +/- this, so a coupler can never invert
+T_REF_C = 26.5  # die temperature the fitted phi0 refers to; dphi_dT carries the rest
 
 
 class InstrumentModel(torch.nn.Module):
     """The whole rig as one differentiable module: volts in, photodiode volts out."""
 
     def __init__(self, calib: Calibration | None = None, error: MeshError | None = None,
-                 fit_couplers: bool = True, fit_readout: bool = True):
+                 fit_couplers: bool = True, fit_readout: bool = True, xtalk_rank: int = 0):
         super().__init__()
         c = Calibration() if calib is None else calib
         e = MeshError.ideal() if error is None else error
@@ -69,28 +71,61 @@ class InstrumentModel(torch.nn.Module):
             torch.log(torch.as_tensor(c.pd_gain, dtype=torch.float32)), requires_grad=fit_readout)
         self.offset = torch.nn.Parameter(torch.as_tensor(c.pd_offset, dtype=torch.float32),
                                          requires_grad=fit_readout)
+        # Gain on the input side too: the switch and the four fibre-to-chip couplings launch
+        # different powers, which a per-detector gain cannot absorb. Without it the two dim
+        # ports fitted at R^2 -2.1..0.5 and the whole fit capped at 0.66 (bench, 2026-09-25).
+        self.log_gain_in = torch.nn.Parameter(torch.zeros(NMODE), requires_grad=fit_readout)
+        # Thermal crosstalk, low rank: heater j's power V_j^2 shifts heater i's phase by
+        # (u v^T)_ij V_j^2, in units of heater i's own V^2. u starts at 0, so a fresh model is
+        # crosstalk-free; `fit` frees it only after the rest has converged.
+        r = max(int(xtalk_rank), 1)
+        self.xtalk_u = torch.nn.Parameter(torch.zeros(N_HEATERS, r), requires_grad=False)
+        # v random, not constant: identical columns get identical gradients and never split,
+        # so a constant start is rank 1 whatever r says
+        g = torch.Generator().manual_seed(0)
+        self.xtalk_v = torch.nn.Parameter(0.1 * torch.rand(N_HEATERS, r, generator=g),
+                                          requires_grad=False)
+        # The die moves (the TEC cannot hold it under load: 26.4..28 C in one run), and every
+        # phase moves with it. Per heater, rad per C, from the die temperature of each reading.
+        self.dphi_dT = torch.nn.Parameter(torch.zeros(N_HEATERS))
+        # Heater law past V^2: resistance rises as the heater warms, so at the ceiling --
+        # where a run pins most heaters -- phase bends away from V^2. Per heater, on V^4.
+        self.bend = torch.nn.Parameter(torch.zeros(N_HEATERS))
         self.twin = Twin()
 
     @property
     def kappa(self):
         return 0.5 + KAPPA_HALF_RANGE * torch.tanh(self.kappa_raw)
 
-    def phases(self, V):
-        return torch.pi * (V / torch.exp(self.log_vpi)) ** 2 + self.phi0
+    def phases(self, V, chip=None):
+        P = V**2
+        P = P + (P @ self.xtalk_v) @ self.xtalk_u.T + self.bend * P**2 / 25.0
+        ph = torch.pi * P / torch.exp(self.log_vpi) ** 2 + self.phi0
+        if chip is not None:
+            ph = ph + self.dphi_dT * (torch.as_tensor(chip, dtype=ph.dtype) - T_REF_C)[..., None]
+        return ph
 
-    def forward(self, V, X=None):
-        """V: (B, 16) volts. X: (B, 4) complex input fields, default all light in port 0."""
+    def forward(self, V, X=None, chip=None):
+        """V: (B, 16) volts. X: (B, 4) complex input fields, default all light in port 0.
+        chip: (B,) die temperature, C; None leaves the phases at T_REF_C."""
         self.twin.kappa = self.kappa  # live parameter, so gradients reach the couplers
-        U = self.twin.matrix(self.phases(V))
+        U = self.twin.matrix(self.phases(V, chip))
         if X is None:
             field = U[..., :, 0]
         else:
             Xt = X if torch.is_tensor(X) else torch.as_tensor(X, dtype=self.twin.dtype)
-            field = (U @ Xt.to(self.twin.dtype).unsqueeze(-1)).squeeze(-1)
+            Xt = Xt.to(self.twin.dtype) * torch.exp(0.5 * self.log_gain_in).to(self.twin.dtype)
+            field = (U @ Xt.unsqueeze(-1)).squeeze(-1)
         return field.abs() ** 2 * torch.exp(self.log_gain) + self.offset
+
+    def fractions(self, V, X=None, chip=None):
+        """The share of the light on each detector, as `fractions` makes of a reading."""
+        p = self(V, X, chip) - self.offset
+        return p / p.sum(-1, keepdim=True)
 
     def n_params(self) -> int:
         return sum(p.numel() for p in self.parameters())
+
 
     def extract(self):
         """Pull the fitted physics back out as a (Calibration, MeshError) pair."""
@@ -103,8 +138,24 @@ class InstrumentModel(torch.nn.Module):
         return calib, err
 
 
+def fractions(Y, dark):
+    """Photodiode volts -> the share of the light on each detector, per reading.
+
+    One port is lit per reading, so the laser power and that port's coupling onto the chip
+    are one scale on the whole row and dividing by the row sum removes them, drift included.
+    What is left is where the light goes, which is what a transfer matrix is."""
+    y = np.clip(np.asarray(Y, float) - np.asarray(dark, float), 0.0, None)
+    return y / np.maximum(y.sum(-1, keepdims=True), 1e-12)
+
+
+def rel_err(y, yh) -> float:
+    """||yh - y|| / ||y||: the number the Run page shows for a predicted transfer."""
+    return float(np.linalg.norm(np.asarray(yh) - y) / max(np.linalg.norm(y), 1e-12))
+
+
 def fit(V, Y, X=None, *, calib0=None, error0=None, steps: int = 3000, lr: float = 0.03,
         val_frac: float = 0.2, restarts: int = 8, seed: int = 0, fit_couplers: bool = True,
+        xtalk_rank: int = 2, init=None, chip=None, dark=None,
         verbose: bool = False):
     """Fit the instrument to measured (volts -> photodiode volts) pairs.
 
@@ -115,7 +166,15 @@ def fit(V, Y, X=None, *, calib0=None, error0=None, steps: int = 3000, lr: float 
     The defaults are the budget this actually needs, measured on the mock instrument at
     n = 300 with a clean bootstrap: 2 restarts x 1200 steps reaches R^2 0.42, 4 x 2000
     reaches 0.67, 8 x 3000 reaches 1.0000. Warm-started from a previous round's calibration
-    one restart is enough. Returns (model, calibration, error, val_r2)."""
+    one restart is enough. Returns (model, calibration, error, val_r2).
+
+    `init`, a previously fitted model, is the warm start: the first restart begins from all of
+    it -- couplers, both gains and the crosstalk, which a Calibration does not carry -- so a
+    refit after drift starts from the last stable point and needs one restart.
+
+    With `dark` (each detector's offset) the fit is on `fractions`, not volts, and
+    `model.val_err` is the held-out `rel_err` on them. `chip` is the die temperature of
+    each reading, which `dphi_dT` is fitted against."""
     V = np.atleast_2d(np.asarray(V, float))
     Y = np.atleast_2d(np.asarray(Y, float))
     if V.shape[1] != N_HEATERS or Y.shape[1] != NUM_OUT:
@@ -127,12 +186,19 @@ def fit(V, Y, X=None, *, calib0=None, error0=None, steps: int = 3000, lr: float 
     tr = np.ones(n, bool)
     tr[vi] = False
 
+    if dark is not None:
+        Y = fractions(Y, dark)
     Vt = torch.as_tensor(V, dtype=torch.float32)
     Yt = torch.as_tensor(Y, dtype=torch.float32)
     Xt = None if X is None else torch.as_tensor(np.atleast_2d(np.asarray(X)))
+    Ct = None if chip is None else torch.as_tensor(np.asarray(chip, float), dtype=torch.float32)
 
     def sub(t, m):
         return None if t is None else t[m]
+
+    def out(m, k):
+        f = m.fractions if dark is not None else m
+        return f(Vt[k], sub(Xt, k), sub(Ct, k))
 
     best = (-np.inf, None)
     for r in range(restarts):
@@ -141,17 +207,24 @@ def fit(V, Y, X=None, *, calib0=None, error0=None, steps: int = 3000, lr: float 
             base = Calibration() if calib0 is None else calib0
             c0 = Calibration(base.vpi, rng.uniform(0, 2 * np.pi, N_HEATERS),
                              base.pd_gain, base.pd_offset)
-        model = InstrumentModel(c0, error0, fit_couplers=fit_couplers)
+        if r == 0 and init is not None:
+            import copy
+
+            model = copy.deepcopy(init)
+            model.xtalk_u.requires_grad_(False)  # crosstalk moves in its own stage, below
+            model.xtalk_v.requires_grad_(False)
+        else:
+            model = InstrumentModel(c0, error0, fit_couplers=fit_couplers, xtalk_rank=xtalk_rank)
         opt = torch.optim.Adam(model.parameters(), lr=lr)
         sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, steps)
         for _ in range(steps):
             opt.zero_grad()
-            loss = ((model(Vt[tr], sub(Xt, tr)) - Yt[tr]) ** 2).mean()
+            loss = ((out(model, tr) - Yt[tr]) ** 2).mean()
             loss.backward()
             opt.step()
             sched.step()
         with torch.no_grad():
-            pv = model(Vt[~tr], sub(Xt, ~tr)).numpy()
+            pv = out(model, ~tr).numpy()
         r2 = float(np.mean(1 - ((Y[~tr] - pv) ** 2).sum(0)
                            / (((Y[~tr] - Y[~tr].mean(0)) ** 2).sum(0) + 1e-12)))
         if verbose:
@@ -160,6 +233,29 @@ def fit(V, Y, X=None, *, calib0=None, error0=None, steps: int = 3000, lr: float 
             best = (r2, model)
 
     r2, model = best
+    if xtalk_rank:
+        # Crosstalk second, from the converged fit: freed with everything else from a random
+        # restart it lets the fit wander off. Kept only if it helps on the held-out split.
+        import copy
+
+        xt = copy.deepcopy(model)
+        xt.xtalk_u.requires_grad_(True)
+        xt.xtalk_v.requires_grad_(True)
+        opt = torch.optim.Adam([p for p in xt.parameters() if p.requires_grad], lr=lr / 3)
+        for _ in range(steps):
+            opt.zero_grad()
+            ((out(xt, tr) - Yt[tr]) ** 2).mean().backward()
+            opt.step()
+        with torch.no_grad():
+            pv = out(xt, ~tr).numpy()
+        r2x = float(np.mean(1 - ((Y[~tr] - pv) ** 2).sum(0)
+                            / (((Y[~tr] - Y[~tr].mean(0)) ** 2).sum(0) + 1e-12)))
+        if verbose:
+            print(f"  crosstalk rank {xtalk_rank}: val R2 {r2:+.4f} -> {r2x:+.4f}")
+        if r2x > r2:
+            r2, model = r2x, xt
+    with torch.no_grad():
+        model.val_err = rel_err(Y[~tr], out(model, ~tr).numpy())
     calib, err = model.extract()
     return model, calib, err, r2
 

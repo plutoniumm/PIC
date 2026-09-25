@@ -94,13 +94,14 @@ class DpnnModel:
             )
         import torch
 
-        from learn.dpnn import MODEL_DACS, load_ckpt, make_predict
+        from learn.dpnn import MODEL_DACS, load_ckpt, load_physics, make_predict
 
         self._torch = torch
         self.model, self.norm, self.buf, self.meta = load_ckpt(ckpt)
         self.channels = np.asarray(self.meta.get("channels", MODEL_DACS), int)
         self._predict = make_predict(
-            self.model, self.norm, self.buf, op_telemetry, op_port, self.channels
+            self.model, self.norm, self.buf, op_telemetry, op_port, self.channels,
+            physics=load_physics(ckpt), residual=self.meta.get("residual", True),
         )
         self.pds = list(self.meta.get("pds", OUT_PDS))
 

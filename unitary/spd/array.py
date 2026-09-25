@@ -5,17 +5,45 @@ its USB serial number (chip id) and nothing else -- the device path changes with
 and the OS, the id does not.
 
     with SPDs() as spds:                  # every SPD on USB
+        spds.count(0.5)                   # {id: Count} over the same half second, each
+        spds.normalised(0.5)              # {id: rate / that detector's stored max}
         spds.send("start")                # to all
         for sid, vault in spds.vaults(timeout=5):
             print(sid, vault.count, vault.rate)
+
+The max is one rate per detector in MAX_PATH, taken with the mesh set to send it the most
+light (`python -m spd max`), so a normalised reading is 0..1 on the scale of that detector.
 """
 
 from __future__ import annotations
 
+import json
 import queue
 import threading
+import time
+from pathlib import Path
 
-from .vega import SPDError, Vega, _rig_ids
+from .vega import Count, SPDError, Vega, _rig_ids
+
+MAX_PATH = Path("pic_data/spd_max.json")
+
+
+def load_max(path=MAX_PATH) -> dict:
+    try:
+        return {k: v["rate"] for k, v in json.loads(Path(path).read_text()).items()}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_max(rates: dict, path=MAX_PATH):
+    """Record `rates` (counts/s per chip id) as each detector's max, keeping the others."""
+    try:
+        d = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        d = {}
+    at = time.strftime("%Y-%m-%d %H:%M")
+    d.update({k: {"rate": float(r), "at": at} for k, r in rates.items()})
+    Path(path).write_text(json.dumps(d, indent=1))
 
 
 class SPD(Vega):
@@ -26,10 +54,10 @@ class SPD(Vega):
         super().__init__(port=kw.pop("port", self.id), **kw)
 
     @classmethod
-    def mock(cls, chip_id: str = "mock-spd", seed: int = 0, **kw):
+    def mock(cls, chip_id: str = "mock-spd", seed: int = 0, count_hz=None, **kw):
         from .mock import MockVega
 
-        return cls(chip_id, ser=MockVega(chip_id, seed=seed), **kw)
+        return cls(chip_id, ser=MockVega(chip_id, seed=seed, count_hz=count_hz), **kw)
 
     def __repr__(self):
         return f"SPD({self.id!r})"
@@ -51,9 +79,11 @@ class SPDs:
     """Several SPDs read together. Vaults from all of them merge into one queue, tagged by
     chip id, so a consumer sees them in arrival order across detectors."""
 
-    def __init__(self, ids=None, *, mock: int = 0, csv=None, on_text=None):
+    def __init__(self, ids=None, *, mock: int = 0, count_hz=None, csv=None, on_text=None):
         if mock:
-            self.spds = [SPD.mock(f"mock-spd-{i}", seed=i) for i in range(mock)]
+            self.spds = [
+                SPD.mock(f"mock-spd-{i}", seed=i, count_hz=count_hz) for i in range(mock)
+            ]
         else:
             ids = discover() if ids is None else list(ids)
             if not ids:
@@ -143,6 +173,35 @@ class SPDs:
             except TimeoutError:
                 return
 
+    def count(self, seconds: float = 1.0) -> dict[str, Count]:
+        """Every detector's detections over the same `seconds`. Each board frames on its own
+        clock, so they are read in parallel and agree to within a frame."""
+        out, errs = {}, []
+
+        def one(s):
+            try:
+                out[s.id] = s.count(seconds)
+            except SPDError as e:
+                errs.append(f"{s.id}: {e}")
+
+        ts = [threading.Thread(target=one, args=(s,)) for s in self.spds]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+        if errs:
+            raise SPDError("; ".join(errs))
+        return out
+
+    def normalised(self, seconds: float = 1.0, maxes=None) -> dict[str, float]:
+        """Rate over `seconds` as a fraction of each detector's stored max. Not clipped: a
+        reading above 1 says the max was not the brightest setting after all."""
+        maxes = load_max() if maxes is None else maxes
+        missing = [i for i in self.ids if not maxes.get(i)]
+        if missing:
+            raise SPDError(f"no max stored for {missing}: measure it with `python -m spd max`")
+        return {i: c.rate / maxes[i] for i, c in self.count(seconds).items()}
+
 
 def _echo(sid, text):
     print(f"[{sid}] {text}", end="" if text.endswith("\n") else "\n", flush=True)
@@ -158,4 +217,21 @@ def _selftest():
         assert set(seen) == set(spds.ids), seen
         spds.send("status", ids=[spds.ids[0]])
         assert spds[spds.ids[0]].id == spds.ids[0]
+    import tempfile
+
+    with SPDs(mock=4, count_hz=2000.0) as spds:
+        c = spds.count(0.5)
+        assert set(c) == set(spds.ids) and all(x.frames == 25 for x in c.values())
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "max.json"
+            save_max({i: 2000.0 for i in spds.ids[:2]}, p)
+            save_max({i: 4000.0 for i in spds.ids[2:]}, p)  # adds, does not replace
+            n = spds.normalised(1.0, load_max(p))
+        assert all(abs(n[i] - 1) < 0.1 for i in spds.ids[:2]), n
+        assert all(abs(n[i] - 0.5) < 0.05 for i in spds.ids[2:]), n
+        try:
+            spds.normalised(0.1, {})
+            raise AssertionError("normalised without a max")
+        except SPDError:
+            pass
     return seen

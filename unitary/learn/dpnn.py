@@ -14,12 +14,12 @@ different ways through the 1x4 switch. One net across all four ports learns from
 times the data about the same mesh, and it is the same encoding `learn.unitary_fit`
 already carries.
 
-Three things shrink this against the 6x6 version. Width: six modelled heaters against 112
+Three things shrink this against the 6x6 version. Width: twelve modelled heaters against 112
 and four detectors against fourteen, so (64, 32) covers what needed (128, 64, 32) and
 25,063 parameters there. Drift: on the 6x6 the substrate was unmeasured and unheld, so
 laser telemetry stood in as a proxy the net had to factor out; here the TEC holds the chip
 and reports it, so temperature is an input with a known scale rather than a nuisance
-inferred from four correlated channels. And the channel count -- ten of the sixteen DAC
+inferred from four correlated channels. And the channel count -- four of the sixteen DAC
 channels cannot move a photodiode at all (`MODEL_DACS`), which is worth more than any
 architecture change.
 
@@ -82,17 +82,12 @@ CKPT = "runs/dpnn"
 #              16 -- so no amount of data will ever make that column mean anything.
 #   aux        real and wired, but outside the mesh model and held at 0 V.
 #
-# `phi` is the judgement call, and it is excluded by measurement rather than by theory: an
-# input-side external phase is observable in principle, but on this board a live external
-# channel driven to its ceiling moved all four detectors by 0.0 mV (bench, 2026-08-27).
-# That is evidence the provisional phi assignment in `theory.layout` is wrong, not that
-# phi is blind -- but either way the column varies while the target does not, and the 6x6
-# measured what one useless feature family costs: 0.10 of held-out R^2.
-#
-# `learn.train_hw` still drives the external channels while collecting, so the buffer stays
-# general. The day a sweep finds an external channel that modulates, put "phi" in
-# VISIBLE_ROLES and refit the same data; nothing else has to change.
-VISIBLE_ROLES = ("theta",)
+# `phi` was left out on a 2026-08-27 bench reading (an external channel moved no detector).
+# That predates the 2026-09-22 rewire: the calibration now fits phi on DAC 12 and 14, and a
+# Clements program drives every phi, so a theta-only net was predicting runs from half their
+# inputs. A phi channel that really is blind costs a little held-out R^2; a live one left out
+# makes every prediction wrong.
+VISIBLE_ROLES = ("theta", "phi")
 # Ordered by DAC channel, because `HEATERS` is, and every consumer here reads it that way:
 # it selects feature COLUMNS (`V[:, MODEL_DACS]`) and is scaled channel by channel in
 # `compute_norm`, all in the same order. It holds the same six channels as
@@ -221,7 +216,8 @@ def train_round(model, F, Y, norm, mode, epochs, seed=0, verbose=False):
     return model, r2_vec(Y[~tr], pv)
 
 
-def make_predict(model, norm, buf=None, op_telemetry=None, op_port=None, channels=None):
+def make_predict(model, norm, buf=None, op_telemetry=None, op_port=None, channels=None,
+                 physics=None, residual=True):
     """A closure ``f(drive) -> photodiode volts`` at a pinned operating point.
 
     Both the telemetry and the input port are held: the port because the switch is not part
@@ -238,19 +234,23 @@ def make_predict(model, norm, buf=None, op_telemetry=None, op_port=None, channel
     tel = np.asarray(op_telemetry, float).reshape(1, -1)
 
     def predict(d, port=None):
-        F = make_features(np.asarray(d, float).reshape(1, -1),
-                          op_port if port is None else port, tel, channels)
+        p = op_port if port is None else port
+        base = 0.0 if physics is None else physics_predict(physics, d, p).ravel()
+        if not residual:
+            return base
+        F = make_features(np.asarray(d, float).reshape(1, -1), p, tel, channels)
         x = torch.tensor(((F - fm) / fs).astype(np.float32))
         with torch.no_grad():
-            return (model(x).numpy() * ys + ym).ravel()
+            return base + (model(x).numpy() * ys + ym).ravel()
 
     return predict
 
 
-def save_ckpt(path, model, norm, buf, meta):
+def save_ckpt(path, model, norm, buf, meta, physics=None):
     os.makedirs(path, exist_ok=True)
     fm, fs, ym, ys = norm
     torch.save({"state_dict": model.state_dict(), "widths": model.widths(),
+                "physics": None if physics is None else physics.state_dict(),
                 "din": model.din, "dout": model.dout, "meta": meta,
                 "norm": [fm.tolist(), fs.tolist(), ym.tolist(), ys.tolist()]},
                os.path.join(path, "ckpt.pt"))
@@ -276,20 +276,62 @@ def load_ckpt(path=CKPT, act="relu", min_neurons=8):
     return model, norm, buf, ck["meta"]
 
 
+def load_physics(path=CKPT):
+    """The physics model a residual checkpoint sits on, or None for a plain one."""
+    ck = torch.load(os.path.join(path, "ckpt.pt"), weights_only=False)
+    if ck.get("physics") is None:
+        return None
+    from .unitary_fit import InstrumentModel
+
+    m = InstrumentModel(xtalk_rank=ck["physics"]["xtalk_u"].shape[1])
+    # terms added since a checkpoint was saved (dphi_dT, bend) start at 0, which is exactly
+    # the model it was saved from
+    m.load_state_dict(ck["physics"], strict=False)
+    return m.eval()
+
+
+def physics_predict(physics, D, ports):
+    """The physics model on drive commands and switch positions -> photodiode volts."""
+    from pic.config import drive_to_volts
+
+    with torch.no_grad():
+        V = torch.as_tensor(drive_to_volts(np.atleast_2d(D)), dtype=torch.float32)
+        X = np.eye(NMODE, dtype=complex)[np.atleast_1d(ports).astype(int)]
+        return physics(V, X).numpy()
+
+
 def fit(D, ports, tel, Y, *, channels=None, epochs: int = 200, hidden=HIDDEN, seed: int = 0,
-        verbose: bool = False):
-    """Train from scratch on a collected dataset: dense, then one pruning pass."""
+        verbose: bool = False, physics=None):
+    """Train on a collected dataset: dense, then one pruning pass.
+
+    With `physics` (a fitted `learn.unitary_fit.InstrumentModel`) the net learns only what
+    the physics gets wrong, Y - physics, and a prediction is physics + net. It starts from
+    the physics rather than from random weights, and it is kept only if it beats the physics
+    alone on the held-out split -- meta["residual"] says whether it did. A net that is kept
+    has a small residual to fit, so it can be much smaller than one that learns the chip."""
     channels = MODEL_DACS if channels is None else np.asarray(channels, int)
     F = make_features(D, ports, tel, channels)
-    norm = compute_norm(F, Y, channels)
+    base = np.zeros_like(Y) if physics is None else physics_predict(physics, D, ports)
+    R = Y - base
+    norm = compute_norm(F, R, channels)
     model = build_model(F.shape[1], Y.shape[1], hidden, seed=seed)
-    model, _ = train_round(model, F, Y, norm, "dense", epochs, seed)
-    model, r2 = train_round(model, F, Y, norm, "prune", epochs, seed, verbose=verbose)
+    model, _ = train_round(model, F, R, norm, "dense", epochs, seed)
+    model, _ = train_round(model, F, R, norm, "prune", epochs, seed, verbose=verbose)
+    # the held-out split train_round used, so both scores are on points neither saw
+    vi = np.random.default_rng(seed).choice(len(F), max(1, int(0.15 * len(F))), replace=False)
+    fm, fs, ym, ys = norm
+    with torch.no_grad():
+        net = model(torch.tensor(((F[vi] - fm) / fs).astype(np.float32))).numpy() * ys + ym
+    r2 = r2_vec(Y[vi], base[vi] + net)
+    r2_phys = r2_vec(Y[vi], base[vi]) if physics is not None else np.full(Y.shape[1], -np.inf)
+    residual = physics is None or r2.mean() > r2_phys.mean()
     meta = {"n_samples": int(len(F)), "widths": model.widths(),
-            "n_params": model.n_params(), "pds": list(OUT_PDS),
+            "n_params": model.n_params() if residual else 0, "pds": list(OUT_PDS),
             "channels": [int(c) for c in channels], "n_features": int(F.shape[1]),
-            "features": feature_names(channels)}
-    return model, norm, r2, meta
+            "features": feature_names(channels), "physics": physics is not None,
+            "residual": bool(residual), "r2_physics_only": float(r2_phys.mean()),
+            "r2_with_net": float(r2.mean())}
+    return model, norm, (r2 if residual else r2_phys), meta
 
 
 # Measured on the six internal phase shifters, 2026-08-27. Against a 3.0 V ceiling this is
@@ -300,7 +342,7 @@ VPI_MEASURED = (4.24, 5.32)
 DARK_NOISE_V = (0.044, 0.0006, 0.0006, 0.0006)
 
 
-def _selftest(n: int = 800, epochs: int = 150, seed: int = 0, verbose: bool = True):
+def _selftest(n: int = 3200, epochs: int = 150, seed: int = 0, verbose: bool = True):
     """Fit a known instrument in the regime this chip is actually in, and re-measure the
     two feature claims the docstring makes.
 

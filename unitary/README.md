@@ -37,7 +37,7 @@ driver appends a letter (`AU05XLI8A`), which is matched too. COM port names do n
 | `events.py`, `pic/log.py` | every component's state changes as structured events; the Logs tab reads them |
 | `bootstrap.py` | cross-platform setup and launch (the Makefile wraps it) |
 | `pic/` | rig: serial driver, laser, TEC, switch, acquisition, characterization, `Rig` |
-| `spd/` | Vega TDC single-photon readout (VAUL parser, device, physical mock); standalone, `python -m spd` |
+| `spd/` | Single-photon detectors by chip id: `PHOTON_COUNT` frames added over an integration time, 0..1 against a stored max (`python -m spd count`, `python -m spd max`), VAUL parser, physical mock |
 | `theory/` | Clements, calibration law, twin, signed intensity matvec, drift, stats |
 | `Arduino/` | board firmware (`pic4x4`) and TEC firmware (`tec_pid`) |
 | `laser/` | AeroDiode PDMv5 notes and the vendor Windows installer; the driver is `pic/devices/laser.py` |

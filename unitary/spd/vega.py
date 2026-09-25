@@ -12,6 +12,10 @@ a text console. A vault on the wire is
 
 Commands are ASCII lines ended by "\\r" and are only written while no vault is on the wire:
 the host cannot tell where a command landed inside binary data, so it waits for the gap.
+
+The counting firmware prints `PHOTON_COUNT=n` on the console every FRAME_S instead: the
+detections in that frame, dark counts included. Those lines are taken off the console into
+a queue of their own, and `Vega.count(seconds)` adds consecutive frames into one reading.
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ import csv
 import logging
 import os
 import queue
+import re
 import struct
 import threading
 import time
@@ -32,6 +37,8 @@ MAGIC = b"VAUL"
 HEADER = 20
 MAX_SAMPLES = 20000
 CSV_HEADER = ("Timestamp_Unix", "Burst_ID", "TOF_ps")
+FRAME_S = 0.020  # one PHOTON_COUNT line per frame; measured 20.2 ms apart over the UART
+COUNT = re.compile(r"PHOTON_COUNT=(\d+)")
 
 log = logging.getLogger("spd")
 
@@ -61,6 +68,23 @@ class Vault:
         """Timestamps/s. (n-1) intervals span the acquisition, as the original logger counts."""
         s = self.seconds
         return None if s is None else ((self.count - 1) / s if self.count > 1 else 0.0)
+
+
+@dataclass
+class Count:
+    """Detections added over `frames` consecutive frames."""
+
+    counts: int
+    frames: int
+    t: float
+
+    @property
+    def seconds(self) -> float:
+        return self.frames * FRAME_S
+
+    @property
+    def rate(self) -> float:
+        return self.counts / self.seconds
 
 
 def frame(tof_ps, cycles: int = 0, timer_hz: int = 0) -> bytes:
@@ -191,6 +215,8 @@ class Vega:
         self.on_text = on_text or (lambda s: print(s, end="", flush=True))
         self.parser = VaultParser()
         self.q: queue.Queue = queue.Queue()
+        self.frames: queue.Queue = queue.Queue()  # (t, n) per PHOTON_COUNT line
+        self._line = ""
         self._safe = threading.Event()
         self._safe.set()
         self._stop = threading.Event()
@@ -243,12 +269,41 @@ class Vega:
                 (self._safe.clear if self.parser.busy else self._safe.set)()
                 for it in items:
                     if isinstance(it, str):
-                        self.on_text(it)
+                        self._text(it)
                     else:
                         self._log(it)
                         self.q.put(it)
         except Exception as e:  # a dead port must surface in the consumer, not vanish
             self.q.put(e)
+            self.frames.put(e)
+
+    def _text(self, s: str):
+        # line by line, since a count line can arrive split across reads; 50 of them a
+        # second are data, not console, and never reach on_text
+        *lines, self._line = (self._line + s).split("\n")
+        for ln in lines:
+            m = COUNT.fullmatch(ln.strip())
+            if m:
+                self.frames.put((time.time(), int(m.group(1))))
+            else:
+                self.on_text(ln + "\n")
+
+    def count(self, seconds: float = 1.0, timeout: float = 1.0) -> Count:
+        """Detections over the next `seconds`, added from whole frames. Frames that arrived
+        before the call are dropped: a reading starts after whatever was just changed."""
+        while not self.frames.empty():
+            self.frames.get_nowait()
+        n = max(1, round(seconds / FRAME_S))
+        total = 0
+        for _ in range(n):
+            try:
+                it = self.frames.get(timeout=timeout)
+            except queue.Empty:
+                raise SPDError(f"no PHOTON_COUNT frame within {timeout} s")
+            if isinstance(it, Exception):
+                raise SPDError(f"serial link lost: {it}") from it
+            total += it[1]
+        return Count(total, n, it[0])
 
     def _log(self, v: Vault):
         if self.csv:
@@ -372,4 +427,19 @@ def _selftest():
         mock2.read(1)
     mock2.write(b"lost\r")
     assert mock2.lost == ["lost"]
+
+    # Counting firmware: frames added into a reading, split lines rejoined, console kept.
+    texts = []
+    with Vega(ser=MockVega(count_hz=500.0, seed=3), on_text=texts.append) as v:
+        rs = [v.count(1.0) for _ in range(4)]
+        v.send("STATUS")
+        time.sleep(0.1)
+    assert all(r.frames == 50 and r.seconds == 1.0 for r in rs)
+    rate = sum(r.counts for r in rs) / 4
+    assert abs(rate - 500) < 4 * np.sqrt(500 / 4), rate  # Poisson, 4 sigma
+    assert "STATUS" in "".join(texts) and "PHOTON_COUNT" not in "".join(texts)
+    p = Vega(ser=MockVega(count_hz=0.0), on_text=texts.append)
+    for c in ("PHOTON_CO", "UNT=7\r", "\nPHOTON_COUNT=", "2\r\n"):
+        p._text(c)
+    assert [p.frames.get_nowait()[1] for _ in range(2)] == [7, 2]
     print("spd selftest ok")
