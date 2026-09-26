@@ -57,7 +57,8 @@ from pic.config import (
     drive_volts_raw,
 )
 from pic.__main__ import _find_tec
-from pic.config import port_of
+from pic.config import data_path, port_of
+from pic.interface import MissingOutputs, need_outputs
 from pic.devices.tec import auto_tec
 from pic.log import ev
 from pic.session import WatchdogTripped
@@ -367,7 +368,8 @@ def main(argv=None):
     ap.add_argument("--pic-port", default=None)
     a = ap.parse_args(argv)
 
-    a.out = a.out or (TABLE_CKPT if a.from_table else CKPT)
+    # the detector mode's own checkpoint: an SPD-trained net never lands on PD's
+    a.out = a.out or str(data_path(TABLE_CKPT if a.from_table else CKPT))
     # Rounds are written to <out>.partial and swapped into <out> only when the whole run
     # finishes: an aborted or failed run leaves the previous model in force, never half of
     # a new one.
@@ -462,6 +464,8 @@ def main(argv=None):
     if warm is not None:
         print(f"warm start: physics from {final}")
     try:
+        if rig is not None:
+            need_outputs(rig, "DPNN training")  # every sample is a four-output vector
         for r in range(r0, r0 + a.rounds):
             t0 = time.time()
             if offline:
@@ -567,6 +571,9 @@ def main(argv=None):
                 r2_with_net=dmeta["r2_with_net"],
             )
         completed = True
+    except MissingOutputs as e:  # a refusal about the detectors in hand, not a crash
+        ev("dpnn", "failed", str(e), "error")
+        return 2
     except KeyboardInterrupt:
         completed = False
         ev("dpnn", "interrupted", f"interrupted -- the previous model in {final} is kept.", "warn")

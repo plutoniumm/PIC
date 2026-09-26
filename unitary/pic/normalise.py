@@ -47,7 +47,7 @@ import numpy as np
 from theory.calib import VOLTAGE_MAX, ds_error
 from theory.clements import NMODE
 
-from .config import VOLTAGE_MAX_CH, ADC_BITS, ADC_REF_V, ADC_AVG_N
+from .config import VOLTAGE_MAX_CH, ADC_BITS, ADC_REF_V, ADC_AVG_N, pin_detectors
 from .layout import N_HEATERS, REACHABLE_DACS
 
 # The readout cannot resolve below one averaged ADC step, so a "perfect" null reads as this
@@ -182,6 +182,9 @@ def sweep(rig, volts, repeats: int = 1, cycles: int | None = None) -> np.ndarray
     agrees, `talk/progress.md` finding no measurable noise contribution from the switch or
     the heater rewrite. Raise it when the readout is NOT column normalised, or to put the
     frames seconds apart rather than milliseconds apart deliberately."""
+    from .interface import need_outputs
+
+    need_outputs(rig, "a four-port transfer sweep (Sinkhorn needs every row)")
     v = np.asarray(volts, float)
     n = max(1, int(repeats))
     batch = getattr(rig, "sweep_ports", None)
@@ -420,10 +423,12 @@ def measure(
     )
 
 
-def apply_to(calib, norm: Normalisation):
-    """Write the references into a calibration, so `to_intensity` returns 0..1."""
-    calib.pd_offset = norm.pd_offset
-    calib.pd_gain = norm.pd_gain
+def apply_to(calib, norm: Normalisation, readout: bool = True):
+    """Write the references into a calibration, so `to_intensity` returns 0..1. `readout`
+    False records the survey but leaves gain and offset alone (SPDs are scaled already)."""
+    if readout:
+        calib.pd_offset = norm.pd_offset
+        calib.pd_gain = norm.pd_gain
     calib.meta = dict(calib.meta or {})
     calib.meta["normalisation"] = {
         "dark_v": norm.dark.tolist(),
@@ -438,6 +443,7 @@ def apply_to(calib, norm: Normalisation):
     return calib
 
 
+@pin_detectors("pd")  # the PD path, whatever the bench has selected
 def _selftest(seed: int = 0):
     """Against the bench simulator: normalised outputs must land in 0..1, the blocked
     reference must be the electronic floor, and a normalised probe must be closer to
@@ -445,7 +451,7 @@ def _selftest(seed: int = 0):
     from theory.calib import Calibration
     from .rig import Rig
 
-    with Rig(laser="mock", board="sim", tec="mock", switch="mock") as rig:
+    with Rig(laser="mock", board="sim", tec="mock", switch="mock", detectors="pd") as rig:
         norm = measure(rig, levels=7, passes=2, repeats=2)
         calib = apply_to(Calibration.load_or_nominal(), norm)
 
@@ -523,7 +529,7 @@ def _selftest(seed: int = 0):
 
     # a subset-of-ports run must not leave a zero scale behind: dividing by it sends that
     # column to infinity, and a partial survey is a normal thing to run
-    with Rig(laser="mock", board="sim", tec="mock", switch="mock") as rig2:
+    with Rig(laser="mock", board="sim", tec="mock", switch="mock", detectors="pd") as rig2:
         part = measure(rig2, ports=[0, 1], levels=5, passes=1, repeats=1)
     assert np.all(part.input_scale > 0) and np.all(np.isfinite(part.input_scale)), part.input_scale
     assert np.all(np.isfinite(part.normalise(raws[0]))), part.input_scale
@@ -532,7 +538,7 @@ def _selftest(seed: int = 0):
     # case is asserted to machine precision in `theory.calib._selftest`; what this adds is
     # that it survives `pic.sim`, which carries the measured per-path loss table and so puts
     # a floor under the residual in the same way the bench does.
-    with Rig(laser="mock", board="sim", tec="mock", switch="mock") as rig3:
+    with Rig(laser="mock", board="sim", tec="mock", switch="mock", detectors="pd") as rig3:
         v = np.zeros(N_HEATERS)
         v[REACHABLE_DACS] = 0.4 * VOLTAGE_MAX
         rig3.measure(v)

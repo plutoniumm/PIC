@@ -23,6 +23,8 @@ from .clements import NMODE
 from .layout import N_HEATERS
 
 CONFIG_PATH = Path("pic_data/calib.json")
+# The file of the detector mode in force; `pic.config` sets this to its `data_path`.
+data_path = lambda p, mode=None: Path(p)
 
 NUM_OUT = NMODE
 # PROVISIONAL and probably low. 1.5 V is the 6x6 number, and that chip is silicon; this one
@@ -142,8 +144,8 @@ class Calibration:
         argument; the scalar default is the design ceiling and nothing measured."""
         return (np.asarray(vmax, float) / self.vpi) ** 2
 
-    def save(self, path=CONFIG_PATH):
-        path = Path(path)
+    def save(self, path=None):
+        path = data_path(CONFIG_PATH) if path is None else Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             json.dumps(
@@ -160,8 +162,8 @@ class Calibration:
         return path
 
     @classmethod
-    def load(cls, path=CONFIG_PATH):
-        d = json.loads(Path(path).read_text())
+    def load(cls, path=None):
+        d = json.loads((data_path(CONFIG_PATH) if path is None else Path(path)).read_text())
         return cls(
             np.array(d["vpi"]),
             np.array(d["phi0"]),
@@ -171,11 +173,23 @@ class Calibration:
         )
 
     @classmethod
-    def load_or_nominal(cls, path=CONFIG_PATH):
+    def load_or_nominal(cls, path=None):
         """The measured calibration if one exists, otherwise the nominal law. Callers
-        that care can check `meta` -- a nominal calibration has an empty one."""
-        p = Path(path)
-        return cls.load(p) if p.exists() else cls()
+        that care can check `meta` -- a nominal calibration has an empty one.
+
+        A detector mode with no file of its own yet starts from the base file's heater law:
+        Vpi and phi0 are the heaters', whatever reads the outputs. Its readout law is not,
+        so gain and offset start at identity and the base file's normalisation is dropped."""
+        p = data_path(CONFIG_PATH) if path is None else Path(path)
+        if p.exists():
+            return cls.load(p)
+        if path is not None or p == CONFIG_PATH or not CONFIG_PATH.exists():
+            return cls()
+        c = cls.load(CONFIG_PATH)
+        c.pd_gain, c.pd_offset = np.ones_like(c.pd_gain), np.zeros_like(c.pd_offset)
+        c.meta = {k: v for k, v in c.meta.items() if k != "normalisation"}
+        c.meta["bootstrapped_from"] = str(CONFIG_PATH)
+        return c
 
     @classmethod
     def sample(cls, sigma_vpi: float = 0.15, seed=None) -> "Calibration":

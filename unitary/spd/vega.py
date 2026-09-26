@@ -292,7 +292,9 @@ class Vega:
         """Detections over the next `seconds`, added from whole frames. Frames that arrived
         before the call are dropped: a reading starts after whatever was just changed."""
         while not self.frames.empty():
-            self.frames.get_nowait()
+            it = self.frames.get_nowait()
+            if isinstance(it, Exception):  # a stale frame is dropped, a dead port is not
+                raise SPDError(f"serial link lost: {it}") from it
         n = max(1, round(seconds / FRAME_S))
         total = 0
         for _ in range(n):

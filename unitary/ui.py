@@ -38,7 +38,7 @@ is how role labels ended up on the wrong heaters once already. The per-heater re
 posts to `/recal`, which composes `python -m pic char --channels <dac> --write` and refuses to run it
 while any `python -m pic` already holds the board.
 
-**The diagnostics tab is the pre-flight.** Eight rows, each an icon, a measured value and
+**The diagnostics tab is the pre-flight.** Ten rows, each an icon, a measured value and
 its own reload button, so a dead instrument is found in seconds rather than after a
 twelve-minute sweep. A wrong DAC chip-select pin cost a whole day because nothing in the
 stack surfaced it -- SPI has no readback, the clamp table read back correctly, and every
@@ -79,12 +79,22 @@ import numpy as np
 from pic import Rig
 from pic.log import ev
 from pic.apply import ReadoutError, apply_unitary, box_for, table_for
+from pic.config import DETECTORS, data_path, detector_mode, set_detector_mode
+from pic.interface import MissingOutputs, need_outputs
 
 TOL_ORTH = 1e-5  # Frobenius, on U^T U - I
 MAX_COLS = 8  # columns of X the page will accept
 
 CALIB_PATH = Path("pic_data/calib.json")
 CHAR_PATH = Path("pic_data/char_results.json")
+# Every data path below is PD mode's; `data_path` gives the detector mode's own at each use,
+# so a flip in Settings is followed without a restart.
+
+
+def _calib_file():
+    """The mode's calibration, or the PD one it bootstraps its heater law from."""
+    p = data_path(CALIB_PATH)
+    return p if p.exists() else CALIB_PATH
 SKETCH_PATH = Path("Arduino/pic4x4/pic4x4.ino")
 
 
@@ -372,25 +382,40 @@ def run_once(payload, default_mock):
                         "the photodiodes rose. Check the key, the fibre and the coupling."
                     )
                 box = box_for(rig, mock=mock)
-                tab = table_for(rig, box, mock=mock)
+                # the tiling needs every output; with SPDs on some of them only the full 4x4
+                # runs, on the rows that have a detector
+                try:
+                    need_outputs(rig, "the tiled hosting")
+                    tab, no_tile = table_for(rig, box, mock=mock), None
+                except MissingOutputs as e:
+                    tab, no_tile = None, str(e)
                 rn = apply_unitary(rig, U, X, transfers=tab, hosting="full", box=box)
-                rt = apply_unitary(rig, U, X, transfers=tab, hosting="tile", box=box)
+                rt = None if no_tile else apply_unitary(
+                    rig, U, X, transfers=tab, hosting="tile", box=box
+                )
+                spd = rig.detectors == "spd"
+
+    nan = np.full(4, np.nan)
 
     def series(res, c):
+        if res is None:
+            return {"device": list(nan), "ideal": list(nan), "kept": [None] * 4,
+                    "rel": np.nan, "sign": np.nan, "fid": np.nan}
         yd, yc = res.Y_device[:, c], res.Y_cpu[:, c]
+        m = np.isfinite(yd)  # an output with no detector is not a reading
         return {
             "device": [float(v) for v in yd],
             "ideal": [float(v) for v in yc],
-            "kept": [bool(v) for v in np.sign(yd) == np.sign(yc)],
+            "kept": [bool(k) if ok else None for k, ok in zip(np.sign(yd) == np.sign(yc), m)],
             "rel": float(res.rel_err[c]),
             "sign": float(res.sign_acc[c]),
-            "fid": _overlap(yd, yc),
+            "fid": _overlap(yd[m], yc[m]),
         }
 
-    Td, dmeta = _dpnn_transfer(rn.raw["volts"])
+    Td, dmeta = _dpnn_transfer(rn.raw["volts"])  # the mode's own checkpoint
     vecs = []
     for c in range(X.shape[1]):
-        ux = rt.Y_cpu[:, c]
+        ux = U @ X[:, c]
         vecs.append(
             {
                 "x": [float(v) for v in X[:, c]],
@@ -405,15 +430,18 @@ def run_once(payload, default_mock):
         "rails_out": list(range(4)),
         "orth_dev": dev,
         "vectors": vecs,
-        "programs": {"normal": rn.programs, "tiled": rt.programs},
-        "spread": {"normal": rn.spread, "tiled": rt.spread},
+        "detectors": "spd" if spd else "pd",
+        "outputs": np.flatnonzero(np.isfinite(rn.measured).all(1)).tolist(),
+        "tiled_error": no_tile,
+        "programs": {"normal": rn.programs, "tiled": rt.programs if rt else 0},
+        "spread": {"normal": rn.spread, "tiled": rt.spread if rt else None},
         "reach": float(rn.raw.get("reachable", float("nan"))),
         "dpnn": dmeta,
         # the transfer the chip measured and the one the DPNN predicts for the same volts
         "T": np.asarray(rn.raw["T"]).tolist(),
         "dpnn_T": None if Td is None else np.asarray(Td).tolist(),
     }
-    if not mock:
+    if not mock:  # into the mode's own log: an SPD run never moves a PD trend
         _record_errors(vecs, rn.raw["T"], Td)
     return out
 
@@ -431,7 +459,7 @@ def _record_errors(vecs, T=None, Td=None):
     tiled = [v["tiled"]["fid"] for v in vecs if np.isfinite(v["tiled"]["fid"])]
     dpnn = (
         [float(np.linalg.norm(np.subtract(Td, T)) / max(np.linalg.norm(T), 1e-12))]
-        if T is not None and Td is not None
+        if T is not None and Td is not None and np.isfinite(T).all()  # all rows read
         else []
     )
     try:
@@ -445,7 +473,9 @@ def _record_errors(vecs, T=None, Td=None):
         "dpnn": -med(dpnn) if dpnn else None,
         "chip_c": chip,
     }  # every column: higher is better
-    with open(ERRORS_PATH, "a") as f:
+    p = data_path(ERRORS_PATH)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "a") as f:
         f.write(json.dumps(rec) + "\n")
 
 
@@ -462,7 +492,7 @@ def _live(pid, since):
 
     vals = []
     try:
-        for ln in ERRORS_PATH.read_text().splitlines():
+        for ln in data_path(ERRORS_PATH).read_text().splitlines():
             r = json.loads(ln)
             if r["t"] > since and r.get(pid) is not None:
                 vals.append(r[pid])
@@ -478,14 +508,6 @@ def _live(pid, since):
     return now, best, len(vals), declined
 
 
-def _live_text(pid, since, label, sign=1):
-    now, best, n, declined = _live(pid, since)
-    if n == 0:
-        return "", False
-    f = lambda x: f"{sign * x:.3f}"
-    return f" · {label} now: {f(now)} · best: {f(best)} · runs since refresh: {n}", declined
-
-
 DPNN_CKPT = Path("runs/hw")
 _DPNN = {}  # checkpoint mtime -> model, so a retrain is picked up without a restart
 
@@ -495,7 +517,7 @@ def _dpnn_transfer(volts):
 
     The same readout path as `pic.apply._direct_4x4`: one port lit at a time, the stored dark
     subtracted, then Sinkhorn, so the DPNN bar and the Full bar differ only by the model."""
-    ck = DPNN_CKPT / "ckpt.pt"
+    ck = data_path(DPNN_CKPT) / "ckpt.pt"
     if not ck.exists():
         return None, {"error": f"no DPNN checkpoint at {ck}: python -m learn.train_hw"}
     try:
@@ -508,13 +530,13 @@ def _dpnn_transfer(volts):
         key = ck.stat().st_mtime
         if key not in _DPNN:
             _DPNN.clear()
-            _DPNN[key] = DpnnModel(str(DPNN_CKPT))
+            _DPNN[key] = DpnnModel(str(ck.parent))
         m = _DPNN[key]
         dark = np.asarray(Calibration.load_or_nominal().pd_offset, float)[:4]
         T = np.stack([m.predict(volts, port=j)[:4] for j in range(4)], axis=1)
         T = np.clip(T - dark[:, None], 1e-12, None)
         T = sinkhorn(torch.as_tensor(T, dtype=torch.float64)).numpy()
-        meta = json.loads((DPNN_CKPT / "meta.json").read_text())
+        meta = json.loads((ck.parent / "meta.json").read_text())
         return T, {"source": meta.get("source"), "r2": meta.get("r2_dpnn")}
     except Exception as e:  # the run stands without it; the page says why the bar is missing
         return None, {"error": f"{type(e).__name__}: {e}"}
@@ -569,7 +591,7 @@ _BLIND = _blind()  # the column-0 input phases, invisible behind a 1x4 switch
 
 
 def _pd_noise(j):
-    res, _, _ = _read_json(CHAR_PATH)
+    res, _, _ = _read_json(data_path(CHAR_PATH))
     n = [f["noise_v"] for f in (res or {}).values() if f.get("pd") == j and f.get("noise_v")]
     return float(np.median(n)) if n else None
 
@@ -763,8 +785,8 @@ def calib_state():
         "resolvable": resolvable_span,
     }
 
-    cal, cal_t, cal_err = _read_json(CALIB_PATH)
-    char, char_t, _ = _read_json(CHAR_PATH)
+    cal, cal_t, cal_err = _read_json(_calib_file())
+    char, char_t, _ = _read_json(data_path(CHAR_PATH))
     warnings = [cal_err] if cal_err else []
     cal = cal or {}
     meta = cal.get("meta") or {}
@@ -1173,7 +1195,7 @@ def _targets(cmd):
     if " fastchar" in cmd:
         return sorted({pad(d) for d in LABEL_OF_DAC if d not in MIRROR_OF})
     if " recal" in cmd:
-        res, _, _ = _read_json(CHAR_PATH)
+        res, _, _ = _read_json(data_path(CHAR_PATH))
         return sorted({pad(int(k)) for k, f in (res or {}).items() if f.get("ok")})
     return []  # sync touches the transfer table, not a row
 
@@ -1388,14 +1410,26 @@ CHECKS = {
     "dpnn": {
         "name": "DPNN",
         "auto": True,
-        "tip": f"the surrogate at {DPNN_CKPT}: where it was trained, its R², its age against "
-        "the calibration, and one inference (all four ports at 0 V) that must come back finite",
+        "tip": f"the surrogate at {DPNN_CKPT} ({data_path(DPNN_CKPT, 'spd')} in SPD mode): trained on the chip, and one inference (all four "
+        "ports at 0 V) that must come back finite",
     },
     "table": {
         "name": "Transfer table",
         "auto": True,
-        "tip": "the measured transfer table the tiled matvec and ES plan from: how many states, "
-        "how old, and one plan of a random 2x2 rotation from it, scored against its target",
+        "tip": "the measured transfer table the tiled matvec and ES plan from: a plan from it "
+        "must land closer to its target than answering zero",
+    },
+    "tecpins": {
+        "name": "TEC pins",
+        "auto": True,
+        "tip": "raw A0 on the NTC divider (5 V - 10k - A0 - NTC - GND) through the sketch's `r` "
+        "command. The firmware hides an out-of-range divider by repeating its last reading",
+    },
+    "tecspi": {
+        "name": "TEC SPI",
+        "auto": True,
+        "tip": "the LT8722 read back over SPI via `r`: a dead bus answers every register "
+        "alike, and the command setup wrote must be there",
     },
     "pds": {
         "name": "Photodiodes",
@@ -1406,19 +1440,34 @@ CHECKS = {
     },
 }
 
+# the "pds" row in SPD mode: same slot on the page, the detectors that are there now
+SPD_CHECK = {
+    "name": "SPDs",
+    "auto": True,
+    "tip": "each output slot PD0-PD3 and the SPD on it (pic_data/spd_map.json): on USB, its dark "
+    "rate with the switch parked in band, and a dark and max stored. Listens only: no detector "
+    "setting is sent",
+}
+# Dark counts/s a working detector sits in. The bench reads 16-18/s; none at all is a detector
+# that is unbiased or not counting, hundreds is light getting in or a detector gone noisy.
+SPD_DARK_HZ = (2.0, 200.0)
+
 # Every one of these needs the board open, so they share one open rather than resetting the
 # Arduino once per row.
 BOARD_CHECKS = ("board", "switch", "pds")
 STATUSES = ("pass", "warn", "fail", "unknown")
 
 
-def _row(i, status, value, tip=None):
-    c = CHECKS[i]
+def _row(i, status, value, tip=None, detail=""):
+    """`value` is what the card shows: a headline, or on a fault the fix. `detail` keeps the
+    whole reading for the card's tooltip."""
+    c = SPD_CHECK if i == "pds" and detector_mode() == "spd" else CHECKS[i]
     return {
         "id": i,
         "name": c["name"],
         "status": status,
         "value": str(value),
+        "detail": str(detail or value),
         "tip": c["tip"] if tip is None else tip,
         "auto": bool(c.get("auto")),
     }
@@ -1514,8 +1563,8 @@ def _ck_ports(mock: bool):
         return _row("ports", "fail", "nothing plugged in")
     missing = sorted({"board", "tec", "laser"} - {r for _, r, _ in found})
     if missing:
-        return _row("ports", "warn", (val + " · " if val else "") + "missing " + ", ".join(missing))
-    return _row("ports", "pass", val)
+        return _row("ports", "warn", "missing " + ", ".join(missing), detail=val)
+    return _row("ports", "pass", ", ".join(r for _, r, _ in found), detail=val)
 
 
 def _ck_board(board, banner, mock):
@@ -1532,7 +1581,7 @@ def _ck_board(board, banner, mock):
     # the row shows the five the host commands against; the tip keeps the whole CAP line,
     # including the sweep limits `pic.acquisition` sizes a batched read from
     tip = CHECKS["board"]["tip"] + " · CAP " + " ".join(f"{k}={v}" for k, v in caps.items())
-    row = lambda st, v: _row("board", st, v, tip)
+    row = lambda st, v: _row("board", st, v, tip, detail=" · ".join((val, v)) if v != val else val)
     bad = []
     if caps.get("dac") not in (None, NUM_DAC):
         bad.append(f"dac {caps['dac']} vs NUM_DAC {NUM_DAC}")
@@ -1544,13 +1593,13 @@ def _ck_board(board, banner, mock):
     except (TypeError, ValueError):
         bad.append(f"adcref {caps['adcref']!r} unparseable")
     if bad:
-        return row("fail", val + " · " + "; ".join(bad))
+        return row("fail", "; ".join(bad))
     if not ready:
         return row("fail", val)
     if not caps:
-        return row("warn", val + " · firmware too old to report capabilities")
+        return row("warn", "firmware too old to report capabilities")
     if not caps.get("sweep"):
-        return row("warn", val + " · no batched sweep")
+        return row("warn", "no batched sweep")
     return row("pass", val)
 
 
@@ -1617,21 +1666,73 @@ def _ck_switch(board, banner, mock):
     p0, raw0, ok0 = _pos(board)
     if not ok0:
         return _row("switch", "fail", f"Q -> {raw0}: the Sercalo did not answer POS")
-    tgt = (0 if p0 != 0 else 1) % NMODE
-    try:
+    # every port and back, so a stuck position shows; fastchar's noise floor leaves it parked
+    # dark (None), and a dark mirror is returned to P0, not to the open channel
+    home = 0 if p0 is None else p0
+    path = []
+    for tgt in [*range(NMODE), home]:
         _select(board, tgt)
         p1, raw1, ok1 = _pos(board)
+        if not ok1:
+            return _row("switch", "fail", f"no position after asking P{tgt} (Q -> {raw1})")
+        path.append(p1)
+        if p1 != tgt:
+            return _row(
+                "switch",
+                "fail",
+                f"asked P{tgt}, mirror at P{p1}",
+                detail=f"path: {' → '.join(f'P{p}' for p in path)}",
+            )
+    return _row("switch", "pass", " → ".join(f"P{p}" for p in path))
+
+
+def _ck_spds(board, mock):
+    """Each output slot's SPD: on USB, dark rate a working one, dark and max stored."""
+    from pic.config import SPD_MAP_PATH, spd_map
+    from pic.interface import MOCK_SPDS
+    from spd.array import SPD, SPDs, discover, load_max
+
+    if mock:  # the switch parked dark: the mock detectors count their dark rate only
+        where = {i: k for i, (k, _, _) in MOCK_SPDS.items()}
+        law = {i: (d, m) for i, (_, d, m) in MOCK_SPDS.items()}
+        on = [SPD.mock(i, seed=k, count_hz=law[i][0]) for i, k in where.items()]
+        ids = list(where)
+    else:
+        where, law = spd_map(), load_max()
+        ids = on = discover()
+    by = {k: i for i, k in where.items()}
+    slots = " · ".join(f"PD{k} → {by.get(k, 'none')}" for k in range(4))
+    row = lambda st, msg, detail=slots: _row("pds", st, msg, detail=detail)
+    bad = [i for i in ids if i not in where]
+    if bad:
+        return row("fail", f"{', '.join(bad)} unmapped: python -m spd assign <id> PD<n> ({SPD_MAP_PATH})")
+    gone = [f"PD{k} ({i})" for i, k in sorted(where.items(), key=lambda x: x[1]) if i not in ids]
+    if gone:
+        return row("fail", f"{', '.join(gone)} not on USB")
+    if not ids:
+        return row("fail", "no SPD on USB and none mapped")
+    was, _, _ = _pos(board)
+    try:
+        _select(board, -1)
+        time.sleep(0.3)  # the mirror's settle, so no lit frame is counted as dark
+        with SPDs(on, on_text=lambda sid, t: None) as sp:
+            c = sp.count(1.0)
     finally:
         try:
-            _select(board, p0 if p0 is not None else -1)
+            _select(board, was if was is not None else -1)
         except Exception:
             pass
-    val = f"path: P{p0} → P{tgt} → P{p0}"
-    if not ok1:
-        return _row("switch", "fail", f"no position after moving (Q -> {raw1})")
-    if p1 != tgt:
-        return _row("switch", "fail", f"asked P{tgt}, mirror at P{p1} · path: P{p0} → P{p1}")
-    return _row("switch", "pass", val)
+    detail = slots + " · " + " · ".join(
+        f"PD{where[i]} {c[i].rate:.0f}/s dark" for i in sorted(ids, key=where.get)
+    )
+    lo, hi = SPD_DARK_HZ
+    for i in sorted(ids, key=where.get):
+        if not lo <= c[i].rate <= hi:
+            return row("fail", f"PD{where[i]} ({i}) dark {c[i].rate:.0f}/s, outside {lo:g}-{hi:g}", detail)
+    none = [f"PD{where[i]}" for i in ids if None in law.get(i, (None, None))]
+    if none:
+        return row("fail", f"{', '.join(none)} no dark and max stored: python -m spd dark, then max <id>", detail)
+    return row("pass", " · ".join(f"PD{k} {by.get(k, 'none')}" for k in range(4)), detail)
 
 
 def _ck_pds(board, banner, mock):
@@ -1643,6 +1744,8 @@ def _ck_pds(board, banner, mock):
     from pic.characterize import MIN_SNR, STRONG_SNR
     from pic.config import ADC_BITS, ADC_REF_V, ADC_SAT_V, NUM_DAC, out_mask
 
+    if detector_mode() == "spd":
+        return _ck_spds(board, mock)
     was, _, _ = _pos(board)
     m = out_mask()
     try:
@@ -1666,24 +1769,24 @@ def _ck_pds(board, banner, mock):
     lsb = ADC_REF_V / (2**ADC_BITS - 1)
     flat = np.flatnonzero((sd <= 0) & (np.abs(dark) >= lsb))
     if flat.size:
-        return _row("pds", "fail", f"{val} · PD{flat[0]} stuck at one value")
+        return _row("pds", "fail", f"PD{flat[0]} stuck at one value", detail=val)
     hot = np.flatnonzero(dark >= ADC_SAT_V)
     if hot.size:
-        return _row("pds", "fail", f"{val} · PD{hot[0]} clips in the dark")
+        return _row("pds", "fail", f"PD{hot[0]} clips in the dark", detail=val)
 
-    cal, _, _ = _read_json(CALIB_PATH)
+    cal, _, _ = _read_json(_calib_file())
     norm = ((cal or {}).get("meta") or {}).get("normalisation") or {}
     full = np.asarray(norm.get("full_v") or [], float)
     ref = np.asarray(norm.get("dark_v") or [], float)
     if full.size != m.sum() or ref.size != full.size:
-        return _row("pds", "warn", val + " · no full scale on file to compare it against")
+        return _row("pds", "warn", "no full scale on file to compare it against", detail=val)
     snr = (full - ref) / np.maximum(sd, lsb)  # under one ADC step reads as 0, not as silence
     j = int(np.argmin(snr))
     if snr[j] < MIN_SNR:
-        return _row("pds", "fail", val + f" · PD{j} signal/noise {snr[j]:.0f}, gate {MIN_SNR:.0f}")
+        return _row("pds", "fail", f"PD{j} signal/noise {snr[j]:.0f}, gate {MIN_SNR:.0f}", detail=val)
     if snr[j] < STRONG_SNR:
-        return _row("pds", "warn", val + f" · PD{j} signal/noise {snr[j]:.0f}, weak fits")
-    return _row("pds", "pass", val)
+        return _row("pds", "warn", f"PD{j} signal/noise {snr[j]:.0f}, weak fits", detail=val)
+    return _row("pds", "pass", f"signal/noise ≥ {snr[j]:.0f}", detail=val)
 
 
 def _ck_laser(mock):
@@ -1728,23 +1831,23 @@ def _ck_laser_open(mock):
     on = bool(mst or cw)
     val = f"{'on' if on else 'off'} · key: {'on' if key else 'off'} · current: {mA:.1f} mA"
     if not key:
-        return _row("laser", "fail", val + " · key switch off")
+        return _row("laser", "fail", "key switch off", detail=val)
     if not (bnc and ext):
-        return _row("laser", "fail", val + " · interlock open")
+        return _row("laser", "fail", "interlock open", detail=val)
     # driver_enable reads 1 whenever the key is on, so only master/CW mean light is wanted
     if on:
-        return _row("laser", "warn", val + " · emission unproven from here")
-    return _row("laser", "pass", val)
+        return _row("laser", "warn", f"on, {mA:.1f} mA · emission unproven from here", detail=val)
+    return _row("laser", "pass", "ready, off", detail=val)
 
 
 def _ck_heaters():
     """The heater calibration as a predictor: how much of it is fitted, how well, how old."""
     from theory.layout import ACTIVE_IDX
 
-    cal, cal_t, err = _read_json(CALIB_PATH)
+    cal, cal_t, err = _read_json(_calib_file())
     if cal is None:
         return "fail", err
-    res, _, _ = _read_json(CHAR_PATH)
+    res, _, _ = _read_json(data_path(CHAR_PATH))
     fits = [(res or {}).get(str(int(d))) or {} for d in ACTIVE_IDX]
     ok = [f for f in fits if f.get("ok")]
     score = float(np.median([f["score"] for f in ok])) if ok else float("nan")
@@ -1755,8 +1858,9 @@ def _ck_heaters():
     chip = (cal.get("meta") or {}).get("chip_c")
     if chip is not None:
         val += f" · calibrated at: {float(chip):.1f} C"
-    live, declined = _live_text("heaters", cal_t, "fidelity")
-    return ("warn" if declined else "pass"), val + live
+    if _live("heaters", cal_t)[3]:
+        return "warn", val + " · fidelity falling"
+    return "pass", val
 
 
 # the button a predictor's state calls for; the page highlights it instead of saying so
@@ -1773,7 +1877,7 @@ _REC = {
 
 def _ck_pds_pred():
     """The detectors as a predictor: how many pass their own check, and how fresh."""
-    cal, _, err = _read_json(CALIB_PATH)
+    cal, _, err = _read_json(_calib_file())
     if cal is None:
         return "fail", err
     pds = calib_state()["pds"]
@@ -1790,11 +1894,13 @@ def predictors():
     The same checks the diagnostics run, so the two tabs cannot disagree."""
     st, val = _ck_heaters()
     out = [{"id": "heaters", "name": "Heaters", "status": st, "value": val}]
-    pst, pval = _ck_pds_pred()
-    out.append({"id": "pds", "name": "Photodiodes", "status": pst, "value": pval})
+    if detector_mode() == "pd":  # the SPDs' scale is `python -m spd max`, not a PD sweep
+        pst, pval = _ck_pds_pred()
+        out.append({"id": "pds", "name": "Photodiodes", "status": pst, "value": pval})
     for i in ("table", "dpnn"):
         r = _SOLO_FN[i](False)
-        out.append({"id": i, "name": r["name"], "status": r["status"], "value": r["value"]})
+        # the tile's own text, with the age and the quality the diagnostics card leaves out
+        out.append({"id": i, "name": r["name"], "status": r["status"], "value": r.get("pred") or r["value"]})
     for p in out:
         p["rec"] = _REC[p["id"]](p["status"], p["value"])
     return out
@@ -1822,25 +1928,20 @@ def estimates():
 def _ck_dpnn(mock):
     """Is there a DPNN worth believing, and does it answer?"""
 
-    t0 = time.time()
     T, meta = _dpnn_transfer(np.zeros(16))
     if T is None:
-        return _row("dpnn", "fail", meta["error"] + "")
-    ms = 1e3 * (time.time() - t0)
+        return _row("dpnn", "fail", meta["error"])
     if not np.all(np.isfinite(T)):
         return _row("dpnn", "fail", "inference returned NaN")
-    ck = (DPNN_CKPT / "ckpt.pt").stat().st_mtime
-    _, cal_t, _ = _read_json(CALIB_PATH)
-    r2 = meta.get("r2") or 0.0
-    val = f"R² {r2:.2f} · age: {ago(ck)}"
+    ck = (data_path(DPNN_CKPT) / "ckpt.pt").stat().st_mtime
+    pred = f"R² {meta.get('r2') or 0.0:.2f} · age: {ago(ck)}"
     if meta.get("source") != "hw":
-        return _row(
-            "dpnn",
-            "fail",
-            val + " · trained on the simulator",
-        )
-    live, declined = _live_text("dpnn", ck, "error vs chip", sign=-1)
-    return _row("dpnn", "warn" if declined else "pass", val + live)
+        msg = "trained on the simulator"
+        return {**_row("dpnn", "fail", msg), "pred": f"{pred} · {msg}"}
+    if _live("dpnn", ck)[3]:
+        msg = "error vs chip rising, retrain"
+        return {**_row("dpnn", "warn", msg), "pred": f"{pred} · error vs chip rising"}
+    return {**_row("dpnn", "pass", "answering"), "pred": pred}
 
 
 def _ck_table(mock):
@@ -1851,18 +1952,76 @@ def _ck_table(mock):
 
     tr = load_transfers()
     if tr is None or not len(tr):
-        return _row("table", "fail", "no transfer table in pic_data/sessions")
+        return _row("table", "fail", f"no transfer table in {data_path('pic_data/sessions')}")
     age = tr.path.stat().st_mtime if tr.path else None
     B = special_ortho_group.rvs(2, random_state=0)
-    t0 = time.time()
     plan = plan_from_table(B, tr, box=bench_box())
     err = float(np.linalg.norm(plan.predict() - B) / np.linalg.norm(B))
-    ms = 1e3 * (time.time() - t0)
-    val = f"{len(tr)} states · age: {ago(age) if age else '?'} · " f"one 2x2 plan: error {err:.3f}"
+    pred = f"error {err:.3f} · age: {ago(age) if age else '?'}"
     if not np.isfinite(err) or err >= 1.0:  # 1.0 is what answering zero scores
-        return _row("table", "fail", val + " · worse than answering zero")
-    live, declined = _live_text("table", age or 0, "tiled fidelity")
-    return _row("table", "warn" if declined else "pass", val + live)
+        msg = "worse than answering zero"
+        return {**_row("table", "fail", msg), "pred": f"{pred} · {msg}"}
+    if _live("table", age or 0)[3]:
+        msg = "tiled runs getting worse, sync the table"
+        return {**_row("table", "warn", msg), "pred": f"{pred} · {msg}"}
+    return {**_row("table", "pass", "plans land"), "pred": pred}
+
+
+NO_R = "firmware lacks `r`, flash Arduino/tec_pid/tec_pid.ino"
+
+
+def _tec_diag(i, mock, kw):
+    """(row, diag, last telemetry C). `row` is set when there is nothing to judge: the port
+    is held elsewhere or the sketch predates `r` -- neither is a fault of the TEC."""
+    from pic.devices.tec import MockTEC
+
+    try:
+        if mock:
+            m = MockTEC(**kw).open()
+            d, t = m.diag(), m.temperature()
+        else:
+            d, r = TEC.diag(), TEC.rows(n=1)
+            t = r[-1][1] if r else None
+    except Busy as e:
+        return _row(i, "unknown", str(e)), None, None
+    if d is None:
+        return _row(i, "unknown", NO_R), None, None
+    return None, d, t
+
+
+def _ck_tecpins(mock, **kw):
+    """A0 on the divider. The NTC is the ground leg, so A0 at 0 V is that leg shorted or the
+    top resistor without its 5 V, and A0 at 5 V is the NTC open or its ground lost."""
+    from pic.devices.tec import VIN_V, ntc_c
+
+    row, d, t = _tec_diag("tecpins", mock, kw)
+    if row:
+        return row
+    v = d["v"]
+    if v <= 0.1:
+        return _row("tecpins", "fail", "NTC shorted, or the 10k to 5 V is open")
+    if v >= VIN_V - 0.1:
+        return _row("tecpins", "fail", "NTC open, thermistor unplugged or its GND lost")
+    if t == 0.0:  # parsed from "0.00": the sketch's Input, never updated since boot
+        return _row("tecpins", "fail", "telemetry 0.00 C, firmware never got a valid A0 read")
+    return _row("tecpins", "pass", f"{ntc_c(d['r']):.1f} °C")
+
+
+def _ck_tecspi(mock, **kw):
+    from pic.devices.tec import CMD_STARTUP_PWM, LT8722_FAULTS
+
+    row, d, _ = _tec_diag("tecspi", mock, kw)
+    if row:
+        return row
+    regs = [d[k] for k in ("status", "command", "ilimn", "ilimp")]
+    if len(set(regs)) == 1:  # a dead bus answers every register alike
+        return _row("tecspi", "fail", "SPI bus dead, check CS/SCK/MOSI/MISO to the LT8722")
+    faults = [n for b, n in LT8722_FAULTS.items() if d["status"] >> b & 1]
+    if faults:
+        return _row("tecspi", "fail", "LT8722 fault " + ", ".join(faults))
+    if d["command"] != CMD_STARTUP_PWM:
+        return _row("tecspi", "fail", "setup's COMMAND did not land, writes not reaching the LT8722")
+    return _row("tecspi", "pass", "LT8722 answering")
 
 
 _BOARD_FN = {"board": _ck_board, "switch": _ck_switch, "pds": _ck_pds}
@@ -1871,18 +2030,26 @@ _SOLO_FN = {
     "laser": _ck_laser,
     "dpnn": _ck_dpnn,
     "table": _ck_table,
+    "tecpins": _ck_tecpins,
+    "tecspi": _ck_tecspi,
     "rail": lambda mock: power_test(mock),  # defined below
 }
 
 
 DIAG_LAST = {}  # check id -> its last row, so leaving the tab does not throw a result away
+DIAG_RUNNING = {}  # check id -> start time, so a tab opened mid-check shows it running
 
 
 def diag_catalog():
     """Every row at `unknown`, so the page can draw the list without touching anything.
 
     The tab must be openable with no consequence: two of these rows move the rig."""
-    return [DIAG_LAST.get(i) or _row(i, "unknown", "not run") for i in CHECKS]
+    return [
+        {**_row(i, "unknown", "running…"), "running": True}
+        if i in DIAG_RUNNING
+        else DIAG_LAST.get(i) or _row(i, "unknown", "not run")
+        for i in CHECKS
+    ]
 
 
 def diag_run(ids=None, mock: bool = False):
@@ -1895,6 +2062,16 @@ def diag_run(ids=None, mock: bool = False):
         if not isinstance(ids, (list, tuple)) or not set(ids) <= set(CHECKS):
             raise ValueError(f"checks must be a list drawn from {', '.join(CHECKS)}")
     want = [i for i in CHECKS if ids is None or i in set(ids)]
+    if not mock:
+        DIAG_RUNNING.update({i: time.time() for i in want})
+    try:
+        return _diag_run(want, mock)
+    finally:
+        for i in want:
+            DIAG_RUNNING.pop(i, None)
+
+
+def _diag_run(want, mock):
     out = {}
     board_ids = [i for i in want if i in BOARD_CHECKS]
     if board_ids:
@@ -1933,8 +2110,7 @@ def diag_run(ids=None, mock: bool = False):
         except Exception as e:
             out[i] = _row(i, "fail", _short(e))
     if not mock:  # the bench's results are what the tab shows on its next visit
-        for i, r in out.items():
-            DIAG_LAST[i] = {**r, "value": r["value"] + f" · run: {time.strftime('%H:%M')}"}
+        DIAG_LAST.update(out)
     return [out[i] for i in CHECKS if i in out]
 
 
@@ -2012,6 +2188,7 @@ class _TecOwner:
 
     def __init__(self):
         self.tec, self.buf, self.lock, self.err = None, deque(maxlen=600), threading.Lock(), None
+        self.qlock = threading.Lock()
 
     def ensure(self):
         with self.lock:
@@ -2034,7 +2211,7 @@ class _TecOwner:
             lock.write_text(str(os.getpid()))
             from pic.devices.tec import SerialTEC
 
-            self.tec = SerialTEC(_tec_port()).open()  # open() writes TEC_SETPOINT_C
+            self.tec = SerialTEC(_tec_port(), setpoint_c=hw_temp()).open()  # writes it
             self.err = None
             threading.Thread(target=self._pump, daemon=True).start()
 
@@ -2065,8 +2242,17 @@ class _TecOwner:
             raise ValueError(f"no fresh TEC telemetry{f' ({self.err})' if self.err else ''}")
         t, _, d = np.mean([x[1:] for x in r], axis=0)
         # the band everything gates on is the operating temperature, not the controller's
-        # target: the controller always aims TEC_SETPOINT_C, and may not get there
+        # target: the controller aims hw_temp(), and may not get there
         return float(t), op_temp(), float(d), len(r)
+
+    def diag(self):
+        """The sketch's `r` line, asked on this connection; the pump thread reads the reply."""
+        self.ensure()
+        tec = self.tec
+        if tec is None:
+            raise ValueError(f"TEC connection lost ({self.err})")
+        with self.qlock:  # one outstanding `r` at a time: the reply is not tagged
+            return tec.diag(pumped=True)
 
     def view(self):
         """A TEC object for a Rig, fed from this connection; its close() leaves the port open."""
@@ -2079,6 +2265,44 @@ TEC = _TecOwner()
 
 
 OP_PATH = Path("pic_data/op_temp.json")
+HW_PATH = Path("pic_data/tec_hw.json")  # the controller's own target, TEC_SETPOINT_C unless set
+
+
+def hw_temp():
+    from pic.config import TEC_SETPOINT_C
+
+    saved, _, _ = _read_json(HW_PATH)
+    return float(saved["c"]) if saved else TEC_SETPOINT_C
+
+
+def hw_set(b):
+    """Retarget the TEC controller itself, and keep it for the next time the port opens."""
+    from pic.devices.tec import T_MAX_C, T_MIN_C
+
+    c = _finite(b.get("hw"), "hw", 1)[0]
+    if not T_MIN_C <= c <= T_MAX_C:
+        raise ValueError(f"TEC target must be {T_MIN_C:.0f}..{T_MAX_C:.0f} C, got {c:g}")
+    TEC.ensure()
+    TEC.tec.target = c
+    HW_PATH.write_text(json.dumps({"c": c, "at": time.strftime("%Y-%m-%d %H:%M")}))
+    ev("tec", "hw", f"TEC target -> {c:.2f} C", set_c=c)
+    return {"ok": True, "hw": c}
+
+
+def detectors_set(b):
+    """Pick the detectors every run reads through. Never mid-job: a sweep begun on one
+    readout must not finish on the other."""
+    mode = b.get("mode")
+    if mode not in DETECTORS:
+        raise ValueError(f"detectors must be one of {', '.join(DETECTORS)}, got {mode!r}")
+    if _BOARD_LOCK.locked() or job_state().get("running"):
+        raise Busy("a job is running; switch detectors once it is done")
+    busy = sweeps_running()
+    if busy:
+        raise Busy(f"a pic process is measuring (pid {', '.join(map(str, busy))})")
+    set_detector_mode(mode)
+    ev("pd", "detectors", f"detectors -> {mode.upper()}", mode=mode)
+    return {"ok": True, "mode": mode}
 
 
 def op_temp():
@@ -2090,7 +2314,7 @@ def op_temp():
 
 def op_set(b):
     """Set the operating temperature runs gate and pause on (±TEC_TOLERANCE_C). The TEC is
-    not retargeted: it keeps aiming TEC_SETPOINT_C, so a die stuck warm can still be run at."""
+    not retargeted: it keeps aiming hw_temp(), so a die stuck warm can still be run at."""
     from pic.devices.tec import T_MAX_C, T_MIN_C
 
     c = _finite(b.get("set"), "set", 1)[0]
@@ -2117,6 +2341,7 @@ def tec_now(n: int = 5):
         "set": TEC_SETPOINT_C,
         "tol": TEC_TOLERANCE_C,
         "status": getattr(TEC.tec, "status_line", None),
+        "hw": TEC.rows(n=1)[-1][2],  # the controller's own reported target
     }
 
 
@@ -2461,6 +2686,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(rig_state)
         elif route == "/api/tec":
             self._json(tec_now)
+        elif route == "/api/detectors":
+            self._json(lambda: {"mode": detector_mode()})
         elif route == "/api/job":
             self._json(job_state)
         elif route == "/api/diag":
@@ -2497,6 +2724,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/run",
             "/api/job/stop",
             "/api/tec",
+            "/api/detectors",
         ):
             return self._json(lambda: _raise(ValueError(f"no such endpoint: {route}")), 404)
         try:
@@ -2508,7 +2736,9 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/recal":
             self._json(lambda: recal_request(body))
         elif route == "/api/tec":
-            self._json(lambda: op_set(body))
+            self._json(lambda: hw_set(body) if "hw" in body else op_set(body))
+        elif route == "/api/detectors":
+            self._json(lambda: detectors_set(body))
         elif route == "/api/job/stop":
             self._json(job_stop)
         elif route == "/api/diag":
@@ -2527,6 +2757,73 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _selftest(cols: int = 3):
+    """Both detector modes, against a mode file of its own: the bench's choice stays put."""
+    import tempfile
+
+    import pic.config as pc
+
+    keep = pc.DETECTOR_PATH
+    with tempfile.TemporaryDirectory() as d:
+        pc.DETECTOR_PATH = str(Path(d) / "detector_mode.json")
+        try:
+            assert detector_mode() == "pd"  # no file: yesterday's workflow
+            out = _selftest_pd(cols)
+            _check_spd()
+        finally:
+            pc.DETECTOR_PATH = keep
+    return out
+
+
+def _check_spd():
+    """SPD mode on four mock SPDs: both hostings on every output, the Tools card naming each
+    slot's detector, the mode's own DPNN path. Then one SPD, as the bench has it today: the
+    full 4x4 on its row, the tiling refused by name."""
+    from pic import interface
+
+    for bad in ({"mode": "adc"}, {}):
+        try:
+            detectors_set(bad)
+            raise AssertionError(f"accepted {bad}")
+        except ValueError:
+            pass
+    assert detectors_set({"mode": "spd"})["mode"] == "spd" == detector_mode()
+    rng = np.random.default_rng(1)
+    U, _ = np.linalg.qr(rng.normal(size=(4, 4)))
+    req = {"U": U.ravel().tolist(), "X": rng.normal(size=(2, 4)).tolist()}
+    out = run_once(req, True)
+    assert out["detectors"] == "spd" and out["outputs"] == [0, 1, 2, 3], out["outputs"]
+    assert out["tiled_error"] is None and out["programs"]["tiled"] == 4, out
+    # the mode's own checkpoint, never the photodiodes'
+    assert out["dpnn"].get("error") is None or "spd" in out["dpnn"]["error"], out["dpnn"]
+    for v in out["vectors"]:
+        assert all(np.isfinite(v["normal"]["device"])) and all(np.isfinite(v["tiled"]["device"]))
+    json.dumps(_nan_to_none(out), allow_nan=False)  # what the page receives
+    r = diag_run(["pds"], mock=True)[0]
+    assert r["name"] == "SPDs" and r["status"] == "pass", r
+    assert r["value"] == " · ".join(f"PD{k} MOCKSPD{k}" for k in range(4)), r
+    assert "pds" not in [p["id"] for p in predictors()]
+
+    keep = interface.MOCK_SPDS
+    interface.MOCK_SPDS = {k: v for k, v in keep.items() if v[0] == 1}
+    try:
+        out = run_once(req, True)
+        r = diag_run(["pds"], mock=True)[0]
+    finally:
+        interface.MOCK_SPDS = keep
+    assert out["outputs"] == [1] and "PD1 only" in out["tiled_error"], out
+    assert out["programs"]["tiled"] == 0, out
+    for v in out["vectors"]:
+        dev = np.asarray(v["normal"]["device"], float)
+        assert np.flatnonzero(np.isfinite(dev)).tolist() == [1], dev
+        assert all(np.isnan(v["tiled"]["device"])) and np.isfinite(v["normal"]["fid"]), v
+        assert [k is None for k in v["normal"]["kept"]] == [r != 1 for r in range(4)]
+    json.dumps(_nan_to_none(out), allow_nan=False)
+    assert r["status"] == "pass" and r["value"] == "PD0 none · PD1 MOCKSPD1 · PD2 none · PD3 none", r
+    detectors_set({"mode": "pd"})
+    assert diag_run(["pds"], mock=True)[0]["name"] == "Photodiodes"
+
+
+def _selftest_pd(cols: int = 3):
     """The gate on this file: the refusal, the batch, that nothing is averaged away, and
     that the calibration view says what the calibration files say.
 
@@ -2908,6 +3205,27 @@ def _check_diag():
         assert r["value"] and r["tip"], r
     # the mock board carries no clamp table on the wire, so the row falls back to the sketch
     assert rows["switch"]["status"] == "pass", rows["switch"]
+    assert rows["tecpins"]["status"] == rows["tecspi"]["status"] == "pass", rows
+    # working or not, never the register dump, the divider reading, an age or a run stamp
+    assert rows["tecpins"]["value"].endswith("°C"), rows["tecpins"]
+    for r in rows.values():
+        t = r["value"] + r["detail"]
+        assert not re.search(r"0x|A0:|ILIM|kΩ|age|old|ago|run:|best|since refresh|2x2", t), r
+
+    # The mock TEC models the divider and the bus, so each failure is produced, not asserted.
+    from pic.devices.tec import MockTEC, ntc_c
+
+    t = MockTEC().open()
+    assert abs(ntc_c(t.diag()["r"]) - t.temperature()) < 0.2  # A0 quantisation, ~0.05 C
+    for i, kw, st, mark in (
+        ("tecpins", {"ntc_ohm": float("inf")}, "fail", "NTC open"),
+        ("tecpins", {"ntc_ohm": 0.0}, "fail", "NTC shorted"),
+        ("tecspi", {"spi_dead": True}, "fail", "SPI bus dead"),
+        ("tecspi", {"status": 0x41}, "fail", "fault TSD"),
+        ("tecspi", {"has_r": False}, "unknown", "lacks `r`"),
+    ):
+        r = _SOLO_FN[i](True, **kw)
+        assert r["status"] == st and mark in r["value"], (kw, r)
 
     # The mock laser carries the refusals the real unit has, so the two branches that stop
     # a run before it starts are exercised rather than assumed.

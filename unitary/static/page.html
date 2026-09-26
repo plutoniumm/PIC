@@ -91,7 +91,7 @@
           >
           <label
             class="dbm"
-            title="operating temperature: runs gate and pause on it; the TEC itself always aims 25 °C"
+            title="operating temperature: runs gate and pause on it; the TEC aims its own target, set in Settings"
             ><span>op</span
             ><input
               id="tecset"
@@ -193,24 +193,6 @@
       </div>
 
       <div id="tab-cal" class="{{hide_cal}}">
-        <div class="card">
-          <div class="eyebrow hd">
-            <span
-              ><i class="ico" style="--i: url(/icons/switch.svg)"></i>Mesh</span
-            >
-            <span class="note" style="margin: 0"
-              ><i
-                class="ico lockico"
-                title="a calibration process is running; these files may be mid-write"
-                style="--i: url(/icons/lock.svg)"
-              ></i
-              ><span id="cstamp"></span
-            ></span>
-          </div>
-          <div class="scroll" id="mesh"></div>
-          <div class="note tight err" id="cwarn"></div>
-        </div>
-
         <div class="card pcard">
           <div class="eyebrow hd">
             <span
@@ -251,6 +233,38 @@
             <i class="ico" style="--i: url(/icons/pds.svg)"></i>Photodiodes
           </div>
           <div class="scroll"><table id="ptab"></table></div>
+        </div>
+
+        <div class="card">
+          <div class="eyebrow">
+            <i class="ico" style="--i: url(/icons/tec.svg)"></i>TEC
+          </div>
+          <label
+            class="dbm"
+            title="the TEC controller's own target; runs gate on the op temperature on the Run page"
+            ><span>target</span
+            ><input
+              id="techw"
+              type="number"
+              min="15"
+              max="45"
+              step="0.5"
+            /><span>°C</span></label
+          >
+        </div>
+
+        <div class="card">
+          <div class="eyebrow">
+            <i class="ico" style="--i: url(/icons/pds.svg)"></i>Detectors
+          </div>
+          <div class="seg" id="det" title="what reads the mesh outputs; each mode keeps its own calibration, fits, table and DPNN (SPD: pic_data/spd, runs/spd). See README.md">
+            <label
+              ><input type="radio" name="det" value="pd" /><span>PD</span></label
+            >
+            <label
+              ><input type="radio" name="det" value="spd" /><span>SPD</span></label
+            >
+          </div>
         </div>
       </div>
 

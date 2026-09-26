@@ -681,16 +681,23 @@ tr.warnrow td:first-child:after {
   margin-top: 12px;
   color: var(--bad-ink);
 }
-#cwarn {
-  white-space: pre-wrap;
-}
 
 /* Diagnostics: one card per check. The status shape carries the state as much as the
    colour does, so a card still reads at a glance in grayscale. */
 .dgrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--gap);
+}
+@media (max-width: 1000px) {
+  .dgrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .dgrid {
+    grid-template-columns: 1fr;
+  }
 }
 .dcard {
   padding: 14px 16px;
@@ -1018,14 +1025,6 @@ tr.q-done td {
 }
 td.fresh {
   font-weight: 600;
-}
-.lockico {
-  display: none;
-  color: var(--warn-ink);
-}
-.locked .lockico,
-.job .lockico {
-  display: inline-block;
 }
 .locked .calv button,
 .locked tr .rl,

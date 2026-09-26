@@ -22,13 +22,14 @@ import time
 
 import numpy as np
 
-from .config import VOLTAGE_MAX, port_of
+from .config import VOLTAGE_MAX, data_path, detector_mode, pin_detectors, port_of
 from theory.clements import NMODE
 from .config import TEC_TOLERANCE_C, VOLTAGE_MAX_CH
 from .layout import LABEL_OF_DAC, N_HEATERS
 from .log import ev
 from .rig import Rig
 from .devices.tec import auto_tec
+from .interface import MissingOutputs, need_outputs
 from .session import WatchdogTripped
 
 
@@ -52,6 +53,7 @@ def _rig(a, model=None):
     ).open()
 
 
+@pin_detectors("pd")  # the PD path; `pic.apply._selftest` runs SPD mode itself
 def cmd_selftest(a):
     from theory import calib, clements, layout, program, twin
 
@@ -112,7 +114,7 @@ def cmd_selftest(a):
     )
 
     print("mock rig  ", end="", flush=True)
-    with Rig(laser="mock", board="mock", tec="mock", model="mock") as rig:
+    with Rig(laser="mock", board="mock", tec="mock", model="mock", detectors="pd") as rig:
         v = np.zeros(N_HEATERS)
         got, pred = rig.measure(v), rig.predict(v)
         print(f"measure vs predict max diff {np.abs(got - pred).max():.1e}")
@@ -157,6 +159,12 @@ def cmd_selftest(a):
         f"2x2 tile to {ap['matrix_err']['tile']:.3f}; per-x rel err "
         f"{sp['min']:.3f}-{sp['max']:.3f} over {sp['n']} vectors; {ap['wiring']}"
     )
+    sd = ap["spd"]
+    print(
+        f"spd       4 mock SPDs, each its own dark/max: Vpi {sd['vpi']:.3f} V fitted, DPNN "
+        f"trained, 4x4 to {sd['full'].matrix.value:.3f} full, "
+        f"{sd['tile'].matrix.value:.3f} tiled; 1 SPD: all-output consumers refused by name"
+    )
 
     return 0
 
@@ -194,7 +202,8 @@ def cmd_measure(a):
         norm = cal.meta.get("normalisation", {})
         full = np.asarray(norm.get("full_v", []), float)
         dark = np.asarray(norm.get("dark_v", []), float)
-        scaled = full.size == NMODE and np.all(full > 0)
+        # an SPD read is already on its own 0..1 scale (`python -m spd max`)
+        scaled = rig.detectors == "pd" and full.size == NMODE and np.all(full > 0)
         ports = [int(x) for x in a.ports.split(",")] if a.ports else None
 
         lo = np.full(NMODE, np.inf)
@@ -204,7 +213,9 @@ def cmd_measure(a):
             if not ports
             else f"heaters at 0 V, cycling ports {ports}. Ctrl-C to stop."
         )
-        if not scaled:
+        if rig.detectors == "spd":
+            print("SPD mode: 0 dark, 1 at each detector's stored max; -- where no SPD sits")
+        elif not scaled:
             print(
                 "no normalisation on file -- showing raw volts only "
                 "(run `python -m pic char --write` to get full-scale references)"
@@ -329,7 +340,9 @@ def cmd_calibrate(a):
 
         # 4. the one absolute quantity in `to_transfer`; everything else cancels in the
         #    per-column normalisation, this does not
-        if getattr(a, "dark", True):
+        if rig.detectors == "spd":
+            say(True, "pd_offset", "SPD mode: identity; each SPD's dark is `python -m spd dark`'s")
+        elif getattr(a, "dark", True):
             with rig.session(duration_s=180, power_dbm=a.dbm, calibrating=True):
                 # through the switch object, not the board: a mock or sim board has no serial
                 # port to send `P0` down, and this command has to run with --mock
@@ -408,7 +421,7 @@ def cmd_calibrate(a):
 
     if not writes:
         return 0
-    print("\nwould write to pic_data/calib.json:")
+    print(f"\nwould write to {data_path('pic_data/calib.json')}:")
     for k, v in writes.items():
         print(f"  {k:<12} {v}")
     if not a.write:
@@ -418,7 +431,9 @@ def cmd_calibrate(a):
     from pathlib import Path
 
     ROOT = Path(__file__).resolve().parents[1]  # the project directory, wherever it was run from
-    path = ROOT / "pic_data/calib.json"
+    path = data_path(ROOT / "pic_data/calib.json")
+    if not path.exists():  # a detector mode's first write starts from its bootstrap
+        calib.save(path)
     d = json.loads(path.read_text())
     if "pd_offset" in writes:
         d["pd_offset"] = writes["pd_offset"]
@@ -535,9 +550,9 @@ def cmd_recal(a):
 
     from theory.calib import Calibration, refit_phi0, track_well, well
 
-    res_path = Path("pic_data/char_results.json")
+    res_path = data_path("pic_data/char_results.json")
     if not res_path.exists():
-        raise SystemExit("no pic_data/char_results.json -- run `python -m pic char --write` first")
+        raise SystemExit(f"no {res_path} -- run `python -m pic char --write` first")
     res = json.loads(res_path.read_text())
     cal = Calibration.load_or_nominal()
     fits = {int(k): v for k, v in res.items() if v.get("ok")}
@@ -545,6 +560,8 @@ def cmd_recal(a):
         raise SystemExit("no characterized channels to re-anchor")
 
     with _rig(a) as rig:
+        # each fit is re-read on the output it was fitted on, in that output's units
+        need_outputs(rig, "re-anchoring these heaters", sorted({int(f["pd"]) for f in fits.values()}))
         n_reads = len(fits) * a.levels * a.repeats
         dur = max(60.0, n_reads * (a.settle + 0.3) + 30.0)
         print(
@@ -682,19 +699,21 @@ def _merge_calib(new, res, path=None):
     A targeted re-run of one weak channel would otherwise reset every other heater to the
     nominal Vpi -- silently, because a nominal calibration looks exactly like a measured one
     apart from its metadata. Only channels this run actually fitted are taken from it."""
-    from theory.calib import CONFIG_PATH, Calibration
+    from theory.calib import Calibration
 
-    path = CONFIG_PATH if path is None else path
-    try:
-        old = Calibration.load(path)
+    try:  # the mode's file, or its bootstrap from PD's heater law
+        old = Calibration.load(path) if path else Calibration.load_or_nominal()
     except (OSError, ValueError, KeyError):
+        return new
+    if not old.meta:  # nominal: nothing measured to keep
         return new
     fitted = [int(d) for d, f in res.items() if f.get("ok")]
     if not fitted:
         return old
     for d in fitted:
         old.vpi[d], old.phi0[d] = new.vpi[d], new.phi0[d]
-    old.pd_gain, old.pd_offset = new.pd_gain, new.pd_offset
+    if detector_mode() == "pd":  # an SPD run's readout is not the photodiodes' law
+        old.pd_gain, old.pd_offset = new.pd_gain, new.pd_offset
     meta = dict(old.meta)
     meta.update(new.meta)
     meta["fitted_this_run"] = fitted
@@ -702,7 +721,7 @@ def _merge_calib(new, res, path=None):
     return old
 
 
-def _save_results(res, path="pic_data/char_results.json", merge=False):
+def _save_results(res, path=None, merge=False):
     """The per-heater fits, including each channel's (port x detector) fingerprint.
 
     `calib.json` keeps only Vpi and phi0 -- the two numbers programming needs. The
@@ -711,6 +730,7 @@ def _save_results(res, path="pic_data/char_results.json", merge=False):
     import json
     from pathlib import Path
 
+    path = data_path("pic_data/char_results.json") if path is None else path
     out = {}
     if merge:
         try:
@@ -749,6 +769,7 @@ def cmd_fastchar(a):
     from theory.calib import Calibration
 
     with _rig(a) as rig:
+        need_outputs(rig, "heater characterization")  # before the laser, not after
         with rig.session(duration_s=1800, power_dbm=a.dbm, calibrating=True) as s:
             if not s.emitted and not a.allow_dark:
                 print(
@@ -789,7 +810,7 @@ def cmd_fastchar(a):
         # MERGE, never replace. A run over a subset of channels used to clobber the file
         # with just those channels, so every earlier fit vanished and the calibration tab
         # reported eight characterized heaters as having no fit on record.
-        rp = Path("pic_data/char_results.json")
+        rp = data_path("pic_data/char_results.json")
         prev = json.loads(rp.read_text()) if rp.exists() else {}
         prev.update(
             {str(int(k)): {kk: _jsonable(vv) for kk, vv in v.items()} for k, v in res.items()}
@@ -806,6 +827,7 @@ def cmd_char(a):
     levels = grid() if a.levels is None else grid(a.levels)
     bases = random_bases(a.bases)
     with _rig(a) as rig:
+        need_outputs(rig, "heater characterization")  # before the laser, not after
         ports = None if a.ports is None else [int(x) for x in a.ports.split(",")]
         n_ports = len(ports) if ports else (1 if a.no_switch else NMODE)
         dur = estimate_seconds(levels.size * N_HEATERS * len(bases) * n_ports, a.settle, a.repeats)
@@ -858,7 +880,9 @@ def cmd_char(a):
 
                 print("\nphotodiode full scale (blocked = 0, transparent = 1):")
                 norm = measure_norm(rig, ports=ports, repeats=a.repeats)
-                apply_to(calib, norm)
+                # an SPD read is already 0..1 on its own dark and max: its gain and
+                # offset stay identity, the survey's port scales and contrast still land
+                apply_to(calib, norm, readout=rig.detectors == "pd")
                 print(norm.summary())
         print()
         print(digest(res))
@@ -992,7 +1016,7 @@ def cmd_capture(a):
             ev("table", "discarded", f"--mock: {len(states)} states captured, not written")
         elif states and "sw" in darks:
             out = (
-                Path("pic_data/sessions")
+                data_path("pic_data/sessions")
                 / time.strftime("%Y-%m-%d-capture-%H%M")
                 / "raw_transfers.json"
             )
@@ -1418,6 +1442,9 @@ def main(argv=None):
         # unknown part of it.
         ev("job", "failed", f"ABORTED: {e}", "error", cmd=what, rc=3)
         return 3
+    except MissingOutputs as e:  # a refusal about the detectors in hand, not a crash
+        ev("job", "failed", str(e), "error", cmd=what, rc=2)
+        return 2
     except KeyboardInterrupt:
         # Stop in the UI sends exactly this. Every `with` block above has already run its
         # cleanup (laser off, heaters to 0) on the way out, so a traceback would add nothing.

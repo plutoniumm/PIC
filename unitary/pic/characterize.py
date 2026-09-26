@@ -525,6 +525,10 @@ def characterize(
     `session` is a live `laser_session` handle; the laser must be on and emitting or every
     heater modulates nothing and every fit is noise. Returns (results, calibration) where
     `results[dac]` is the fit dict plus an `ok` flag."""
+    from .interface import need_outputs
+
+    # each heater is fitted on whichever output shows its fringe best, so all must be there
+    need_outputs(pic, "heater characterization")
     from theory.calib import Calibration
 
     from .acquisition import grid, settled_read

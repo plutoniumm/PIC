@@ -97,7 +97,7 @@ from theory.matmat import (
 )
 
 from .acquisition import estimate_sweep_job, sweep_seconds
-from .config import DEFAULT_SETTLE_S, VOLTAGE_MAX, VOLTAGE_MAX_CH
+from .config import DEFAULT_SETTLE_S, VOLTAGE_MAX, VOLTAGE_MAX_CH, data_path, pin_detectors
 from .layout import N_HEATERS, REACHABLE_DACS
 from .normalise import SWEEP_CYCLES, load_session, sweep
 
@@ -264,6 +264,9 @@ def rig_probe(
     In the static path the thermal settle is charged only when the heater state actually
     changes, which in `shift` mode is once per plan: one program means the volts are written
     once and every later pass only moves the switch. `split` pays it on every pass."""
+    from .interface import need_outputs
+
+    need_outputs(rig, "the transfer probe (tiled matvec, table capture and sync)")
     if normalise == "column":
         return SweepProbe(
             rig, calib, power=power, settle_s=settle_s, dbm=dbm, repeats=repeats, cycles=cycles
@@ -426,7 +429,8 @@ def load_transfers(
     if path is not None:
         cands = [Path(path)]
     else:
-        cands = sorted(Path(root).glob(TRANSFER_GLOB), key=lambda q: q.stat().st_mtime)
+        glob = str(data_path(TRANSFER_GLOB))
+        cands = sorted(Path(root).glob(glob), key=lambda q: q.stat().st_mtime)
         if not cands:
             return None
         cands = [q for q in cands if q.parent == cands[-1].parent]
@@ -1340,6 +1344,7 @@ def digest(res) -> str:
     return "\n".join(lines)
 
 
+@pin_detectors("pd")  # the PD path, whatever the bench has selected
 def _selftest(seed: int = 0):
     """The theory validation run against the BENCH box, which is the number that counts.
 
@@ -1376,7 +1381,7 @@ def _selftest(seed: int = 0):
     calib = Calibration.load_or_nominal()
     v = np.zeros(N_HEATERS)
     v[REACHABLE_DACS] = 0.4 * VOLTAGE_MAX
-    with Rig(laser="mock", board="sim", tec="mock", switch="mock") as rig:
+    with Rig(laser="mock", board="sim", tec="mock", switch="mock", detectors="pd") as rig:
         rig.measure(v)
         truth = rig.board.sim._mesh_t(rig.board.sim.phases(v)).T  # T[pd, port]
         got = {}

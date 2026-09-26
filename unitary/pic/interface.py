@@ -359,6 +359,137 @@ class MockPIC(PIC):
         return np.clip(y, 0.0, None)
 
 
+# One SPD read: 10 PHOTON_COUNT frames. Poisson sets the noise, sigma_y = sqrt(y M t + D t)/(M t)
+# on the 0..1 scale: at the bench's max M ~ 900/s and dark D ~ 17/s that is 0.075 at full
+# scale and 0.026 at y = 0.1, against 0.2 s a read -- a four-port sweep stays under a second,
+# and a caller that needs less noise averages repeats, as it did with the photodiodes.
+SPD_READ_S = 0.2
+# The mock's detectors, one per output, each with its own dark and max (counts/s) as four real
+# ones would have. Bright enough that one 20 ms frame is a usable read, so a mock pipeline
+# runs in seconds; `spd_board` reads the mock for one frame, the bench for SPD_READ_S.
+MOCK_SPDS = {
+    "MOCKSPD0": (0, 25.0, 60e3),
+    "MOCKSPD1": (1, 17.0, 90e3),
+    "MOCKSPD2": (2, 60.0, 120e3),
+    "MOCKSPD3": (3, 12.0, 45e3),
+}
+
+
+class MissingOutputs(PICError, ValueError):
+    """The detectors in hand do not cover the outputs a computation needs. A ValueError too,
+    so a front end shows it as the refusal it is rather than as a crash."""
+
+
+class SPDBoard:
+    """The board with its analog readout replaced by single-photon detectors: the seam.
+
+    Heaters, switch and everything else still go to `board`. A read comes back in the same
+    shape the photodiodes gave -- one value per ADC slot -- as (rate - dark) / (max - dark)
+    per detector, NaN in a slot with no detector on it. Every caller that reads through the
+    board, the rig, `settled_read` or the session's emission check gets SPD values without
+    knowing about SPDs; the ones that need all four outputs call `need_outputs`."""
+
+    batched = False  # the firmware sweep reads the ADC, not the SPDs
+
+    def __init__(self, board, spds, slots: dict, law: dict, seconds: float = SPD_READ_S):
+        self.board, self.spds, self.slots, self.law, self.seconds = board, spds, slots, law, seconds
+        self._I = np.zeros(NMODE)  # the mock chip's intensity, for mock detectors to count
+
+    def __getattr__(self, k):
+        if k == "board":  # not yet set: no recursion through the delegate
+            raise AttributeError(k)
+        return getattr(self.board, k)
+
+    measure = PIC.measure
+
+    @property
+    def outputs(self) -> list[int]:
+        return sorted(self.slots.values())
+
+    def open(self):
+        self.board.open()
+        self.spds.open()
+        return self
+
+    def close(self):
+        try:
+            self.board.close()
+        finally:
+            self.spds.close()
+
+    def sweep_raw(self, *a, **kw):
+        raise PICError("an SPD readout has no firmware sweep; use pic.normalise.sweep")
+
+    def measure_raw(self, voltages, retries: int = 3) -> np.ndarray:
+        self.board.measure_raw(voltages, retries)
+        if hasattr(self.board, "forward"):  # mock: what light the model puts on each output
+            f = self.board.forward
+            raw = np.asarray(f(self.board._last_v), float)[list(OUT_PDS)]
+            cal = getattr(f, "calib", None)
+            self._I = raw if cal is None else cal.to_intensity(raw)
+        return self.read()
+
+    def read(self) -> np.ndarray:
+        """Counts from now for `seconds`: frames from before the call are dropped by `count`,
+        so a read never mixes in light from the heater state before it."""
+        from spd.array import normalise
+
+        y = np.full(self.cfg.num_adc_raw, np.nan)
+        for sid, c in self.spds.count(self.seconds).items():
+            y[OUT_PDS[self.slots[sid]]] = normalise(c.rate, self.law[sid])
+        return y
+
+
+def spd_board(board, mock: bool) -> SPDBoard:
+    """`board` behind the SPDs in pic_data/spd_map.json. On the bench every SPD on USB must be
+    mapped and have a dark and max stored; the mock puts `MOCK_SPDS` on their outputs,
+    counting the mock chip's own light, and never reads pic_data."""
+    from spd.array import SPD, SPDs, check_law, discover, load_max
+    from spd.vega import FRAME_S, SPDError
+
+    from .config import SPD_MAP_PATH, spd_map
+
+    if mock:
+        slots = {i: k for i, (k, _, _) in MOCK_SPDS.items()}
+        law = {i: (d, m) for i, (_, d, m) in MOCK_SPDS.items()}
+        sb = SPDBoard(board, None, slots, law, seconds=FRAME_S)
+        rate = lambda i: lambda: law[i][0] + (law[i][1] - law[i][0]) * float(sb._I[slots[i]])
+        sb.spds = SPDs(
+            [SPD.mock(i, seed=k, count_hz=rate(i)) for i, k in slots.items()],
+            on_text=lambda sid, t: None,
+        )
+        return sb
+    ids, where = discover(), spd_map()
+    if not ids:
+        raise MissingOutputs("SPD mode, but no SPD on USB; plug one in or switch to PD in Settings")
+    bad = [i for i in ids if i not in where]
+    if bad:
+        raise MissingOutputs(
+            f"SPD {', '.join(bad)} is on USB but not in {SPD_MAP_PATH}; "
+            "`python -m spd assign <id> PD<n>` with the output it sits on"
+        )
+    try:
+        law = check_law(ids, load_max())
+    except SPDError as e:
+        raise MissingOutputs(str(e)) from None
+    return SPDBoard(board, SPDs(ids, on_text=lambda sid, t: None), {i: where[i] for i in ids}, law)
+
+
+def need_outputs(board, what: str, outputs=range(NMODE)):
+    """Refuse `what` unless the detectors cover `outputs`. The photodiode board always does.
+    Takes the board or anything holding it as `.board` (the rig)."""
+    board = board if isinstance(board, SPDBoard) else getattr(board, "board", None)
+    if not isinstance(board, SPDBoard):
+        return
+    have = board.outputs
+    miss = [k for k in outputs if k not in have]
+    if miss:
+        on = ", ".join(f"PD{k}" for k in have) or "no output"
+        raise MissingOutputs(
+            f"{what} needs outputs {', '.join(f'PD{k}' for k in outputs)}; the SPDs cover {on} only"
+        )
+
+
 def twin_forward(calib=None, error=None, x=None, seed: int = 0, dark: float = 0.01, switch=None):
     """A forward for :class:`MockPIC` that is the actual physics: heater volts -> phases
     through a calibration, phases -> field through the twin, intensity -> photodiode

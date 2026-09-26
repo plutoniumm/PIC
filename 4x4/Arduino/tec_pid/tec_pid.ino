@@ -281,6 +281,23 @@ void runPolarityTest()
     updateLT8722_DAC(0.0);
     Serial.println("=== Polarity test complete ===");
 }
+// One parseable line for the host's pin and SPI checks. The raw A0 count is printed because
+// readTemperature() hides an out-of-range divider by returning the stale Input, and the SPI
+// reads because a dead bus answers every register with the same word.
+void printDiag()
+{
+    int rawADC = analogRead(NTC_PIN);
+    float V_out = rawADC * (Vin / 1023.0);
+    Serial.print("DIAG adc="); Serial.print(rawADC);
+    Serial.print(" v="); Serial.print(V_out, 3);
+    Serial.print(" r=");
+    if (V_out >= Vin) Serial.print("inf");
+    else Serial.print(R_fixed * (V_out / (Vin - V_out)), 0);
+    Serial.print(" status=0x"); Serial.print(lt8722_read(ADDR_STATUS), HEX);
+    Serial.print(" command=0x"); Serial.print(lt8722_read(ADDR_COMMAND), HEX);
+    Serial.print(" ilimn=0x"); Serial.print(lt8722_read(ADDR_ILIMN), HEX);
+    Serial.print(" ilimp=0x"); Serial.println(lt8722_read(ADDR_ILIMP), HEX);
+}
 // =======================================================
 // 12. MAIN LOOP
 // =======================================================
@@ -297,6 +314,11 @@ void loop()
         {
             runPolarityTest();
             return;
+        }
+
+        if (inString == "r")
+        {
+            printDiag();  // no return: the PID step below still runs this pass
         }
 
         float val = inString.toFloat();

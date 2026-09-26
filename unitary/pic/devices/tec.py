@@ -32,6 +32,23 @@ from ..config import TEC_SETPOINT_C, TEC_SETTLE_S, TEC_TOLERANCE_C
 T_MIN_C, T_MAX_C = 15.0, 45.0
 DRIVE_MAX_V = 5.0  # DAC_MAX in Arduino/tec_pid/tec_pid.ino
 CURRENT_LIMIT_A = 2.0  # ILIMP in Arduino/tec_pid/tec_pid.ino
+# The divider and NTC of tec_pid.ino: 5 V - R_FIXED - A0 - NTC - GND.
+VIN_V, R_FIXED, R_NTC0, BETA, CAL_OFFSET_C = 5.0, 10e3, 10e3, 3450.0, 1.3
+CMD_STARTUP_PWM = 0x0008A217  # the COMMAND word setup() leaves the LT8722 in
+LT8722_FAULTS = {4: "POR_OCC", 5: "OVER_CURRENT", 6: "TSD", 7: "VCC_UVLO",
+                 8: "VDDIO_UVLO", 9: "CP_UVLO", 10: "V2P5_UVLO"}  # SPIS_STATUS bits
+
+
+def ntc_c(r: float) -> float:
+    """The sketch's Steinhart (beta) conversion plus its offset, without the EMA."""
+    return 1 / (np.log(r / R_NTC0) / BETA + 1 / 298.15) - 273.15 + CAL_OFFSET_C
+
+
+def parse_diag(raw: str) -> dict:
+    """`DIAG adc=.. v=.. r=.. status=0x.. command=0x.. ilimn=0x.. ilimp=0x..` -> dict."""
+    kv = dict(p.split("=", 1) for p in raw.split()[1:])
+    d = {"adc": int(kv["adc"]), "v": float(kv["v"]), "r": float(kv["r"])}
+    return d | {k: int(kv[k], 16) for k in ("status", "command", "ilimn", "ilimp")}
 
 
 class TECError(RuntimeError):
@@ -119,7 +136,7 @@ class SerialTEC(TEC):
 
     def __init__(self, port: str, baud: int = 115200, timeout_s: float = 2.0, **kw):
         self.port, self.baud, self.timeout_s, self.ser = port, baud, timeout_s, None
-        self.status_line = None
+        self.status_line = self.diag_line = None
         self._last = None
         super().__init__(**kw)
 
@@ -171,6 +188,9 @@ class SerialTEC(TEC):
             if raw.startswith(("STATUS 0x", "FAULT 0x")):
                 self.status_line = raw  # the LT8722's own word, printed every 5 s
                 continue
+            if raw.startswith("DIAG "):
+                self.diag_line = raw  # the reply to `diag()`
+                continue
             parts = raw.split(",")
             if len(parts) == 3:
                 try:
@@ -184,6 +204,19 @@ class SerialTEC(TEC):
             # before any telemetry does -- giving up on them meant every freshly-opened
             # connection reported the controller as silent.
         return latest
+
+    def diag(self, timeout_s: float = 1.5, pumped: bool = False):
+        """The sketch's `r` reply, parsed; None if none comes, i.e. firmware older than `r`.
+        `pumped`: another thread already reads this port (the UI's owner), so only wait."""
+        self.diag_line = None
+        self.ser.write(b"r\n")
+        deadline = time.time() + timeout_s
+        while self.diag_line is None and time.time() < deadline:
+            if pumped:
+                time.sleep(0.05)
+            else:
+                self._read_line()
+        return parse_diag(self.diag_line) if self.diag_line else None
 
     def temperature(self) -> float:
         row = self._read_line()
@@ -203,10 +236,16 @@ class SerialTEC(TEC):
 
 
 class MockTEC(TEC):
-    """First-order thermal model. Settles in real time so `wait_stable` is exercised."""
+    """First-order thermal model. Settles in real time so `wait_stable` is exercised.
 
-    def __init__(self, ambient_c: float = 23.0, tau_s: float = 8.0, noise_c: float = 0.005, **kw):
+    The divider and the LT8722 are modelled too, for `diag()`: `ntc_ohm` pins the NTC leg
+    (inf = open, 0 = shorted), `spi_dead` answers every register 0xFFFFFFFF as a floating
+    MISO does, `status` is the SPIS_STATUS word, `has_r=False` is a sketch older than `r`."""
+
+    def __init__(self, ambient_c: float = 23.0, tau_s: float = 8.0, noise_c: float = 0.005,
+                 ntc_ohm=None, spi_dead=False, status=0x1, has_r=True, **kw):
         self.ambient, self.tau, self.noise = float(ambient_c), float(tau_s), float(noise_c)
+        self.ntc_ohm, self.spi_dead, self.st, self.has_r = ntc_ohm, spi_dead, status, has_r
         self._rng = np.random.default_rng(0)
         self._t = self.ambient
         self._last = time.time()
@@ -233,7 +272,28 @@ class MockTEC(TEC):
         dt, self._last = now - self._last, now
         drive = self._setpoint if self._open else self.ambient
         self._t += (drive - self._t) * (1 - np.exp(-dt / self.tau))
+        if self.ntc_ohm is not None and not 0.1 < self._adc()[1] < VIN_V:
+            return 0.0  # the sketch keeps its stale Input, which starts at 0
         return float(self._t + self._rng.normal(0, self.noise))
+
+    def _adc(self):
+        r = self.ntc_ohm
+        if r is None:
+            r = R_NTC0 * np.exp(BETA * (1 / (self._t - CAL_OFFSET_C + 273.15) - 1 / 298.15))
+        adc = 1023 if np.isinf(r) else int(round(1023 * r / (R_FIXED + r)))
+        return adc, adc * VIN_V / 1023
+
+    def diag(self, timeout_s: float = 1.5, pumped: bool = False):
+        if not self.has_r:
+            return None
+        self.temperature()
+        adc, v = self._adc()
+        r = "inf" if v >= VIN_V else f"{R_FIXED * v / (VIN_V - v):.0f}"
+        regs = [0xFFFFFFFF] * 4 if self.spi_dead else [self.st, CMD_STARTUP_PWM, 0x4B, 0x169]
+        return parse_diag(
+            f"DIAG adc={adc} v={v:.3f} r={r} status=0x{regs[0]:X} command=0x{regs[1]:X} "
+            f"ilimn=0x{regs[2]:X} ilimp=0x{regs[3]:X}"
+        )
 
 
 class NoTEC(TEC):

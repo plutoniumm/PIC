@@ -28,7 +28,7 @@ import numpy as np
 from theory.clements import NMODE
 from theory.drift import RCOND, infer_drift
 
-from .config import VOLTAGE_MAX
+from .config import VOLTAGE_MAX, pin_detectors
 from .layout import ACTIVE_IDX, MIRROR_OF, N_HEATERS
 from .normalise import sweep
 
@@ -173,6 +173,7 @@ class _TwinRig:
         )
 
 
+@pin_detectors("pd")  # the PD path, whatever the bench has selected
 def _selftest(seed: int = 0):
     """The loop must correct a planted drift, report the gains, and refuse what it cannot see.
 

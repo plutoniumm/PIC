@@ -18,7 +18,15 @@ import time
 
 import numpy as np
 
-from .config import TEC_SETPOINT_C, VOLTAGE_MAX, VOLTAGE_MAX_CH, out_mask, ADC_REF_V, ADC_SAT_V
+from .config import (
+    TEC_SETPOINT_C,
+    VOLTAGE_MAX,
+    VOLTAGE_MAX_CH,
+    out_mask,
+    ADC_REF_V,
+    ADC_SAT_V,
+    detector_mode,
+)
 from .devices.laser import Laser
 from .log import ev
 from .devices.mock import MockLaser
@@ -26,7 +34,7 @@ from .devices.switch import make_switch
 from theory.clements import NMODE
 from theory.layout import N_HEATERS
 from .devices.tec import make_tec
-from .interface import PIC, MockPIC
+from .interface import PIC, MockPIC, spd_board
 from .session import _resolve_pic_port, check_active, laser_session
 
 # The recorded `chip_c` is one instantaneous reading taken at session open, not the session
@@ -179,7 +187,7 @@ def make_laser(spec, port=None):
     raise ValueError(f"laser={spec!r}; use 'hw', 'mock', or a Laser instance")
 
 
-def make_board(spec, port=None, laser_port=None, switch=None):
+def make_board(spec, port=None, laser_port=None, switch=None, detectors="pd"):
     """``'hw'|'mock'|'sim'`` -> a board; a PIC instance passes through unchanged.
 
     'mock' is the idealised chip this package was designed against -- all 18 heaters live,
@@ -188,15 +196,20 @@ def make_board(spec, port=None, laser_port=None, switch=None):
     whether an algorithm is right and 'sim' to ask whether it will survive the bench."""
     if not isinstance(spec, str):
         return spec
+    if spec == "sim" and detectors == "spd":
+        raise ValueError("the sim board models photodiode volts, not photon counts; use 'mock'")
     if spec == "mock":
-        return MockPIC(switch=switch)
-    if spec == "sim":
+        board = MockPIC(switch=switch)
+    elif spec == "sim":
         from .sim import BenchPIC
 
         return BenchPIC(switch=switch)
-    if spec == "hw":
-        return PIC(port=_resolve_pic_port(port, laser_port))
-    raise ValueError(f"board={spec!r}; use 'hw', 'mock', 'sim', or a PIC instance")
+    elif spec == "hw":
+        board = PIC(port=_resolve_pic_port(port, laser_port))
+    else:
+        raise ValueError(f"board={spec!r}; use 'hw', 'mock', 'sim', or a PIC instance")
+    # the one place the readout is chosen: everything downstream reads through this board
+    return spd_board(board, mock=spec == "mock") if detectors == "spd" else board
 
 
 class Rig:
@@ -213,6 +226,7 @@ class Rig:
         laser_port=None,
         pic_port=None,
         dynamic=False,
+        detectors=None,
     ):
         self.laser = make_laser(laser, laser_port)
         self.tec = make_tec(tec)
@@ -220,6 +234,8 @@ class Rig:
         self.keep_laser = bool(keep_laser)
         self._board_spec = board
         self._pic_port = pic_port
+        # None is the bench's saved choice (Settings tab); a selftest pins it
+        self.detectors = detector_mode() if detectors is None else detectors
         self.board = None  # opened lazily so the board port can exclude the laser's
         if isinstance(model, str):  # lazy so `import pic` stays torch-free
             from .model import make_model
@@ -238,9 +254,16 @@ class Rig:
         """The heater law in force. Falls back to the nominal one, which is enough to
         drive the chip but not to program a target accurately."""
         if self._calib is None:
+            from dataclasses import replace
+
             from theory.calib import Calibration
 
-            self._calib = Calibration.load_or_nominal()
+            c = Calibration.load_or_nominal()
+            if self.detectors == "spd":
+                # an SPD read is already 0 dark and 1 at its max; the file's readout law is
+                # the photodiodes', and is kept for them (`__main__._merge_calib`)
+                c = replace(c, pd_gain=np.ones_like(c.pd_gain), pd_offset=np.zeros_like(c.pd_offset))
+            self._calib = c
         return self._calib
 
     @property
@@ -264,7 +287,9 @@ class Rig:
         self.tec.open()
         self.switch.open()
         laser_port = getattr(getattr(self.laser, "dev", None), "port", None)
-        self.board = make_board(self._board_spec, self._pic_port, laser_port, self.switch)
+        self.board = make_board(
+            self._board_spec, self._pic_port, laser_port, self.switch, self.detectors
+        )
         self.board.open()
         # Before anything is driven: the clamp table the DAC will actually enforce has to be
         # the one the host thinks it is commanding against.

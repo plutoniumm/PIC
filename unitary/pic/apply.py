@@ -46,7 +46,7 @@ from theory.matmat import TILE_K
 from theory.program import fidelity
 
 from . import layout
-from .config import VOLTAGE_MAX_CH, mirror_pairs, DAC_PAIRS, DEFAULT_SETTLE_S, PAIR_OF_DAC
+from .config import VOLTAGE_MAX_CH, mirror_pairs, DAC_PAIRS, DEFAULT_SETTLE_S, PAIR_OF_DAC, pin_detectors
 from .matvec import (
     Transfers,
     bench_box,
@@ -321,6 +321,13 @@ def _direct_4x4(rig, U, X, *, repeats: int = 1, settle_s: float = DEFAULT_SETTLE
         T[:, j] = y
     dark = np.asarray(calib.pd_offset, float)[:NMODE]
     T = np.clip(T - dark[:, None], 0.0, None)
+    seen = np.isfinite(T).all(1)  # an output with no detector on it reads NaN
+    if not seen.all():
+        # Sinkhorn needs every row. A row of |U|^2 still sums to 1, so each measured row is
+        # scaled by its own sum: that removes its detector's gain but leaves the per-port
+        # input coupling in, which the column margin would have taken out.
+        T[seen] /= np.maximum(T[seen].sum(1, keepdims=True), 1e-12)
+        return T, volts, reach, ok
 
     # |U|^2 of a unitary is doubly stochastic, so BOTH margins are known a priori and any
     # deviation is instrument, not mesh. Normalising columns alone leaves the per-detector
@@ -393,12 +400,12 @@ def apply_unitary(
         # scheme for a target the mesh cannot hold, and would put the 4x4 in the host's
         # addition rather than in the optics.
         T, volts, reach, ok = _direct_4x4(rig, U, X, repeats=repeats, settle_s=settle_s)
-        Y = T @ Xu
+        Y = T @ Xu  # NaN rows where no detector sits, scored on the measured rows only
         Ytrue = np.abs(U) ** 2 @ Xu
-        per = np.array([score(Y[:, c], Ytrue[:, c]) for c in range(Y.shape[1])])
-        merr = float(
-            np.linalg.norm(T - np.abs(U) ** 2) / max(np.linalg.norm(np.abs(U) ** 2), 1e-12)
-        )
+        m = np.isfinite(T).all(1)
+        per = np.array([score(Y[m, c], Ytrue[m, c]) for c in range(Y.shape[1])])
+        A = np.abs(U[m]) ** 2
+        merr = float(np.linalg.norm(T[m] - A) / max(np.linalg.norm(A), 1e-12))
         return ApplyResult(
             hosting=hosting,
             rows=rows,
@@ -478,6 +485,7 @@ def apply_unitary(
     )
 
 
+@pin_detectors("pd")  # the PD path, whatever the bench has selected
 def _selftest(seed: int = 0, cols: int = 6):
     """Both hostings against the mock chip, which is the only instrument there is today.
 
@@ -506,7 +514,7 @@ def _selftest(seed: int = 0, cols: int = 6):
     X = rng.normal(size=(NMODE, cols))
 
     out = {}
-    with Rig(laser="mock", board="mock", tec="mock", switch="mock") as rig:
+    with Rig(laser="mock", board="mock", tec="mock", switch="mock", detectors="pd") as rig:
         box = box_for(rig, mock=True)
         tab = table_for(rig, box, mock=True, seed=seed)
         for grp in DAC_PAIRS:
@@ -537,6 +545,7 @@ def _selftest(seed: int = 0, cols: int = 6):
     assert out["full"].programs == 1, out["full"].programs
     assert out["tile"].programs == (NMODE // TILE_K) ** 2, out["tile"].programs
     assert np.array_equal(out["tile"].B, U) and np.array_equal(out["full"].B, U)
+    spd = _selftest_spd(U, X[:, :2], box, seed)
     # NOT an assertion that the tile beats the full 4x4. It should, and on the stored
     # calibration it does -- but that ordering is a claim about a chip, and the only chip
     # available is a mock whose heater model still indexes the PRE-rewire map, so asserting
@@ -547,13 +556,93 @@ def _selftest(seed: int = 0, cols: int = 6):
         "wiring": Wiring.current(),
         "matrix_err": {h: r.matrix.value for h, r in out.items()},
         "spread": {h: r.spread for h, r in out.items()},
+        "spd": spd,
     }
+
+
+def _selftest_spd(U, X, box, seed):
+    """SPD mode end to end on four mock SPDs, one per output, each on its own dark and max:
+    fits, a transfer table, a DPNN and both hostings, all on SPD values. Then one SPD, as the
+    bench has it today: every consumer that needs all four outputs refuses and names them."""
+    import tempfile
+
+    from learn import train_hw
+
+    from . import interface
+    from .characterize import characterize, random_bases
+    from .interface import MissingOutputs
+    from .acquisition import grid
+    from .rig import Rig
+
+    out = {}
+    with pin_detectors("spd"), Rig(laser="mock", board="mock", tec="mock", switch="mock") as rig:
+        assert rig.detectors == "spd" and rig.board.outputs == [0, 1, 2, 3], rig.board.outputs
+        assert not np.any(rig.calib.pd_offset) and np.all(rig.calib.pd_gain == 1), rig.calib
+        # one heater the mock shows plainly on PD3 from port 3, to keep this seconds long
+        chans = [6]
+        with rig.session(duration_s=120, power_dbm=5.0, calibrating=True) as s:
+            res, _ = characterize(
+                rig.board, s, channels=chans, bases=random_bases(1), switch=rig.switch,
+                ports=[3], levels=grid(32), settle_s=0.0, repeats=1, verbose=False,
+            )
+            tab = table_for(rig, box, mock=True, n_states=24, seed=seed)
+            for h in HOSTING:
+                out[h] = apply_unitary(rig, U, X, hosting=h, box=box, transfers=tab, settle_s=0.0)
+    f = res[6]
+    out["vpi"], truth = f["vpi"], float(mock_truth()[0].vpi[6])
+    assert f["ok"] and abs(f["vpi"] - truth) < 0.05 * truth, (f, truth)
+    assert np.isfinite(tab.T).all(), tab.T
+    for h in HOSTING:
+        assert np.isfinite(out[h].Y_device).all() and np.isfinite(out[h].matrix.value), h
+    with tempfile.TemporaryDirectory() as d, pin_detectors("spd"):
+        argv = ["--mock", "--rounds", "1", "--n-per-round", "16", "--steps", "0", "--epochs",
+                "20", "--settle", "0", "--repeats", "1", "--out", d + "/dpnn"]
+        import contextlib
+        import io
+        import json
+
+        quiet = lambda: contextlib.redirect_stdout(io.StringIO())
+        with quiet():
+            assert train_hw.main(argv) == 0
+
+        out["dpnn_r2"] = json.load(open(d + "/dpnn/meta.json"))["r2_dpnn"]
+        assert np.isfinite(out["dpnn_r2"]), out["dpnn_r2"]
+
+        keep = interface.MOCK_SPDS
+        interface.MOCK_SPDS = {k: v for k, v in keep.items() if v[0] == 1}
+        try:
+            with Rig(laser="mock", board="mock", tec="mock", switch="mock") as rig:
+                r = apply_unitary(rig, U, X, hosting="full", box=box, transfers=tab, settle_s=0.0)
+                for what, call in (
+                    ("tiled hosting", lambda: apply_unitary(
+                        rig, U, X, hosting="tile", box=box, transfers=tab, settle_s=0.0)),
+                    ("heater characterization",
+                     lambda: characterize(rig.board, None, channels=chans)),
+                ):
+                    try:
+                        call()
+                        raise AssertionError(f"{what} ran on one detector")
+                    except MissingOutputs as e:
+                        assert "PD1 only" in str(e) and "PD0, PD1, PD2, PD3" in str(e), str(e)
+            with quiet():
+                assert train_hw.main(argv) == 2  # the DPNN refuses too, before any round
+        finally:
+            interface.MOCK_SPDS = keep
+    assert np.flatnonzero(np.isfinite(r.measured).all(1)).tolist() == [1], r.measured
+    assert np.allclose(r.measured[1].sum(), 1.0), r.measured
+    return out
 
 
 if __name__ == "__main__":
     r = _selftest()
     for h, res in r["results"].items():
         print(res.digest(), "\n")
+    sp = r["spd"]
+    print(
+        f"SPD mode, 4 mock SPDs: Vpi {sp['vpi']:.3f} V fitted, DPNN trained, "
+        f"4x4 hosted to {sp['full'].matrix.value:.3f} full / {sp['tile'].matrix.value:.3f} tiled; "
+        "1 SPD: tiling, characterization and DPNN refused by name\n"
+    )
     print(
         "the target was orthogonal; the chip was the mock physical model, because "
         "the board answers no protocol this library speaks"

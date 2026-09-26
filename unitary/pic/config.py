@@ -10,10 +10,13 @@ numbers.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
+import theory.calib as _theory_calib
 from theory.calib import VOLTAGE_MAX, VPI_NOMINAL  # noqa: F401  (one source for both)
 from theory.layout import N_HEATERS
 
@@ -23,6 +26,74 @@ BAUD_RATE = 115200
 # COM*) changes with the OS and the socket. A replaced board gets a new number here.
 USB_SERIAL = {"board": "1344A47423035130E988", "tec": "1344A474230351308829", "laser": "AU05XLI8"}
 FTDI_VID = 0x0403
+# Which detectors read the mesh outputs: "pd", the analog photodiode board, or "spd", the
+# single-photon detectors in SPD_MAP_PATH. Set from the Settings tab; PD when never set.
+DETECTORS = ("pd", "spd")
+DETECTOR_PATH = "pic_data/detector_mode.json"
+# {SPD chip id: output (PD slot) it sits on}, set with `python -m spd assign`. An SPD on USB
+# that is not in it is refused rather than guessed.
+SPD_MAP_PATH = "pic_data/spd_map.json"
+_PINNED = []  # `pin_detectors`: a selftest's mode, which must not follow the bench's file
+
+
+def detector_mode() -> str:
+    import json
+
+    if _PINNED:
+        return _PINNED[-1]
+    try:
+        m = json.loads(open(DETECTOR_PATH).read())["mode"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return "pd"
+    return m if m in DETECTORS else "pd"
+
+
+def set_detector_mode(mode: str) -> str:
+    import json
+
+    if mode not in DETECTORS:
+        raise ValueError(f"detector mode {mode!r}; use one of {', '.join(DETECTORS)}")
+    with open(DETECTOR_PATH, "w") as f:
+        json.dump({"mode": mode}, f)
+    return mode
+
+
+@contextmanager
+def pin_detectors(mode: str):
+    """Run a block in `mode` whatever the Settings tab says, data paths included."""
+    _PINNED.append(mode)
+    try:
+        yield mode
+    finally:
+        _PINNED.pop()
+
+
+def data_path(p, mode=None) -> Path:
+    """`p` as the detector mode in force owns it. Calibration, fits, transfer tables, DPNN
+    checkpoints and the error log are all readout-specific, so SPD mode keeps its own under
+    pic_data/spd/ and runs/spd/, and flipping back to PD finds PD's exactly as they were."""
+    p = Path(p)
+    if (mode or detector_mode()) != "spd":
+        return p
+    parts = list(p.parts)
+    for k, x in enumerate(parts):
+        if x in ("pic_data", "runs"):
+            return Path(*parts[: k + 1], "spd", *parts[k + 1 :])
+    return p
+
+
+# theory must not import pic, so the calibration file's mode arrives through this hook
+_theory_calib.data_path = data_path
+
+
+def spd_map(path=None) -> dict[str, int]:
+    import json
+
+    try:
+        d = json.loads(open(path or SPD_MAP_PATH).read())
+        return {str(k): int(v) for k, v in d.items()}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {}
 
 
 def port_of(x):
@@ -39,7 +110,8 @@ def port_of(x):
 
 def _chip(sn):
     """Windows' FTDI driver appends a channel letter to the chip id (AU05XLI8 -> AU05XLI8A)."""
-    if sn and sn not in USB_SERIAL.values() and sn[:-1] in USB_SERIAL.values():
+    known = {*USB_SERIAL.values(), *spd_map()}
+    if sn and sn not in known and sn[:-1] in known:
         return sn[:-1]
     return sn
 
@@ -54,7 +126,7 @@ def usb_ports():
     """[(device, role, vid)] for every USB serial device; role from USB_SERIAL, else '?'."""
     from serial.tools import list_ports
 
-    role = {v: k for k, v in USB_SERIAL.items()}
+    role = {v: k for k, v in USB_SERIAL.items()} | {k: "spd" for k in spd_map()}
     return sorted(
         (p.device, role.get(_chip(p.serial_number), "?"), p.vid)
         for p in list_ports.comports()

@@ -275,6 +275,9 @@ function resultBody(e, onx, cw) {
   const meta = document.createElement("div");
   meta.className = "hm";
   meta.innerHTML =
+    (d.tiled_error
+      ? `<span class="bar-tiled v-warn" title="no tiled bars in this run">tiled: ${esc(d.tiled_error)}</span>`
+      : "") +
     (dp && dp.error
       ? `<span class="bar-dpnn v-warn" title="no DPNN bars in this run">dpnn: ${esc(dp.error)}</span>`
       : dp
@@ -528,216 +531,6 @@ const SC = {
 };
 const WORD = { green: "good", yellow: "weak", red: "broken", grey: "uncal" };
 const GREEK = { theta: "θ", phi: "φ", alpha: "α" };
-const ROLE = {
-  theta: "internal arm phase of",
-  phi: "upper-arm input phase into",
-  aux: "spare, redundant with",
-  out: "output screen phase on",
-};
-
-// Every coordinate below comes off `S.elements` and `h.place`, which the server derives
-// from clements.MESH/COLUMN and layout.THETA_DAC/PHI_DAC. Nothing here decides which rails
-// an element couples or which element a heater belongs to; drawing it from memory is how
-// the picture and the wiring part company.
-function meshFig(S) {
-  const W = 660,
-    H = 226,
-    X0 = 140,
-    XEND = 594,
-    PDX = 600;
-  const dx = Math.min(106, (XEND - 36 - X0) / Math.max(1, S.ncol));
-  const cx = (c) => X0 + dx * c;
-  const g = svg("svg", {
-    class: "fig",
-    viewBox: `0 0 ${W} ${H}`,
-    preserveAspectRatio: "xMidYMid meet",
-    role: "img",
-    "aria-label":
-      `${S.nmode} rails carrying ${S.elements.length} MZI elements in ` +
-      `${S.ncol} columns; each heater is drawn on the element it drives, coloured by state,` +
-      ` photodiodes at the outputs`,
-  });
-  for (let r = 0; r < S.nmode; r++) {
-    g.append(
-      svg("line", {
-        x1: 78,
-        y1: RAILY(r),
-        x2: XEND,
-        y2: RAILY(r),
-        stroke: "var(--line)",
-        "stroke-width": 3,
-      }),
-    );
-    g.append(
-      svg("line", {
-        class: "rail",
-        x1: 78,
-        y1: RAILY(r),
-        x2: XEND,
-        y2: RAILY(r),
-        stroke: "var(--accent)",
-        "stroke-width": 1.5,
-        opacity: 0.5,
-      }),
-    );
-    const t = svg("text", {
-      x: 70,
-      y: RAILY(r) + 4,
-      "text-anchor": "end",
-      "font-size": 16,
-      fill: "var(--dim)",
-    });
-    t.textContent = "in " + r;
-    g.append(t);
-  }
-  for (const e of S.elements) {
-    const x = cx(e.col),
-      ya = RAILY(e.rails[0]),
-      yb = RAILY(e.rails[1]);
-    g.append(
-      tip(
-        svg("rect", {
-          x: x - MW,
-          y: ya - 15,
-          width: 2 * MW,
-          height: yb - ya + 30,
-          rx: 11,
-          fill: "var(--pane-2)",
-          stroke: "var(--line)",
-          "stroke-width": 1.5,
-        }),
-        `MZI${e.k} · column ${e.col} · couples rails ${e.rails.join(" and ")}`,
-      ),
-    );
-    // the bar IS the coupling. Without it the box reads as a decal over two rails that
-    // never meet, which is the one thing the picture has to get across
-    g.append(
-      svg("line", {
-        x1: x,
-        y1: ya,
-        x2: x,
-        y2: yb,
-        stroke: "var(--line)",
-        "stroke-width": 7,
-        "stroke-linecap": "round",
-      }),
-    );
-  }
-  for (const h of S.heaters) {
-    const p = h.place;
-    if (!p) continue;
-    const inbox = p.kind === "theta";
-    const hx = cx(p.col) - (p.kind === "phi" ? PHI_OFF : 0);
-    const hy = inbox
-      ? (RAILY(p.rails[0]) + RAILY(p.rails[1])) / 2
-      : RAILY(p.rails[0]);
-    // a rail phase rides a segment of one arm; an internal phase sits between two
-    if (inbox)
-      g.append(
-        svg("line", {
-          x1: hx,
-          y1: RAILY(p.rails[0]),
-          x2: hx,
-          y2: RAILY(p.rails[1]),
-          stroke: SC[h.status] === "none" ? "var(--off)" : SC[h.status],
-          "stroke-width": 2,
-          opacity: 0.45,
-        }),
-      );
-    else
-      g.append(
-        svg("line", {
-          x1: hx - 13,
-          y1: hy,
-          x2: hx + 13,
-          y2: hy,
-          stroke: "var(--ink-2)",
-          "stroke-width": 5,
-          "stroke-linecap": "round",
-          opacity: 0.32,
-        }),
-      );
-    // a bonded pair is one heater on two wires, so it is one dot with a second ring
-    if (h.dacs.length > 1)
-      g.append(
-        svg("circle", {
-          cx: hx,
-          cy: hy,
-          r: 9.5,
-          fill: "none",
-          stroke: SC[h.status] === "none" ? "var(--off)" : SC[h.status],
-          "stroke-width": 1,
-          opacity: 0.5,
-        }),
-      );
-    const what =
-      p.elem >= 0
-        ? `MZI${p.elem} (rails ${S.elements[p.elem].rails.join(",")}, ` +
-          `column ${p.col})`
-        : `rail ${p.rails[0]}, column ${p.col}`;
-    g.append(
-      tip(
-        svg("circle", {
-          cx: hx,
-          cy: hy,
-          r: 6.5,
-          fill: h.status === "grey" ? "var(--bg)" : SC[h.status],
-          stroke: h.status === "grey" ? "var(--off)" : "var(--bg-2)",
-          "stroke-width": 2,
-        }),
-        `${h.pad} · DAC ${h.dacs.join("+")} · ${ROLE[p.kind]} ${what} · ` +
-          `${WORD[h.status]} · ${h.why}`,
-      ),
-    );
-    const t = svg("text", {
-      x: hx,
-      y: hy - 13,
-      "text-anchor": "middle",
-      "font-size": 16,
-      fill: "var(--ink-2)",
-    });
-    t.textContent = h.pad;
-    g.append(t);
-  }
-  for (const p of S.pds) {
-    g.append(
-      tip(
-        svg("rect", {
-          x: PDX,
-          y: RAILY(p.i) - 9,
-          width: 18,
-          height: 18,
-          rx: 5,
-          fill: p.status === "grey" ? "var(--bg)" : SC[p.status],
-          stroke: p.status === "grey" ? "var(--off)" : "var(--bg-2)",
-          "stroke-width": 2,
-        }),
-        `PD${p.i} · ${WORD[p.status]} · ${p.why}`,
-      ),
-    );
-    const t = svg("text", {
-      x: PDX + 26,
-      y: RAILY(p.i) + 4,
-      "font-size": 16,
-      fill: "var(--ink-2)",
-    });
-    t.textContent = "PD" + p.i;
-    g.append(t);
-  }
-  for (let c = 0; c < S.ncol; c++) {
-    const t = svg("text", {
-      x: cx(c),
-      y: H - 8,
-      "text-anchor": "middle",
-      "font-size": 16,
-      fill: "var(--dim)",
-      "letter-spacing": ".14em",
-    });
-    t.textContent = "col " + c;
-    g.append(t);
-  }
-  return g;
-}
 
 function calTables(S) {
   // state is the dot, detail is on hover: the row carries numbers, not words
@@ -1054,11 +847,6 @@ async function recal(b) {
 }
 
 function drawCal(S) {
-  $("#cstamp").textContent = S.stamp;
-  const box = $("#mesh");
-  box.innerHTML = "";
-  box.append(meshFig(S));
-  $("#cwarn").textContent = S.warnings.join("\n");
   // a pic process outside this page may be writing these files: lock, do not warn
   document.body.classList.toggle("locked", !!S.locked);
   calTables(S);
@@ -1069,15 +857,10 @@ async function loadCal() {
   try {
     const r = await fetch("/api/calib");
     const d = await r.json();
-    if (d.error) {
-      $("#cwarn").textContent = why(d);
-      return;
-    }
+    if (d.error) return;
     if (CAL && CAL.rev === d.rev) return; // nothing moved, keep the DOM
     drawCal(d);
-  } catch (e) {
-    $("#cwarn").textContent = String(e);
-  }
+  } catch (e) {} // the next poll retries
 }
 
 // Status by shape as well as by colour, so a row survives grayscale and colour blindness:
@@ -1127,7 +910,10 @@ function dbody(r) {
     return `<div class="dkv"><span>${k}</span><span>${shown}</span></div>`;
   };
   return (
-    (head ? `<div class="dhead">${esc(head)}</div>` : "") +
+    // a lone headline on a warn or fail is the fix itself, so it takes the row's colour
+    (head
+      ? `<div class="dhead${rest.length || !/warn|fail/.test(r.status) ? "" : " v-" + r.status}">${esc(head)}</div>`
+      : "") +
     rest.map(kv).join("")
   );
 }
@@ -1139,7 +925,7 @@ function drawDiag() {
   $("#dgrid").innerHTML = DROWS.filter((r) => r.id !== "rail")
     .map(
       (r) =>
-        `<div class="dcard" title="${esc(r.tip)}"><div class="dh">${ico(r.id)}${esc(r.name)}` +
+        `<div class="dcard" title="${esc(r.detail && r.detail !== r.value ? r.detail + "\n\n" + r.tip : r.tip)}"><div class="dh">${ico(r.id)}${esc(r.name)}` +
         `<span class="grow"></span><button class="rl" data-d="${r.id}"` +
         `${DBUSY ? " disabled" : ""} title="re-run this check">${ico("reload")}</button>${st(r)}</div>` +
         dbody(r) +
@@ -1210,6 +996,9 @@ async function dload() {
     }
     DROWS = d.rows;
     DARM = !!d.armed;
+    // a check started before this page loaded: stay busy and re-read until it lands
+    DBUSY = DROWS.some((r) => r.running);
+    if (DBUSY) setTimeout(dload, 2000);
     drawDiag();
   } catch (e) {
     $("#dnote").textContent = String(e);
@@ -1444,6 +1233,7 @@ async function tecPoll() {
     $("#tecnow").className =
       "lzs " + (Math.abs(d.c - d.set) > d.tol ? "v-warn" : "v-pass");
     if (document.activeElement !== $("#tecset")) $("#tecset").value = d.set;
+    if ($("#techw") && document.activeElement !== $("#techw")) $("#techw").value = d.hw;
     // a bench job's own heater load warms the die: that is expected, not news, so only an
     // idle rig out of band shows the flame
     const hot =
@@ -1764,7 +1554,7 @@ if (CUR === "logs") {
   setInterval(logPoll, 5000);
 }
 
-// The operating temperature: what runs gate on. The controller's own target stays 25.
+// The operating temperature: what runs gate on. The controller's own target is #techw.
 $("#tecset").onchange = async () => {
   const v = $("#tecset").value;
   if (v === "") return;
@@ -1773,6 +1563,36 @@ $("#tecset").onchange = async () => {
       method: "POST",
       body: JSON.stringify({ set: +v }),
     })
+  ).json();
+  if (d.error) alert(why(d));
+  tecPoll();
+};
+
+// PD or SPD: which detectors every run reads through. The server refuses while a job runs.
+async function detPoll() {
+  try {
+    const d = await (await fetch("/api/detectors")).json();
+    const i = document.querySelector(`#det input[value="${d.mode}"]`);
+    if (i) i.checked = true;
+  } catch (e) {}
+}
+document.querySelectorAll("#det input").forEach(
+  (i) =>
+    (i.onchange = async () => {
+      const d = await (
+        await fetch("/api/detectors", { method: "POST", body: JSON.stringify({ mode: i.value }) })
+      ).json();
+      if (d.error) alert(why(d));
+      detPoll();
+    }),
+);
+if ($("#det")) detPoll();
+
+$("#techw").onchange = async () => {
+  const v = $("#techw").value;
+  if (v === "") return;
+  const d = await (
+    await fetch("/api/tec", { method: "POST", body: JSON.stringify({ hw: +v }) })
   ).json();
   if (d.error) alert(why(d));
   tecPoll();

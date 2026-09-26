@@ -260,7 +260,7 @@ def laser_session(
         if not s.emitted and read_pds is not None and s.pds_off is not None:
             import numpy as _np
 
-            lit = float(_np.max(_np.asarray(read_pds(), float) - _np.asarray(s.pds_off, float)))
+            lit = float(_np.nanmax(_np.asarray(read_pds(), float) - _np.asarray(s.pds_off, float)))
             if lit > pd_eps:
                 s.emitted = True
                 s.emitted_via = (

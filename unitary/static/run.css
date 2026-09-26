@@ -273,7 +273,8 @@ b.t-bad {
   margin: 2px 10px;
   background: var(--line);
 }
-#tecset {
+#tecset,
+#techw {
   width: 72px;
 }
 .strip .dbm span:first-child {

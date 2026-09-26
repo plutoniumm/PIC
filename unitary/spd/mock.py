@@ -17,6 +17,8 @@ The reply format ("<cmd>\\r\\nOK\\r\\n") is a placeholder: the real console's is
 
 `count_hz` switches it to the counting firmware: no vaults, one `PHOTON_COUNT=n` line per
 FRAME_S with n ~ Poisson(count_hz * FRAME_S), as the dark stream measured on the bench is.
+A callable `count_hz` is asked for the rate at every frame, so a detector behind a mock chip
+counts whatever light that chip's model puts on it at the time.
 """
 
 from __future__ import annotations
@@ -87,8 +89,9 @@ class MockVega:
     def _pump(self):
         now = time.monotonic()
         if self.count_hz is not None:
+            hz = self.count_hz() if callable(self.count_hz) else self.count_hz
             while self._acq_done <= now:
-                n = self.rng.poisson(self.count_hz * FRAME_S)
+                n = self.rng.poisson(max(hz, 0.0) * FRAME_S)
                 self._out += f"PHOTON_COUNT={n}\r\n".encode()
                 self._acq_done += FRAME_S
             self._rx += self._out

@@ -160,6 +160,9 @@ def run(
     **gates,
 ):
     """Prescan, schedule, then sweep each round in lockstep. Returns characterize's records."""
+    from .interface import need_outputs
+
+    need_outputs(pic, "heater characterization")
     channels = [int(c) for c in (ACTIVE_DACS if channels is None else channels)]
     # Lit, so RIN is in it: that is correct, because RIN is exactly what limits a fringe on
     # a bright detector. PD0 carries ~23 mV of it and its traces are pure scatter, so a rank
