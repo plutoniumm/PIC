@@ -214,6 +214,31 @@ class PIC:
     def batched(self) -> bool:
         return bool(self.capabilities().get("sweep"))
 
+    def readback(self) -> list[dict]:
+        """`R`: each DAC chip's id and whether every channel's data register holds what was
+        last written. [{chip, id, ok, n, bad: [(ch, wrote, read)]}]. Refused on firmware
+        without `rb` in its capabilities, which would parse `R` as a DAC line and zero every
+        channel. An id of 0x0 or 0xFFFF means SDO is not reaching the Arduino at all."""
+        if not self.capabilities().get("rb"):
+            raise PICError("this firmware has no readback; flash Arduino/pic4x4/pic4x4.ino")
+        ser = self.ser
+        ser.reset_input_buffer()
+        ser.write(b"R\n")
+        out, deadline = [], time.time() + self.cfg.timeout_s
+        while time.time() < deadline and len(out) < (NUM_DAC + 15) // 16:
+            raw = ser.readline().decode("utf-8", "ignore").strip()
+            if not raw.startswith("RB"):
+                continue
+            f = dict(t.partition("=")[::2] for t in raw.split()[1:])
+            ok, _, n = f.get("ok", "0/0").partition("/")
+            bad = [tuple(int(x) for x in b.replace(":", "/").split("/"))
+                   for b in f.get("bad", "").split(",") if b]
+            out.append({"chip": int(f["chip"]), "id": int(f["id"], 16), "ok": int(ok),
+                        "n": int(n), "bad": bad})
+        if not out:
+            raise PICError("no RB reply to the readback query")
+        return out
+
     def sweep_raw(
         self, cycles: int = 1, reads: int = 1, timeout_s: float | None = None
     ) -> np.ndarray:
@@ -294,7 +319,9 @@ class PIC:
 
 # What a firmware carrying the batched sweep reports, mirrored here so a `--mock` run walks
 # the same branch the bench does. Must match Arduino/pic4x4/pic4x4.ino.
+MOCK_DAC_ID = 0x0A70  # a plausible DAC81416 DEVICEID register; the mock only needs it nonzero
 MOCK_CAPS = {
+    "rb": 1,
     "sweep": 1,
     "ports": NMODE,
     "pins": NUM_ADC_RAW,
@@ -347,6 +374,10 @@ class MockPIC(PIC):
     def capabilities(self, refresh: bool = False) -> dict:
         return dict(MOCK_CAPS)
 
+    def readback(self) -> list[dict]:
+        """The mock DAC holds whatever it was sent."""
+        return [{"chip": 0, "id": MOCK_DAC_ID, "ok": NUM_DAC, "n": NUM_DAC, "bad": []}]
+
     def sweep_raw(self, cycles: int = 1, reads: int = 1, timeout_s=None) -> np.ndarray:
         return emulate_sweep(self, cycles, reads)
 
@@ -385,14 +416,19 @@ class SPDBoard:
 
     Heaters, switch and everything else still go to `board`. A read comes back in the same
     shape the photodiodes gave -- one value per ADC slot -- as (rate - dark) / (max - dark)
-    per detector, NaN in a slot with no detector on it. Every caller that reads through the
+    per detector, divided by the four outputs' sum when all four are lit (see `read`), NaN
+    in a slot with no detector on it. Every caller that reads through the
     board, the rig, `settled_read` or the session's emission check gets SPD values without
     knowing about SPDs; the ones that need all four outputs call `need_outputs`."""
 
     batched = False  # the firmware sweep reads the ADC, not the SPDs
 
-    def __init__(self, board, spds, slots: dict, law: dict, seconds: float = SPD_READ_S):
+    def __init__(
+        self, board, spds, slots: dict, law: dict, seconds: float = SPD_READ_S, by_port=None
+    ):
         self.board, self.spds, self.slots, self.law, self.seconds = board, spds, slots, law, seconds
+        self.by_port = by_port or {}  # {id: {input port: max}}, from `pic spdnorm`
+        self._port = None  # the lit input, tracked here because the switch routes through us
         self._I = np.zeros(NMODE)  # the mock chip's intensity, for mock detectors to count
 
     def __getattr__(self, k):
@@ -402,6 +438,12 @@ class SPDBoard:
 
     measure = PIC.measure
 
+    def select_port(self, port: int) -> int:
+        """The board-routed switch lands here; remember the port so a read can use that
+        input's own normalisation."""
+        self._port = None if port < 0 else int(port)
+        return self.board.select_port(port)
+
     @property
     def outputs(self) -> list[int]:
         return sorted(self.slots.values())
@@ -410,6 +452,29 @@ class SPDBoard:
         self.board.open()
         self.spds.open()
         return self
+
+    def _count(self, seconds, tries: int = 7):
+        """`spds.count`, reopening the SPDs when one drops. Their UARTs share a hub with the
+        board, laser and TEC; opening or driving those can knock an SPD's stream out, and it
+        does not come back by itself (bench, 2026-09-26: SPD-mode opens failed 3/3 and a
+        fastchar lost two SPDs at its first read; 09-27 two back-to-back failures used up
+        three tries). A fresh open recovers it, so keep trying, with growing waits."""
+        from spd.array import SPDs
+        from spd.vega import SPDError
+
+        from .log import ev
+
+        for t in range(tries):
+            try:
+                return self.spds.count(seconds)
+            except SPDError as e:
+                if t == tries - 1:
+                    raise
+                ev("pd", "reopen", f"SPD link lost, reopening ({t + 1}/{tries - 1}): {e}", "warn")
+                ids = self.spds.ids
+                self.spds.close()
+                time.sleep(1.0 + t)  # seven devices share the host's USB: back off, don't hammer
+                self.spds = SPDs(ids, on_text=lambda sid, t: None).open()
 
     def close(self):
         try:
@@ -432,11 +497,34 @@ class SPDBoard:
     def read(self) -> np.ndarray:
         """Counts from now for `seconds`: frames from before the call are dropped by `count`,
         so a read never mixes in light from the heater state before it."""
+        from scipy.stats import norm
+
         from spd.array import normalise
+        from theory.stat import ALPHA
 
         y = np.full(self.cfg.num_adc_raw, np.nan)
-        for sid, c in self.spds.count(self.seconds).items():
-            y[OUT_PDS[self.slots[sid]]] = normalise(c.rate, self.law[sid])
+        excess = dark = 0.0
+        counts = self._count(self.seconds)
+        for sid, c in counts.items():
+            dark, mx = self.law[sid]
+            ref = self.by_port.get(sid, {}).get(self._port)
+            # this input's own reference, unless it sits within 3 sigma of one read's dark
+            # noise: dividing by that turns shot noise into full scale (PD3 on P1, 63/s
+            # against a 30/s dark, sent a fraction to 2.5 on 2026-09-26)
+            if ref is not None and ref - dark > 3 * np.sqrt(max(dark, 1.0) / c.seconds):
+                mx = ref
+            y[OUT_PDS[self.slots[sid]]] = normalise(c.rate, (dark, mx))
+            d = self.law[sid][0] * c.seconds
+            excess, dark = excess + c.counts - d, dark + d
+        # One lit input, all four outputs seen: divide by their sum, measured in the same
+        # window, so laser and input-coupling drift cancel per read (bench 2026-09-26: the
+        # total fell 17% over a 4 min sweep while the split between outputs stayed smooth).
+        # A dark read (laser off: the session's emission baseline) is left alone -- its sum
+        # is noise, and dividing by it would make "no light" look like light.
+        lit = excess > norm.isf(ALPHA) * np.sqrt(max(dark, 1.0))
+        full = len(counts) == NMODE and np.all(np.isfinite(y[list(OUT_PDS)]))
+        if lit and full and np.nansum(y) > 0:
+            y = y / np.nansum(y)
         return y
 
 
@@ -444,7 +532,7 @@ def spd_board(board, mock: bool) -> SPDBoard:
     """`board` behind the SPDs in pic_data/spd_map.json. On the bench every SPD on USB must be
     mapped and have a dark and max stored; the mock puts `MOCK_SPDS` on their outputs,
     counting the mock chip's own light, and never reads pic_data."""
-    from spd.array import SPD, SPDs, check_law, discover, load_max
+    from spd.array import SPD, SPDs, check_law, discover, load_max, load_port_max
     from spd.vega import FRAME_S, SPDError
 
     from .config import SPD_MAP_PATH, spd_map
@@ -472,7 +560,13 @@ def spd_board(board, mock: bool) -> SPDBoard:
         law = check_law(ids, load_max())
     except SPDError as e:
         raise MissingOutputs(str(e)) from None
-    return SPDBoard(board, SPDs(ids, on_text=lambda sid, t: None), {i: where[i] for i in ids}, law)
+    return SPDBoard(
+        board,
+        SPDs(ids, on_text=lambda sid, t: None),
+        {i: where[i] for i in ids},
+        law,
+        by_port=load_port_max(),
+    )
 
 
 def need_outputs(board, what: str, outputs=range(NMODE)):

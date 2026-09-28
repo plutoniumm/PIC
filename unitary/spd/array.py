@@ -38,6 +38,30 @@ def load_max(path=MAX_PATH) -> dict:
     return {k: (v.get("dark"), v.get("rate")) for k, v in d.items()}
 
 
+def load_port_max(path=MAX_PATH) -> dict:
+    """{chip id: {input port: max}} in counts/s: one normalisation per switch position, since
+    each input couples its own amount of light into the chip. Empty where none is stored."""
+    try:
+        d = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return {}
+    return {k: {int(p): r for p, r in (v.get("rate_by_port") or {}).items()} for k, v in d.items()}
+
+
+def save_port_max(rates: dict, path=MAX_PATH):
+    """Record {chip id: {input port: max}}, keeping every other entry."""
+    try:
+        d = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        d = {}
+    at = time.strftime("%Y-%m-%d %H:%M")
+    for k, by in rates.items():
+        d.setdefault(k, {}).update(
+            {"rate_by_port": {str(p): float(r) for p, r in by.items()}, "rate_by_port_at": at}
+        )
+    Path(path).write_text(json.dumps(d, indent=1))
+
+
 def save_max(rates: dict | None = None, darks: dict | None = None, path=MAX_PATH):
     """Record max and/or dark rates (counts/s per chip id), keeping every other entry."""
     try:

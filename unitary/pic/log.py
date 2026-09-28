@@ -20,7 +20,7 @@ Each component is a small state machine; `s` is the state it just entered.
                recal (was_pi, phi0_pi, how; k/n)
     pd         noise
     table      progress (k/n) -> wrote | discarded (mock)
-    dpnn       round (k/n) -> points -> fit (r2, k/n) -> done | interrupted; partial (trip)
+    fit        round (k/n) -> points -> fit (r2, k/n) -> done | interrupted; partial (trip)
     sync       done | declined | failed
     server     started, note, laser, tec
 
@@ -35,7 +35,7 @@ import sys
 import math
 
 COMPONENTS = frozenset(
-    "laser tec board switch session job heater pd table dpnn sync server".split()
+    "laser tec board switch session job heater pd table fit sync server".split()
 )
 LEVELS = ("info", "ok", "warn", "error")
 PREFIX = "@ev "

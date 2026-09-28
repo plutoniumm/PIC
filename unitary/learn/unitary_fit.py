@@ -15,7 +15,7 @@ whatever the parameters do the forward map stays a valid physical transfer. A ge
 network of the same size can represent maps this chip cannot produce, and spends its
 capacity ruling them out from data.
 
-What that buys, against the black-box surrogate in `learn.dpnn`:
+What that buys, against a black-box surrogate:
 
   * it extrapolates, because the law is right outside the sampled region too;
   * it inverts, so `theory.program` turns a target into voltages with no search;
@@ -380,14 +380,32 @@ def bootstrap(V_sweeps, Y_sweeps, calib0=None, min_visibility: float = 0.10):
                        {"source": "learn.unitary_fit.bootstrap", "identified": seen})
 
 
+def save(path, model):
+    """`model`'s state to <path>/physics.pt, what `load` and a warm start read back."""
+    import os
+
+    os.makedirs(path, exist_ok=True)
+    torch.save(model.state_dict(), os.path.join(path, "physics.pt"))
+    return path
+
+
+def load(path):
+    """The model `save` wrote to <path>, in eval mode."""
+    import os
+
+    sd = torch.load(os.path.join(path, "physics.pt"), weights_only=False)
+    m = InstrumentModel(xtalk_rank=sd["xtalk_u"].shape[1])
+    # terms added since a model was saved (dphi_dT, bend) start at 0, which is exactly the
+    # model it was saved from
+    m.load_state_dict(sd, strict=False)
+    return m.eval()
+
+
 def _selftest(n: int = 300, seed: int = 0, verbose: bool = True):
-    """Run the real pipeline against a known instrument: sweep, bootstrap, joint fit.
+    """Run the real pipeline against a known instrument: sweep, bootstrap, joint fit."""
+    import tempfile
 
-    Also fits the black-box surrogate on the same random data, so the sample-efficiency
-    claim in the docstring is measured rather than asserted."""
     from pic.config import DRIVE_MAX_V, drive_to_volts
-
-    from . import dpnn
 
     # `fit_staged` is never exercised end to end here, so its one index-space hazard is
     # checked directly: the masks live in DAC space and must partition the twelve mesh
@@ -447,16 +465,13 @@ def _selftest(n: int = 300, seed: int = 0, verbose: bool = True):
               f"heaters identified, worst Vpi error {vpi_err:.5f} V")
         print("  joint fit at the production budget, this takes a few minutes ...")
     phys, c, e, r2 = fit(V, Y, X, calib0=calib0, seed=seed)
-    # the network works in drive commands and needs to be told which port is lit; `inputs`
-    # includes the two-port splitter probes, which port_features takes as launched intensity
-    tel = np.tile([13.0, 0.8, 25.0, 14.0, 25.0], (n, 1))
-    _, _, r2d, dmeta = dpnn.fit(D, X, tel, Y, epochs=300, seed=seed)
-    out["r2_physics"], out["r2_dpnn"] = r2, float(np.mean(r2d))
-    out["n_params_physics"] = int(phys.n_params())
-    out["n_params_dpnn"] = int(dmeta["n_params"])
+    out["r2_physics"], out["n_params_physics"] = r2, int(phys.n_params())
+    with tempfile.TemporaryDirectory() as d, torch.no_grad():
+        Vt = torch.as_tensor(V[:8], dtype=torch.float32)
+        Xt = torch.as_tensor(X[:8])
+        assert torch.allclose(load(save(d, phys))(Vt, Xt), phys(Vt, Xt)), "save/load"
     if verbose:
-        print(f"  n={n}   physics ({phys.n_params()}p) R2 {r2:+.4f}   "
-              f"dpnn ({dmeta['n_params']}p) R2 {float(np.mean(r2d)):+.4f}")
+        print(f"  n={n}   physics ({phys.n_params()}p) R2 {r2:+.4f}")
     return out
 
 

@@ -172,6 +172,7 @@ const int SWEEP_MAX_READS = 64;
 const int SWEEP_MAX_FRAMES = 64;      // cycles*reads, per port
 
 float values[NUM_DAC];
+unsigned int lastCode[NUM_DAC];      // what setDAC last wrote, for the `R` readback check
 
 void setup() {
   Serial.begin(115200);
@@ -245,6 +246,7 @@ void loop() {
     Serial.print(" maxreads="); Serial.print(SWEEP_MAX_READS);
     Serial.print(" maxframes="); Serial.print(SWEEP_MAX_FRAMES);
     Serial.print(" switchms="); Serial.print(SWITCH_SETTLE_MS);
+    Serial.print(" rb=1");
     Serial.print(" adcref="); Serial.println(ADC_REFS[adcRef], 2);
     return;
   }
@@ -261,6 +263,34 @@ void loop() {
       return;
     }
     readSweep(cycles, reads);
+    return;
+  }
+
+  if ((buf[0] == 'R' || buf[0] == 'r') && buf[1] && buf[1] != '\r') {  // "R<hex>": one register
+    byte addr = (byte)strtol(buf + 1, NULL, 16);
+    Serial.print("REG 0x"); Serial.print(addr, HEX);
+    Serial.print(" = 0x"); Serial.println(readReg(CS[0], addr), HEX);
+    return;
+  }
+
+  if (buf[0] == 'R' || buf[0] == 'r') {              // "R": read the DACs back
+    // Writes alone prove nothing: the CS-on-pin-10 fault accepted every write for an
+    // afternoon. Reading each channel's data register back over SDO shows the chip is
+    // selected, alive and holding what was sent. It cannot see a broken wire past the DAC
+    // pin -- an open heater still holds its code -- which needs current sensing.
+    for (int k = 0; k < NUM_CHIPS && k * 16 < NUM_DAC; k++) {
+      Serial.print("RB chip="); Serial.print(k);
+      Serial.print(" id=0x"); Serial.print(readReg(CS[k], 0x01), HEX);
+      int ok = 0;
+      String bad = "";
+      for (int ch = k * 16; ch < NUM_DAC && ch < (k + 1) * 16; ch++) {
+        unsigned int got = readReg(CS[k], 0x10 | (ch % 16));
+        if (got == lastCode[ch]) ok++;
+        else { if (bad.length()) bad += ","; bad += ch; bad += ":"; bad += lastCode[ch]; bad += "/"; bad += got; }
+      }
+      Serial.print(" ok="); Serial.print(ok); Serial.print("/"); Serial.print(min(16, NUM_DAC - k * 16));
+      Serial.print(" bad="); Serial.println(bad);
+    }
     return;
   }
 
@@ -321,6 +351,21 @@ void setDAC(int ch, float voltage) {
   SPI.transfer((code >> 8) & 0xFF);
   SPI.transfer(code & 0xFF);
   digitalWrite(cs, HIGH);
+  lastCode[ch] = code;
+}
+
+unsigned int readReg(int cs, byte addr) {
+  // DAC81416 read: frame 1 sends the address with the read bit, frame 2 (a NOP) clocks
+  // the register out on SDO. SDO is enabled by SPICONFIG 0x0084, which setDAC writes.
+  digitalWrite(cs, LOW);
+  SPI.transfer(0x80 | addr); SPI.transfer(0x00); SPI.transfer(0x00);
+  digitalWrite(cs, HIGH);
+  digitalWrite(cs, LOW);
+  SPI.transfer(0x00);
+  unsigned int hi = SPI.transfer(0x00);
+  unsigned int lo = SPI.transfer(0x00);
+  digitalWrite(cs, HIGH);
+  return (hi << 8) | lo;
 }
 
 void selectPort(int port) {

@@ -398,6 +398,8 @@ class Rig:
         # taken (0.468 V) rather than 10x. A clipped read is not noisy, it is WRONG and it
         # looks like a perfectly good number, so it has to be caught here -- the alternative
         # was a firmware marker, which would have changed a wire protocol the 6x6 shares.
+        if self.detectors == "spd":  # photon-count fractions: there is no ADC to clip
+            return raw
         y = np.asarray(raw, float)
         hot = y >= ADC_SAT_V  # (4,) from a read, (4, 4) from a sweep
         if hot.any():

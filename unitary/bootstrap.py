@@ -3,6 +3,7 @@
     python bootstrap.py          # .venv with the requirements (uv if installed, else venv+pip)
     python bootstrap.py run      # the UI on http://127.0.0.1:8744, armed
     python bootstrap.py test     # every self-test, no hardware
+    python bootstrap.py ports    # each USB instrument, its chip id and its port
 
 The Makefile calls this, so macOS and Linux keep `make run`; Windows has no make, touch or
 rm, and this needs none of them. Everything runs in Python's UTF-8 mode (-X utf8): our logs
@@ -65,12 +66,14 @@ def main(argv):
     cmd = argv[0] if argv else None
     if cmd == "run":
         return run("ui.py", "--arm", *argv[1:])
+    if cmd == "ports":
+        return run("-m", "pic", "ports")
     if cmd == "test":
         return run("-m", "pic", "selftest") or run("ui.py", "--selftest")
     if cmd is None:
         print(f"ready: {PY}")
         return 0
-    raise SystemExit(f"unknown command {cmd!r}: use run or test")
+    raise SystemExit(f"unknown command {cmd!r}: use run, test or ports")
 
 
 if __name__ == "__main__":

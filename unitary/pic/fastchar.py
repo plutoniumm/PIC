@@ -1,24 +1,16 @@
-"""Characterize every heater in parallel rounds instead of one at a time.
+"""Characterize every heater from a prescan, one heater at a time.
 
-`characterize` sweeps one channel at a time over every port and every base bias, which is
-12 x 4 x 3 = 144 full sweeps for a mesh that has 12 modelled phases. Most of that measures
-nothing: a heater is visible on a couple of (port, detector) pairs and invisible on the
-rest, and which ones is a property of the chip that one coarse pass can find.
+`characterize` sweeps each channel over every port and every base bias, 12 x 4 x 3 = 144 full
+sweeps, most of which measure nothing: a heater is visible on a couple of (port, detector)
+pairs and invisible on the rest. So:
 
-Three steps, and the middle one is `pic.schedule`, which was written for this and never
-wired up:
+  1. PRESCAN. Three levels per channel per port and base -- enough to see whether a channel
+     moves a detector at all, not enough to fit anything.
+  2. SWEEP. Each heater alone, at the (port, base, pd) where it moved the most. Never two at
+     once: a shared round assumes the prescan's disturbance map holds for the whole sweep,
+     and with drifting SPD reads it does not.
 
-  1. PRESCAN. Three levels per channel per port -- enough to see whether a channel moves a
-     detector at all, not enough to fit anything. Costs about a minute and yields the
-     (port, pd) modulation-depth fingerprint that step 2 needs.
-  2. SCHEDULE. List-colour the interference graph: two heaters may sweep together if each
-     can be read on a detector the other does not disturb. Read-PD is a decision variable,
-     which is what takes the speedup past 2x (see `pic.schedule`).
-  3. SWEEP. Drive a whole round in lockstep at one port, one full grid, and fit each member
-     on its own detector. Heaters share the thermal settle, which is the entire cost.
-
-The fit is `characterize`'s, unchanged -- same `best_fringe`, same gates, same records. What
-changes is only which measurements get taken.
+The fit is `characterize`'s, unchanged -- same `best_fringe`, same gates, same records.
 """
 
 from __future__ import annotations
@@ -31,7 +23,6 @@ from .characterize import NO_FIT, best_fringe, fringe, read_noise
 from .config import mirror_pairs
 from .layout import ACTIVE_DACS, LABEL_OF_DAC, N_HEATERS
 from .log import ev
-from .schedule import schedule, summary
 from theory.clements import NMODE
 from theory.stat import accepts, p_amplitude, p_shape
 
@@ -78,12 +69,12 @@ def _levels(dac, n):
 def prescan(
     pic, switch, session, channels, *, ports=None, bases=None, settle_s=0.2, repeats=2, verbose=True
 ):
-    """(port, base, pd) modulation depth per channel. Coarse and cheap; the schedule's input.
+    """(port, base, pd) modulation depth per channel. Coarse and cheap; picks where each heater is swept.
 
     Bases are not optional. An external phase only shows where its interferometer actually
     splits light, so a phi heater whose MZI sits at bar or cross modulates nothing however
     long it is swept -- `characterize` puts it at two in three channels with the mesh at
-    0 V. Prescanning from one base would find those channels dark and schedule them as
+    0 V. Prescanning from one base would find those channels dark and report them as
     unreadable, which is the same wrong answer the slow path was built to avoid."""
     ports = list(range(NMODE)) if ports is None else list(ports)
     bases = [np.zeros(N_HEATERS)] if bases is None else [np.asarray(b, float) for b in bases]
@@ -129,20 +120,6 @@ def _pad(c):
     return LABEL_OF_DAC[int(c)].split(":")[0]
 
 
-def _best_setting(members, fps, noise, n_ports, n_bases):
-    """The one (port, base) that serves a whole round best: maximise its WORST SNR.
-
-    One switch position and one background state have to serve every member at once, so the
-    binding constraint is the member that sees least, not the total."""
-    best, score = (0, 0), -np.inf
-    for pi in range(n_ports):
-        for bi in range(n_bases):
-            worst = min(fps[c][pi, bi, pd] / max(noise[pd], 1e-9) for c, pd in members.items())
-            if worst > score:
-                best, score = (pi, bi), worst
-    return best, score
-
-
 def run(
     pic,
     session,
@@ -159,7 +136,7 @@ def run(
     verbose=True,
     **gates,
 ):
-    """Prescan, schedule, then sweep each round in lockstep. Returns characterize's records."""
+    """Prescan, then sweep each heater alone. Returns characterize's records."""
     from .interface import need_outputs
 
     need_outputs(pic, "heater characterization")
@@ -210,7 +187,7 @@ def run(
     results = {}
     for c in channels:
         pi, bi, pd = best[c]
-        members = {c: pd}
+        members = {c: pd}  # one heater per sweep, never a shared round
         if switch is not None:
             switch.select(ports[pi])
 
@@ -227,18 +204,27 @@ def run(
             session.keepalive()
         ys = np.asarray(ys)
 
-        for c, p in ((int(c), int(p)) for c, p in members.items()):
-            # ys[:, [p]] and not ys: `best_fringe` indexes its curves POSITIONALLY against
-            # the pd list it is given, so handing it all four columns fits PD0's trace and
-            # labels it PD p.
-            f = best_fringe(
-                grid[c], ys[:, [p]], [p], noise=noise[[p]], vmax=VOLTAGE_MAX_CH[c], **gates
-            )
-            f["port"], f["base"], f["parallel"] = int(ports[pi]), int(bi), len(members)
+        for c in (int(c) for c in members):
+            # Every read carries all four outputs, so fit each and keep the best: accepted
+            # over rejected, a measured Vpi over an extrapolated bound, then the stronger
+            # evidence. The prescan's pick alone chose the quietest detector, where H3 and
+            # H4 barely showed (bench 2026-09-26) while PD0/PD3 carried their fringe.
+            fits = []
+            for q in range(ys.shape[1]):
+                if not np.all(np.isfinite(ys[:, q])):
+                    continue
+                # ys[:, [q]] and not ys: `best_fringe` indexes curves POSITIONALLY against
+                # the pd list it is given.
+                g = best_fringe(
+                    grid[c], ys[:, [q]], [q], noise=noise[[q]], vmax=VOLTAGE_MAX_CH[c], **gates
+                )
+                g["p_amp"], g["p_shape"] = _evidence(grid[c], ys[:, q], g, noise[q])
+                g["ok"] = accepts(g["p_amp"], g["p_shape"])
+                g["noise_v"] = float(noise[q])  # the read noise this fit was judged by
+                fits.append((g["ok"], not g.get("extrapolated"), -max(g["p_amp"], g["p_shape"]), q, g))
+            *_, p, f = max(fits, key=lambda t: t[:3])
+            f["port"], f["base"] = int(ports[pi]), int(bi)
             f["label"] = LABEL_OF_DAC[c]
-            f["p_amp"], f["p_shape"] = _evidence(grid[c], ys[:, p], f, noise[p])
-            f["ok"] = accepts(f["p_amp"], f["p_shape"])
-            f["noise_v"] = float(noise[p])  # the detector's read noise this fit was judged by
             results[c] = f
             if verbose:
                 vpi, amp = f.get("vpi", float("nan")), 1e3 * f.get("amplitude", 0)

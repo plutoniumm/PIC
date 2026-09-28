@@ -38,7 +38,17 @@
   --d2: rgba(118, 144, 255, 0.38);
   --d3: rgba(176, 123, 255, 0.3);
   --shadow: 0 20px 46px -20px rgba(0, 0, 0, 0.8), 0 4px 12px -5px rgba(0, 0, 0, 0.6);
+  /* glow = the colour itself, blurred: a lit thing, never a halo you read as a second colour */
+  --glow-go: 0 0 0 1px rgba(43, 194, 209, 0.35), 0 6px 22px -6px rgba(18, 162, 179, 0.75);
+  --glow-ok: 0 0 8px rgba(53, 189, 87, 0.55);
+  --glow-warn: 0 0 8px rgba(240, 171, 27, 0.55);
+  --glow-bad: 0 0 8px rgba(239, 106, 106, 0.55);
+  --tile: linear-gradient(160deg, rgba(150, 200, 207, 0.05), rgba(0, 0, 0, 0.22) 60%);
   --r: 16px;
+  --r-tile: 12px; /* a tile inside a card */
+  --r-ctl: 9px; /* buttons, inputs, selects */
+  --fs: 16px; /* every label, cell and control */
+  --fs-s: 14px; /* dense numeric tables and chart axes */
   --gut: 16px; /* page gutter; the header bleeds exactly this far */
   --gap: 14px; /* between cards, tiles and grid cells */
   --btn: 34px; /* every button, icon-only ones square */
@@ -220,7 +230,12 @@ h1 em {
   color: var(--ink);
   box-shadow:
     inset 0 1px 0 var(--lit),
-    0 4px 12px -6px rgba(0, 0, 0, 0.8);
+    inset 0 -2px 0 -1px var(--accent),
+    0 4px 12px -6px rgba(0, 0, 0, 0.8),
+    0 0 16px -6px var(--accent);
+}
+.tabs a:not(.on):hover {
+  color: var(--ink-2);
 }
 
 /* depth by blur, not by opacity: the header sits nearest the viewer at 26px, a panel at
@@ -236,9 +251,11 @@ h1 em {
   border-radius: var(--r);
   padding: 20px;
   margin-bottom: var(--gap);
-  backdrop-filter: blur(14px) saturate(1.3);
-  -webkit-backdrop-filter: blur(14px) saturate(1.3);
-  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  box-shadow:
+    var(--shadow),
+    inset 0 1px 0 rgba(230, 250, 253, 0.06);
 }
 /* the caustic where the source lands, and the 1px chromatic split a real edge throws.
    z-index -1 keeps both behind the text: glass may colour its own edges, never the data. */
@@ -261,7 +278,8 @@ h1 em {
   letter-spacing: var(--track);
   text-transform: uppercase;
   color: var(--dim);
-  margin-bottom: 12px;
+  margin-bottom: 14px;
+  line-height: 1.3;
   text-shadow:
     -0.5px 0 rgba(125, 227, 255, 0.2),
     0.5px 0 rgba(176, 123, 255, 0.16);
@@ -272,6 +290,7 @@ h1 em {
   justify-content: space-between;
   gap: 6px 10px;
   flex-wrap: wrap;
+  min-height: var(--btn); /* a title with buttons and one without sit at one height */
 }
 .eyebrow.hd span {
   display: flex;
@@ -292,11 +311,11 @@ input[type="number"] {
   height: 38px;
   padding: 8px 9px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--r-ctl);
   background: var(--well);
   color: var(--ink);
   font: inherit;
-  font-size: 16px;
+  font-size: var(--fs);
   text-align: right;
   font-variant-numeric: tabular-nums;
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45);
@@ -307,13 +326,14 @@ input[type="number"]:focus {
   border-color: var(--accent);
   box-shadow:
     inset 0 1px 2px rgba(0, 0, 0, 0.45),
-    0 0 0 3px rgba(43, 194, 209, 0.22);
+    0 0 0 3px rgba(43, 194, 209, 0.22),
+    0 0 14px -2px rgba(43, 194, 209, 0.35);
 }
 select {
   height: var(--btn);
   padding: 0 30px 0 10px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--r-ctl);
   color: var(--ink);
   font: inherit;
   font-size: 16px;
@@ -336,12 +356,13 @@ button {
   min-width: var(--btn);
   height: var(--btn);
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--r-ctl);
   padding: 0 16px;
   background: var(--pane-2);
   color: var(--ink);
   font-family: inherit;
-  font-size: 16px;
+  font-size: var(--fs);
+  font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -373,28 +394,60 @@ button.go {
   font-weight: 600;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.42),
-    0 6px 18px -8px rgba(18, 162, 179, 0.9);
+    var(--glow-go);
 }
 button.go:hover {
   color: var(--on-accent);
   filter: brightness(1.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 0 0 1px rgba(43, 194, 209, 0.5),
+    0 8px 28px -6px rgba(18, 162, 179, 0.95);
+}
+button.go[disabled] {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+/* lasing: the primary glows in the page's red, like everything else */
+body.lasing button.go {
+  background: linear-gradient(180deg, #e25757, var(--accent-fill));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 0 0 1px rgba(239, 90, 90, 0.35),
+    0 6px 22px -6px rgba(194, 48, 48, 0.8);
+}
+@media (prefers-reduced-motion: no-preference) {
+  button,
+  .tabs a:not(.on), /* .on is set on load: it must not fade in on every page */
+  .seg label,
+  .dcard,
+  .ptile {
+    transition:
+      color 0.15s,
+      background-color 0.15s,
+      border-color 0.15s,
+      box-shadow 0.2s,
+      opacity 0.15s;
+  }
 }
 .mini,
 .rl {
   padding: 0 8px;
 }
+/* a switch is as wide as its choices, never the card */
 .seg {
-  display: flex;
+  display: inline-flex;
   gap: 2px;
   padding: 3px;
-  border-radius: 10px;
+  border-radius: 11px;
   background: var(--well);
   border: 1px solid var(--line);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 .seg label {
   padding: 5px 12px;
-  border-radius: 7px;
-  font-size: 16px;
+  border-radius: 8px;
+  font-size: var(--fs);
+  line-height: 1.5;
   letter-spacing: var(--track);
   text-transform: uppercase;
   cursor: pointer;
@@ -410,18 +463,34 @@ button.go:hover {
 .seg input:checked + span {
   color: var(--ink);
 }
+.seg label:not(:has(input:checked)):hover span {
+  color: var(--ink-2);
+}
+.seg label:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .seg label:has(input:checked) {
-  background: var(--pane);
-  box-shadow: inset 0 1px 0 var(--lit);
+  background: color-mix(in srgb, var(--accent) 16%, var(--pane));
+  box-shadow:
+    inset 0 1px 0 var(--lit),
+    0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent),
+    0 0 14px -4px color-mix(in srgb, var(--accent) 70%, transparent);
 }
 .seg label:has(input[value="hw"]:checked) {
   background: var(--bench);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 0 16px -4px var(--bench);
 }
 .seg label:has(input[value="hw"]:checked) span {
   color: #07210e;
 }
 .seg label:has(input[value="mock"]:checked) {
   background: var(--mock);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 0 16px -4px var(--mock);
 }
 .seg label:has(input[value="mock"]:checked) span {
   color: #f1ecff;
@@ -435,25 +504,31 @@ table {
 }
 /* not uppercase: that turns φ₀ / π into Φ₀ / Π, a different quantity */
 th {
-  font-size: 16px;
+  font-size: var(--fs);
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--dim);
   text-align: right;
-  padding: 0 7px 7px;
+  padding: 0 10px 8px;
+  vertical-align: bottom;
+  white-space: nowrap;
 }
 th:first-child,
 td:first-child {
   text-align: left;
 }
 td {
-  padding: 6px 7px;
+  padding: 7px 10px;
   text-align: right;
+  vertical-align: middle;
   border-top: 1px solid var(--line);
   white-space: nowrap;
 }
+tbody tr:nth-child(even) td {
+  background: rgba(150, 200, 207, 0.018);
+}
 tbody tr:hover td {
-  background: var(--pane-2);
+  background: var(--pane);
 }
 .scroll {
   overflow-x: auto;
@@ -530,16 +605,6 @@ tbody tr:hover td {
 }
 #mesh svg {
   min-width: 600px;
-}
-
-.xg {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: var(--gap) 22px;
-}
-.xb {
-  min-width: 0;
-  overflow-x: auto;
 }
 
 /* One run, one slab. Discrete cards rather than rows of a list, and only the newest is
@@ -658,12 +723,15 @@ summary .when {
 }
 .s-green {
   background: var(--ok);
+  box-shadow: var(--glow-ok);
 }
 .s-yellow {
   background: var(--warn);
+  box-shadow: var(--glow-warn);
 }
 .s-red {
   background: var(--bad);
+  box-shadow: var(--glow-bad);
 }
 .s-grey {
   background: none;
@@ -702,14 +770,31 @@ tr.warnrow td:first-child:after {
 .dcard {
   padding: 14px 16px;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--well);
+  border-radius: var(--r-tile);
+  background: var(--tile);
+  box-shadow:
+    inset 0 1px 0 rgba(230, 250, 253, 0.05),
+    0 6px 16px -12px rgba(0, 0, 0, 0.9);
+}
+.dcard:hover {
+  border-color: rgba(190, 228, 233, 0.18);
+}
+/* a status icon is lit in its own colour: pass, warn and fail find themselves on a grid */
+.v-pass svg {
+  filter: drop-shadow(0 0 4px rgba(53, 189, 87, 0.6));
+}
+.v-warn svg {
+  filter: drop-shadow(0 0 4px rgba(240, 171, 27, 0.6));
+}
+.v-fail svg {
+  filter: drop-shadow(0 0 4px rgba(239, 106, 106, 0.6));
 }
 .dcard .dh {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  min-height: var(--btn);
+  margin: -4px 0 8px;
   color: var(--ink);
   font-weight: 600;
 }
@@ -719,6 +804,19 @@ tr.warnrow td:first-child:after {
 }
 .dcard .dh .ico {
   margin: 0;
+}
+.dcard .dh > span:last-child {
+  display: grid;
+  place-items: center;
+}
+/* every scroller: a thin dark track, not the platform's light one */
+.scroll,
+.xscroll,
+.two > div,
+.joblog,
+.lglist {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(190, 228, 233, 0.22) transparent;
 }
 /* the power test is one reading: its status sits beside it, not on a row of its own */
 .dline {
@@ -771,8 +869,9 @@ tr.warnrow td:first-child:after {
 .chip {
   padding: 1px 8px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 7px;
   background: var(--pane);
+  box-shadow: inset 0 1px 0 var(--unlit);
 }
 .dmsg {
   margin-top: 5px;
@@ -859,25 +958,6 @@ button .ico {
   gap: 10px;
   margin-top: 12px;
 }
-.hide-full .bar-full,
-.hide-tiled .bar-tiled,
-.hide-cpu .bar-cpu,
-.hide-dpnn .bar-dpnn {
-  display: none;
-}
-.bars {
-  display: flex;
-  gap: 10px;
-  font-size: 16px;
-  text-transform: none;
-  letter-spacing: 0;
-}
-.bars label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-}
 /* reload buttons show on hover; always shown where there is no hover (touch) */
 @media (hover: hover) {
   .dcard .dh .rl {
@@ -917,9 +997,13 @@ td.nm .chip .ico {
   z-index: 20;
   padding: 8px 12px;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--bg-2);
-  box-shadow: var(--shadow);
+  border-radius: var(--r-tile);
+  background: rgba(3, 8, 9, 0.72);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  box-shadow:
+    var(--shadow),
+    0 0 18px -8px var(--warn);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -934,10 +1018,11 @@ td.nm .chip .ico {
   padding: 10px 12px;
   max-height: 260px;
   overflow: auto;
-  font-size: 16px;
+  font-size: var(--fs);
   white-space: pre-wrap;
-  border-radius: 9px;
+  border-radius: var(--r-ctl);
   background: var(--well);
+  border: 1px solid var(--line);
   color: var(--ink-2);
 }
 /* a job owns the ports it uses: these controls would only collide with it */
@@ -957,6 +1042,9 @@ td.nm .chip .ico {
   display: inline-flex;
   width: 26px;
   justify-content: center;
+  align-items: center;
+  height: 1.2em; /* the row's button overhangs evenly instead of pushing the row down */
+  vertical-align: middle;
   margin-right: 6px;
 }
 td.nm .sw .dot {
@@ -1065,7 +1153,9 @@ i.mode {
 }
 .m-bench {
   background: var(--bench);
+  box-shadow: 0 0 8px -1px var(--bench);
 }
 .m-mock {
   background: var(--mock);
+  box-shadow: 0 0 8px -1px var(--mock);
 }

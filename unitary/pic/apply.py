@@ -22,10 +22,9 @@ consequences ride in the API rather than in a comment:
     U -> D_out U D_in with D diagonal unitary (`GAUGE_ABS2`). That gauge is physical here:
     the two output-screen trimmers the v2 rewire dropped, H18 and H14, are exactly it, and
     they cost nothing to drop for exactly this reason.
-  - The amplitude fidelity |tr(U^H V)|/N (`theory.program.fidelity`) needs a phase reference
-    the bench does not have. It is reported against the plan's own predicted matrix, `source`
-    names the planner that produced it, `measurable` is False, and it is never computed from
-    a photodiode reading.
+  - Fidelity is measured, never the plan's own prediction. Full hosting reads |U|^2 only, so
+    it gets the classical fidelity (Bhattacharyya overlap per input), blind to sign. Tiling
+    measures a signed matrix M, so it gets |tr(B^T M)| / (|B| |M|), which sign errors lower.
   - The per-x number is a DISTRIBUTION. `rel_err` and `sign_acc` come back one per column of
     X and are not averaged away; `spread` carries the quantiles beside the mean, because a
     mean over four vectors is the statistic that let a run report 0.0002 in the matrix while
@@ -43,7 +42,6 @@ import numpy as np
 from theory.clements import NMODE
 from theory.intensity_matvec import score
 from theory.matmat import TILE_K
-from theory.program import fidelity
 
 from . import layout
 from .config import VOLTAGE_MAX_CH, mirror_pairs, DAC_PAIRS, DEFAULT_SETTLE_S, PAIR_OF_DAC, pin_detectors
@@ -64,10 +62,6 @@ TABLE_STATES = 100  # states in a table measured fresh on a simulated chip
 GAUGE_ABS2 = (
     "intensity readout: fixes the target only up to U -> D_out U D_in, the "
     "diagonal unitary gauges no photodiode can see"
-)
-NO_PHASE_REF = (
-    "not measurable on this bench -- |tr(U^H V)|/N needs a phase reference, so V "
-    "is the plan's predicted matrix and never a reading"
 )
 
 
@@ -124,6 +118,22 @@ class Wiring:
             f"{len(self.pads)} DAC channels on {len(set(self.pads))} heaters, "
             f"{len(self.pairs)} bonded pair(s) {self.pairs}"
         )
+
+
+def classical_fidelity(T, A) -> float:
+    """Mean over input columns of sum_k sqrt(p_k q_k), each column normalised to sum 1: the
+    Bhattacharyya overlap of measured and target output distributions. 1 = same split."""
+    T, A = np.clip(np.asarray(T, float), 0, None), np.asarray(A, float)
+    p = T / np.maximum(T.sum(0, keepdims=True), 1e-12)
+    q = A / np.maximum(A.sum(0, keepdims=True), 1e-12)
+    return float(np.mean(np.sum(np.sqrt(p * q), 0)))
+
+
+def signed_fidelity(B, M) -> float:
+    """|tr(B^T M)| / (|B| |M|): 1 when the measured matrix is the target up to a positive or
+    negative global scale, and sign errors on any entry pull it down."""
+    B, M = np.asarray(B, float), np.asarray(M, float)
+    return float(abs(np.trace(B.T @ M)) / max(np.linalg.norm(B) * np.linalg.norm(M), 1e-12))
 
 
 @dataclass(frozen=True)
@@ -378,6 +388,7 @@ def apply_unitary(
     B, so the two answers are comparable and any difference between them is the chip."""
     U, X = np.asarray(U), np.asarray(X)
     X = X.reshape(-1, 1) if X.ndim == 1 else np.atleast_2d(X)
+    X = X / np.maximum(np.linalg.norm(X, axis=0, keepdims=True), 1e-12)  # unit norm, both hostings
     _hostable(U, X)
     if U.shape != (NMODE, NMODE):
         raise ValueError(f"target must be {NMODE}x{NMODE}, got {U.shape}")
@@ -418,12 +429,11 @@ def apply_unitary(
             sign_acc=per[:, 1],
             matrix=Metric("measured |U|^2 vs target", merr, "device", True, GAUGE_ABS2),
             amp_fidelity=Metric(
-                "phases reachable",
-                reach,
-                "calibration",
-                False,
-                "fraction of the 15 Clements phases this calibration can actually make; "
-                "the rest are clipped to the nearest reachable voltage",
+                "classical fidelity, mean over inputs of sum sqrt(p q)",
+                classical_fidelity(T[m], A),
+                "device",
+                True,
+                "intensities only: blind to sign and phase, which no detector here sees",
             ),
             measured=T,
             orthogonal=bool(np.allclose(U @ U.T, np.eye(NMODE), atol=1e-6)),
@@ -466,16 +476,11 @@ def apply_unitary(
             "hosted matrix vs target", float(res["matrix_err"]), "device", True, GAUGE_ABS2
         ),
         amp_fidelity=Metric(
-            "amplitude fidelity |tr(U^H V)|/N",
-            float(fidelity(B, res["plan"].predict())),
-            res["planner"],
-            False,
-            (
-                NO_PHASE_REF
-                if orth
-                else NO_PHASE_REF + "; and this B is not orthogonal, so the ratio is an overlap "
-                "rather than a fidelity -- a 2x2 sub-block of a unitary almost never is one"
-            ),
+            "fidelity |tr(B^T M)| / (|B| |M|)",
+            signed_fidelity(B, np.asarray(res["measured"], float)),
+            "device",
+            True,
+            "on the measured signed matrix M, so sign counts; a global scale does not",
         ),
         measured=np.asarray(res["measured"], float),
         orthogonal=orth,
@@ -537,7 +542,8 @@ def _selftest(seed: int = 0, cols: int = 6):
         want = (np.abs(r.B) ** 2 if h == "full" else r.B) @ r.X
         assert np.allclose(r.Y_cpu, want), h
         assert r.matrix.source == "device" and r.matrix.caveat == GAUGE_ABS2, r.matrix
-        assert not r.amp_fidelity.measurable and r.amp_fidelity.source != "device"
+        assert r.amp_fidelity.measurable and r.amp_fidelity.source == "device"
+        assert 0.0 <= r.amp_fidelity.value <= 1.0 + 1e-9, r.amp_fidelity
         assert np.array_equal(r.wiring.heater_of_dac, layout.HEATER_OF_DAC)
         assert r.wiring.pairs == DAC_PAIRS and not r.wiring.one_to_one
         assert r.spread["max"] >= r.spread["median"] >= r.spread["min"], r.spread
@@ -562,7 +568,7 @@ def _selftest(seed: int = 0, cols: int = 6):
 
 def _selftest_spd(U, X, box, seed):
     """SPD mode end to end on four mock SPDs, one per output, each on its own dark and max:
-    fits, a transfer table, a DPNN and both hostings, all on SPD values. Then one SPD, as the
+    fits, a transfer table, a physics fit and both hostings, all on SPD values. Then one SPD, as the
     bench has it today: every consumer that needs all four outputs refuses and names them."""
     import tempfile
 
@@ -595,8 +601,8 @@ def _selftest_spd(U, X, box, seed):
     for h in HOSTING:
         assert np.isfinite(out[h].Y_device).all() and np.isfinite(out[h].matrix.value), h
     with tempfile.TemporaryDirectory() as d, pin_detectors("spd"):
-        argv = ["--mock", "--rounds", "1", "--n-per-round", "16", "--steps", "0", "--epochs",
-                "20", "--settle", "0", "--repeats", "1", "--out", d + "/dpnn"]
+        argv = ["--mock", "--rounds", "1", "--n-per-round", "16", "--steps", "20", "--restarts",
+                "1", "--settle", "0", "--repeats", "1", "--out", d + "/fit"]
         import contextlib
         import io
         import json
@@ -605,8 +611,8 @@ def _selftest_spd(U, X, box, seed):
         with quiet():
             assert train_hw.main(argv) == 0
 
-        out["dpnn_r2"] = json.load(open(d + "/dpnn/meta.json"))["r2_dpnn"]
-        assert np.isfinite(out["dpnn_r2"]), out["dpnn_r2"]
+        out["fit_r2"] = json.load(open(d + "/fit/meta.json"))["r2_physics"]
+        assert np.isfinite(out["fit_r2"]), out["fit_r2"]
 
         keep = interface.MOCK_SPDS
         interface.MOCK_SPDS = {k: v for k, v in keep.items() if v[0] == 1}
@@ -625,7 +631,7 @@ def _selftest_spd(U, X, box, seed):
                     except MissingOutputs as e:
                         assert "PD1 only" in str(e) and "PD0, PD1, PD2, PD3" in str(e), str(e)
             with quiet():
-                assert train_hw.main(argv) == 2  # the DPNN refuses too, before any round
+                assert train_hw.main(argv) == 2  # the fit refuses too, before any round
         finally:
             interface.MOCK_SPDS = keep
     assert np.flatnonzero(np.isfinite(r.measured).all(1)).tolist() == [1], r.measured
@@ -639,9 +645,9 @@ if __name__ == "__main__":
         print(res.digest(), "\n")
     sp = r["spd"]
     print(
-        f"SPD mode, 4 mock SPDs: Vpi {sp['vpi']:.3f} V fitted, DPNN trained, "
+        f"SPD mode, 4 mock SPDs: Vpi {sp['vpi']:.3f} V fitted, physics fit trained, "
         f"4x4 hosted to {sp['full'].matrix.value:.3f} full / {sp['tile'].matrix.value:.3f} tiled; "
-        "1 SPD: tiling, characterization and DPNN refused by name\n"
+        "1 SPD: tiling, characterization and fit training refused by name\n"
     )
     print(
         "the target was orthogonal; the chip was the mock physical model, because "

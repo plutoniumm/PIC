@@ -161,30 +161,7 @@
               ><i class="ico hotico" style="--i: url(/icons/heater.svg)"></i
             ></span>
             <span
-              ><span
-                class="bars"
-                id="bars"
-                title="show or hide a series in every run"
-              >
-                <label
-                  title="mesh holds U, one program, intensity only: measures |U|² x"
-                  ><input type="checkbox" value="full" checked /><i></i
-                  >full</label
-                >
-                <label title="U cut into 2x2 tiles the host sums: signed Ux"
-                  ><input type="checkbox" value="tiled" checked /><i></i
-                  >tiled</label
-                >
-                <label title="Ux on the CPU"
-                  ><input type="checkbox" value="cpu" checked /><i></i
-                  >cpu</label
-                >
-                <label title="the DPNN's prediction of the full program"
-                  ><input type="checkbox" value="dpnn" checked /><i></i
-                  >dpnn</label
-                >
-              </span>
-              <button id="clr" class="mini" title="forget every stored run">
+              ><button id="clr" class="mini" title="forget every stored run">
                 <i class="ico" style="--i: url(/icons/trash.svg)"></i></button
             ></span>
           </div>
@@ -213,7 +190,7 @@
               <button
                 class="go mini"
                 data-level="all"
-                title="heater sweep, PD sweep, DPNN, table sync; each only after the last succeeded"
+                title="heater sweep, PD sweep, table sync; each only after the last succeeded"
               >
                 <i class="ico" style="--i: url(/icons/ff.svg)"></i>all
               </button>
@@ -229,20 +206,38 @@
             <i class="ico" style="--i: url(/icons/heater.svg)"></i>Heaters
           </div>
           <div class="scroll"><table id="htab"></table></div>
-          <div class="eyebrow" style="margin-top: 18px">
+          <div class="eyebrow sub">
             <i class="ico" style="--i: url(/icons/pds.svg)"></i>Photodiodes
           </div>
           <div class="scroll"><table id="ptab"></table></div>
         </div>
 
-        <div class="card">
+
+        <div class="card mcard">
           <div class="eyebrow">
-            <i class="ico" style="--i: url(/icons/tec.svg)"></i>TEC
+            <i class="ico" style="--i: url(/icons/matvec.svg)"></i>Mode
+          </div>
+          <div class="mrow">
+          <div class="seg" id="det" title="what reads the mesh outputs; each mode keeps its own calibration, fits and table (SPD: pic_data/spd). See README.md">
+            <label
+              ><input type="radio" name="det" value="pd" /><span>PD</span></label
+            >
+            <label
+              ><input type="radio" name="det" value="spd" /><span>SPD</span></label
+            >
+          </div>
+          <div class="seg" id="host" title="what a Run press measures: full = one program holds U (|U|² x); tiled = four 2x2 programs the host sums (signed Ux)">
+            <label
+              ><input type="radio" name="host" value="full" /><span>Full</span></label
+            >
+            <label
+              ><input type="radio" name="host" value="tile" /><span>Tiled</span></label
+            >
           </div>
           <label
             class="dbm"
             title="the TEC controller's own target; runs gate on the op temperature on the Run page"
-            ><span>target</span
+            ><span>TEC target</span
             ><input
               id="techw"
               type="number"
@@ -251,19 +246,6 @@
               step="0.5"
             /><span>°C</span></label
           >
-        </div>
-
-        <div class="card">
-          <div class="eyebrow">
-            <i class="ico" style="--i: url(/icons/pds.svg)"></i>Detectors
-          </div>
-          <div class="seg" id="det" title="what reads the mesh outputs; each mode keeps its own calibration, fits, table and DPNN (SPD: pic_data/spd, runs/spd). See README.md">
-            <label
-              ><input type="radio" name="det" value="pd" /><span>PD</span></label
-            >
-            <label
-              ><input type="radio" name="det" value="spd" /><span>SPD</span></label
-            >
           </div>
         </div>
       </div>

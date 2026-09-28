@@ -47,7 +47,7 @@ from .devices import (
 )
 from .interface import PIC, MockPIC, PICError, find_port, twin_forward
 from .layout import ACTIVE_DACS, HEATERS, N_HEATERS, REACHABLE_DACS, pack, unpack
-from .model import DpnnModel, MockModel, Predictor, TwinModel, make_model
+from .model import MockModel, Predictor, TwinModel, make_model
 from .rig import Rig
 from .sim import BenchPIC, BenchSim
 from .session import laser_session, open_devices
@@ -78,7 +78,6 @@ __all__ = [
     "make_model",
     "MockModel",
     "TwinModel",
-    "DpnnModel",
     "Predictor",
     "PICConfig",
     "out_mask",

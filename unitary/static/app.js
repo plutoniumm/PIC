@@ -172,15 +172,17 @@ const capBar = (x, y, w, h, r, up) => {
 
 const pc = (e) => (isFinite(e) ? (e * 100).toFixed(1) + "%" : "--");
 
-function railChart(v, label, rails, W) {
-  // Four bars per output rail: the mesh holding U outright, U cut into tiles the host sums,
-  // the CPU and the DPNN. Each measured bar is scored against ITS OWN ideal: normal can only
-  // measure |U|^2 x, so marking it against Ux would fault it for a sign it had no way to see.
+// the colour, icon and name a hosting goes by on the page
+const WHO = { full: "full", tile: "tiled" };
+const BARC = { full: "var(--s1)", tiled: "var(--s2)" };
+
+function railChart(v, who, label, rails, W) {
+  // Two bars per output rail: the PIC in the hosting Settings holds, and the CPU's ideal
+  // for it. Full can only measure |U|^2 x, so its ideal is that, not Ux.
+  // Fixed axis -1..1: x is unit norm, so every exact output is inside it; a noisy reading
+  // past it is clipped here and shown exactly in the tables.
   // W is the drawn width in px, so 16 in the viewBox is 16 on screen.
-  const N = v.normal,
-    T = v.tiled,
-    C = v.computed,
-    D = v.dpnn || []; // null when no checkpoint: the bar is simply absent
+  const P = v.pic;
   const x0 = 44,
     x1 = W - 2,
     y0 = 10,
@@ -190,16 +192,14 @@ function railChart(v, label, rails, W) {
     class: "fig",
     viewBox: `0 0 ${W} ${H}`,
     role: "img",
-    "aria-label": "full, tiled, cpu and dpnn per output rail for " + label,
+    "aria-label": `${who} and cpu per output rail for ${label}`,
   });
-  const vals = N.device.concat(T.device, C, N.ideal, D),
-    neg = vals.some((x) => x < 0);
-  const hi = Math.ceil(Math.max(0.1, ...vals.map(Math.abs)) * 10) / 10,
-    lo = neg ? -hi : 0;
-  const sy = (q) => y1 - ((q - lo) / (hi - lo)) * (y1 - y0),
+  const lo = -1,
+    hi = 1;
+  const clip = (q) => Math.max(lo, Math.min(hi, q));
+  const sy = (q) => y1 - ((clip(q) - lo) / (hi - lo)) * (y1 - y0),
     zy = sy(0);
-  const ticks = neg ? [lo, 0, hi] : [0, hi];
-  for (const q of ticks) {
+  for (const q of [lo, 0, hi]) {
     if (q !== 0)
       g.append(
         svg("line", { x1: x0, y1: sy(q), x2: x1, y2: sy(q), class: "gl" }),
@@ -214,43 +214,36 @@ function railChart(v, label, rails, W) {
     g.append(t);
   }
   g.append(svg("line", { x1: x0, y1: zy, x2: x1, y2: zy, class: "zl" }));
-  const n = C.length,
+  const n = P.ideal.length,
     gw = (x1 - x0) / n,
-    bw = Math.min(26, gw * 0.19);
+    bw = Math.min(26, gw * 0.24);
   const rel = (m, i) =>
     Math.abs(i) > 1e-9 ? Math.abs(m - i) / Math.abs(i) : NaN;
   for (let r = 0; r < n; r++) {
     const cx = x0 + gw * (r + 0.5),
       out = rails && rails.length > r ? rails[r] : r;
     [
-      [N.device[r], N.ideal[r], "var(--s1)", 0, "full"],
-      [T.device[r], T.ideal[r], "var(--s2)", 1, "tiled"],
-      [C[r], null, "var(--ref)", 2, "cpu"],
-      [D[r], N.device[r], "var(--s3)", 3, "dpnn"],
-    ].forEach(([q, ideal, fill, k, who]) => {
-      if (q === undefined || q === null) return;
-      const x = cx + (k - 2) * (bw + 3) + 1.5,
+      [P.device[r], P.ideal[r], BARC[who], 0, who],
+      [P.ideal[r], null, "var(--ref)", 1, "cpu"],
+    ].forEach(([q, ideal, fill, k, w]) => {
+      if (q === undefined || q === null || !isFinite(q)) return;
+      const x = cx + (k - 1) * (bw + 3) + 1.5, // the pair centred on the rail
         y = Math.min(zy, sy(q)),
         h = Math.abs(sy(q) - zy) || 1;
-      // the DPNN predicts the full program, so its error is against the measured full bar
-      const e = ideal === null ? NaN : rel(q, ideal),
-        against =
-          ideal === null
-            ? ""
-            : who === "dpnn"
-              ? "measured full"
-              : "its ideal " + ideal.toFixed(4);
-      const why = ideal === null ? "" : ` · ${pc(e)} off ${against}`;
+      const why =
+        ideal === null || !isFinite(ideal)
+          ? ""
+          : ` · ${pc(rel(q, ideal))} off its ideal ${ideal.toFixed(4)}`;
       g.append(
         tip(
           svg("path", {
-            class: "bar-" + who,
+            class: "bar-" + w,
             d: capBar(x, y, bw, h, 4, q >= 0),
             fill: fill,
             stroke: "var(--bg-2)",
             "stroke-width": 1.5,
           }),
-          `${who} out ${out} = ${q.toFixed(4)}${why}`,
+          `${w} out ${out} = ${q.toFixed(4)}${why}`,
         ),
       );
     });
@@ -266,49 +259,70 @@ function railChart(v, label, rails, W) {
   return g;
 }
 
+// y per output row, one column per x: what the chart draws, exact and unclipped
+const sg = (q) => (q === null || !isFinite(q) ? "--" : (q >= 0 ? "+" : "") + q.toFixed(2));
+function yTable(V, rails, who) {
+  // one table: per x, the PIC reading beside the CPU's ideal
+  return (
+    `<table class="yt"><thead><tr><th></th>` +
+    V.map((v, i) => `<th colspan="2">x${i + 1}</th>`).join("") +
+    `</tr><tr><th></th>` +
+    V.map(() => `<th class="bar-${who}">PIC</th><th class="bar-cpu">CPU</th>`).join("") +
+    `</tr></thead><tbody>` +
+    [0, 1, 2, 3]
+      .map(
+        (r) =>
+          `<tr><td>${rails[r]}</td>` +
+          V.map((v) => `<td>${sg(v.pic.device[r])}</td><td>${sg(v.pic.ideal[r])}</td>`).join("") +
+          `</tr>`,
+      )
+      .join("") +
+    `</tbody></table>`
+  );
+}
+
 function resultBody(e, onx, cw) {
   const d = e.d,
     V = d.vectors,
+    who = WHO[d.hosting],
     box = document.createElement("div");
   box.className = "hb";
-  const dp = d.dpnn;
   const meta = document.createElement("div");
   meta.className = "hm";
-  meta.innerHTML =
-    (d.tiled_error
-      ? `<span class="bar-tiled v-warn" title="no tiled bars in this run">tiled: ${esc(d.tiled_error)}</span>`
-      : "") +
-    (dp && dp.error
-      ? `<span class="bar-dpnn v-warn" title="no DPNN bars in this run">dpnn: ${esc(dp.error)}</span>`
-      : dp
-        ? `<span class="bar-dpnn${dp.source === "sim" ? " v-warn" : ""}" title="the DPNN checkpoint behind the dpnn bars">` +
-          `<i class="sx s-dpnn"></i>${esc(String(dp.source))} R² ${Number(dp.r2).toFixed(2)}</span>`
-        : "") +
-    `<span class="grow"></span><button class="rl vt" title="U, x and every value">${ico("table")}</button>`;
+  meta.innerHTML = `<span class="grow"></span><button class="rl vt" title="U and x">${ico("table")}</button>`;
+  // tables to the right of the charts when there is room, under them when not
+  const tw = 40 + 110 * V.length,
+    side = cw - tw - 20 >= 320,
+    aw = side ? cw - tw - 20 : cw;
   // two charts a row when there is room; each is drawn at the width it will be shown at
-  const two = cw >= 760 && V.length > 1,
-    W = Math.max(300, Math.floor(two ? (cw - 20) / 2 : cw));
+  const two = aw >= 760 && V.length > 1,
+    W = Math.max(300, Math.floor(two ? (aw - 20) / 2 : aw));
+  const main = document.createElement("div");
+  main.className = "hmain" + (side ? " side" : "");
   const charts = document.createElement("div");
   charts.className = "charts" + (two ? " two-up" : "");
   V.forEach((v, i) => {
     const c = document.createElement("div");
     c.className = "chart";
-    const fid = (s, who, k) =>
-      `<span class="bar-${who}" title="${who}: fidelity |<measured,ideal>| / (||measured|| ||ideal||), ` +
-      `relative error ${f(s.rel, 3)}, signs kept ${pc(s.sign)}">` +
-      `${mico(who)} ${f(s.fid, 3)}</span>`;
+    const s = v.pic;
     c.innerHTML =
       `<div class="chd"><button class="rl vx" title="load x${i + 1} alone into the inputs">` +
       `x${i + 1}</button>` +
       (v.null
         ? `<span class="note">zero, not plotted</span>`
-        : fid(v.normal, "full", "F") + fid(v.tiled, "tiled", "T")) +
+        : `<span class="bar-${who}" title="${who}: fidelity |<measured,ideal>| / (||measured|| ||ideal||), ` +
+          `relative error ${f(s.rel, 3)}, signs kept ${pc(s.sign)}">` +
+          `${mico(who)} ${f(s.fid, 3)}</span>`) +
       `</div>`;
     c.querySelector(".vx").onclick = () => onx(e.X[i]);
-    if (!v.null) c.append(railChart(v, "x" + (i + 1), d.rails_out, W));
+    if (!v.null) c.append(railChart(v, who, "x" + (i + 1), d.rails_out, W));
     charts.append(c);
   });
-  // the numbers behind the picture: U, x and every bar's value, folded away
+  const tabs = document.createElement("div");
+  tabs.className = "ytabs";
+  tabs.innerHTML = yTable(V, d.rails_out, who);
+  main.append(charts, tabs);
+  // the inputs behind the picture: U and x, folded away
   const more = document.createElement("div");
   more.className = "more hide";
   more.innerHTML =
@@ -319,32 +333,13 @@ function resultBody(e, onx, cw) {
     [0, 1, 2, 3]
       .map((r) => e.X.map((c) => `<div>${f(c[r], 3)}</div>`).join(""))
       .join("") +
-    `</div></div></div><div class="xg">` +
-    V.map(
-      (v, i) =>
-        `<div class="xb"><table><thead><tr><th>x${i + 1}</th><th class="bar-full">full</th>` +
-        `<th class="bar-tiled">tiled</th><th class="bar-cpu">cpu</th>` +
-        (v.dpnn ? `<th class="bar-dpnn">dpnn</th>` : "") +
-        `</tr></thead><tbody>` +
-        v.computed
-          .map(
-            (c, r) =>
-              `<tr><td>out ${d.rails_out[r]}</td>` +
-              `<td class="bar-full">${f(v.normal.device[r])}</td>` +
-              `<td class="bar-tiled">${f(v.tiled.device[r])}</td><td class="bar-cpu">${f(c)}</td>` +
-              (v.dpnn ? `<td class="bar-dpnn">${f(v.dpnn[r])}</td>` : "") +
-              `</tr>`,
-          )
-          .join("") +
-        `</tbody></table></div>`,
-    ).join("") +
-    `</div>`;
+    `</div></div></div>`;
   // the meta row is lifted into the run's summary, so a click here must not fold the run
   meta.querySelector(".vt").onclick = (ev) => {
     ev.preventDefault();
     ev.currentTarget.classList.toggle("on", !more.classList.toggle("hide"));
   };
-  box.append(meta, charts, more);
+  box.append(meta, main, more);
   return box;
 }
 
@@ -352,7 +347,7 @@ function resultBody(e, onx, cw) {
 // there so a long session cannot fill the origin's quota, and a quota throw on write halves
 // the list rather than losing it. Every read and write is guarded: private windows, cleared
 // site data and blocked storage all throw or hand back nothing.
-const HKEY = "pic4x4.ui.runs.v2"; // v1 had one hosting per run
+const HKEY = "pic4x4.ui.runs.v3"; // v2 carried both hostings per run
 let HIST = [];
 function hload() {
   try {
@@ -362,7 +357,7 @@ function hload() {
     // an entry from an older page version would throw inside drawHist and blank the tab
     return Array.isArray(a)
       ? a
-          .filter((e) => e && e.d && Array.isArray(e.d.vectors) && e.U && e.X)
+          .filter((e) => e && e.d && WHO[e.d.hosting] && Array.isArray(e.d.vectors) && e.U && e.X)
           .slice(0, HCAP)
       : [];
   } catch (e) {
@@ -387,19 +382,15 @@ function hclear() {
   drawHist();
 }
 
-// One hosting at a glance: a bar per x (height and colour its relative error), a ring for the
-// signs kept, then the median. The numbers behind it are in the tooltip.
 // full = the mesh holding all of U (a square); tiled = U in four 2x2 blocks (a square in four)
 const mico = (who) =>
   `<i class="ico mico s-${who}" title="${who === "full" ? "full: one program holds all of U" : "tiled: U as four 2x2 blocks, summed on the host"}" style="--i:url(/icons/${who}.svg)"></i>`;
-// One number per method in the run row: its median relative error, coloured. Everything else
-// (per-x errors, signs kept) is on hover.
-// One number per method in the run row: its fidelity, the median over the x vectors of
+// One number per run in the run row: its fidelity, the median over the x vectors of
 // |<measured, ideal>| / (|measured| |ideal|). 1 is perfect.
-function spark(e, k) {
+function spark(e) {
   const V = e.d.vectors.filter((v) => !v.null),
-    who = k === "normal" ? "full" : "tiled";
-  const fs = V.map((v) => v[k].fid)
+    who = WHO[e.d.hosting];
+  const fs = V.map((v) => v.pic.fid)
     .filter(isFinite)
     .sort((a, b) => a - b);
   const med = fs.length ? fs[Math.floor((fs.length - 1) / 2)] : NaN;
@@ -407,7 +398,7 @@ function spark(e, k) {
   // good bench run reads as weak
   const tierF = (x) =>
     !isFinite(x) ? "bad" : x >= 0.95 ? "ok" : x >= 0.8 ? "warn" : "bad";
-  const t = `${who} fidelity, median over x\nper x: ${V.map((v) => f(v[k].fid, 3)).join(" ")}`;
+  const t = `${who} fidelity, median over x\nper x: ${V.map((v) => f(v.pic.fid, 3)).join(" ")}`;
   return `<span class="q" title="${esc(t)}">${mico(who)}<b class="t-${tierF(med)}">${f(med, 3)}</b></span>`;
 }
 function summary(e) {
@@ -415,8 +406,7 @@ function summary(e) {
   return (
     `<span class="when" title="${t.toLocaleString()}">${agoTxt((Date.now() - e.t) / 60000)}</span>` +
     `<i class="mode ${e.mock ? "m-mock" : "m-bench"}" title="${e.mock ? "mock" : "bench"}"></i>` +
-    spark(e, "normal") +
-    spark(e, "tiled")
+    spark(e)
   );
 }
 
@@ -462,7 +452,7 @@ function drawHist() {
     const build = () => {
       if (d.children.length > 1) return;
       const b = resultBody(e, restoreX, box.clientWidth - 28);
-      s.insertBefore(b.querySelector(".hm"), rb); // dpnn and the values toggle, shown while open
+      s.insertBefore(b.querySelector(".hm"), rb); // the values toggle, shown while open
       d.append(b);
     };
     d.addEventListener("toggle", () => {
@@ -568,6 +558,22 @@ function calTables(S) {
       )
       .join("") +
     "</tbody>";
+  if (S.spds) {
+    // SPD mode: dark and each input's reference from `pic spdnorm`, counts/s
+    const c = (x) => (x == null ? "–" : Math.round(x).toLocaleString());
+    $("#ptab").innerHTML =
+      "<thead><tr><th>detector</th><th>dark /s</th><th>P0 /s</th><th>P1 /s</th><th>P2 /s</th><th>P3 /s</th></tr></thead><tbody>" +
+      S.spds
+        .map(
+          (p) =>
+            `<tr data-pad="PD${p.i}" title="${p.id}${p.at ? " · " + p.at : ""}"><td class="nm">PD${p.i} ${p.id}</td>` +
+            `<td>${c(p.dark)}</td>` +
+            p.ports.map((r) => `<td>${c(r)}</td>`).join("") +
+            `</tr>`,
+        )
+        .join("") +
+      "</tbody>";
+  } else
   $("#ptab").innerHTML =
     "<thead><tr><th>detector</th><th>full / mV</th><th>dark / mV</th><th>contrast / dB</th></tr></thead><tbody>" +
     S.pds
@@ -606,7 +612,7 @@ const PBTN = {
       "pd",
       "sweep",
       "play",
-      "every heater at 0 V: dark level and full scale per detector",
+      "PD: dark and full scale · SPD: dark, then each input once",
     ],
   ],
   table: [
@@ -623,11 +629,8 @@ const PBTN = {
       "a fresh table: 200 random states, all four ports each",
     ],
   ],
-  dpnn: [
-    ["dpnn", "train", "play", "light the laser, sample the chip, fit the DPNN"],
-  ],
 };
-const PICO = { heaters: "heater", pds: "pds", table: "table", dpnn: "dpnn" };
+const PICO = { heaters: "heater", pds: "pds", table: "table" };
 const mmss = (t) =>
   `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 let PJOB = {}; // the last /api/job, so a re-render of the tiles keeps the running one running
@@ -666,10 +669,6 @@ const QUAL = {
   table: (v) => {
     const m = v.match(/error ([\d.]+)/); // 1.0 is what answering zero scores
     return m && [m[1], "error", Math.max(0, 1 - m[1]), 0.5];
-  },
-  dpnn: (v) => {
-    const m = v.match(/R² ([\d.]+)/);
-    return m && [m[1], "R²", Math.max(0, +m[1]), 0.95];
   },
 };
 // the problem sentence: whatever segment is not a fact
@@ -740,7 +739,6 @@ const LTILE = {
   pd: "pds",
   table: "table",
   capture: "table",
-  dpnn: "dpnn",
 };
 // progress 0..1, or null for "running, length unknown"; the server's own figure first
 function jobFrac(d) {
@@ -943,8 +941,10 @@ function drawDiag() {
 }
 $("#drail").onclick = () => drun(["rail"]);
 
-// Every request is explicit. There is no poll on this tab: the switch row walks the mirror
-// and the rail row puts every heater at its clamp.
+// Every request is explicit except the DAC pins row, re-read every 5 min: it only writes a
+// few sub-mA codes and zeroes them, and the server refuses it while anything holds the board.
+// The switch row walks the mirror and the rail row puts every heater at its clamp.
+setInterval(() => DROWS && !DBUSY && drun(["dac"]), 300000);
 async function drun(ids) {
   if (DBUSY) return;
   const mock = dmock();
@@ -1087,38 +1087,6 @@ lz();
 // ponytail: polls the serial port every 5 s; push from the server if that ever contends with a run
 setInterval(lz, 5000);
 
-// Four global show/hide flags, one per bar series, applied to every run as body classes.
-const BKEY = "pic4x4.ui.bars";
-const BARS = ["full", "tiled", "cpu", "dpnn"];
-function setBars(hidden) {
-  BARS.forEach((b) =>
-    document.body.classList.toggle("hide-" + b, hidden.includes(b)),
-  );
-  document
-    .querySelectorAll("#bars input")
-    .forEach((i) => (i.checked = !hidden.includes(i.value)));
-  try {
-    localStorage.setItem(BKEY, JSON.stringify(hidden));
-  } catch (e) {}
-}
-let HIDDEN = [];
-try {
-  HIDDEN = JSON.parse(localStorage.getItem(BKEY) || "[]").filter((b) =>
-    BARS.includes(b),
-  );
-} catch (e) {}
-document
-  .querySelectorAll("#bars input")
-  .forEach(
-    (i) =>
-      (i.onchange = () =>
-        setBars(
-          [...document.querySelectorAll("#bars input")]
-            .filter((x) => !x.checked)
-            .map((x) => x.value),
-        )),
-  );
-setBars(HIDDEN);
 
 // One calibration job at a time. Every page polls it; body classes then switch off whatever
 // would fight the job for a port: `job` for any job, `jobhw` for one on the bench.
@@ -1329,7 +1297,7 @@ const CICO = {
   heater: "heater",
   pd: "pds",
   table: "table",
-  dpnn: "dpnn",
+  fit: "calib",
   sync: "reload",
   server: "diag",
 };
@@ -1384,7 +1352,7 @@ function lfields(e) {
     );
   put(num(e.span, 2) && `span ${num(e.span, 2)}π`);
   put(num(e.depth_mv, 1) && `${num(e.depth_mv, 1)} mV`);
-  put(num(e.r2_dpnn ?? e.r2, 3) && `R² ${num(e.r2_dpnn ?? e.r2, 3)}`);
+  put(num(e.r2_physics ?? e.r2, 3) && `R² ${num(e.r2_physics ?? e.r2, 3)}`);
   put(num(e.points, 0) && `${e.points} pts`);
   put(num(e.dbm, 1) && `${e.dbm >= 0 ? "+" : ""}${num(e.dbm, 1)} dBm`);
   put(num(e.mA, 0) && `${num(e.mA, 0)} mA`);
@@ -1413,8 +1381,8 @@ const TERSE = new Set([
   "heater:sweeping",
   "heater:fit",
   "heater:recal",
-  "dpnn:fit",
-  "dpnn:points",
+  "fit:fit",
+  "fit:points",
   "table:progress",
   "laser:set",
 ]);
@@ -1587,6 +1555,26 @@ document.querySelectorAll("#det input").forEach(
     }),
 );
 if ($("#det")) detPoll();
+
+// Full or tiled: the one hosting a Run press measures. Refused while a job runs.
+async function hostPoll() {
+  try {
+    const d = await (await fetch("/api/hosting")).json();
+    const i = document.querySelector(`#host input[value="${d.mode}"]`);
+    if (i) i.checked = true;
+  } catch (e) {}
+}
+document.querySelectorAll("#host input").forEach(
+  (i) =>
+    (i.onchange = async () => {
+      const d = await (
+        await fetch("/api/hosting", { method: "POST", body: JSON.stringify({ mode: i.value }) })
+      ).json();
+      if (d.error) alert(why(d));
+      hostPoll();
+    }),
+);
+if ($("#host")) hostPoll();
 
 $("#techw").onchange = async () => {
   const v = $("#techw").value;

@@ -1,0 +1,113 @@
+{
+  "vpi": [
+    1.615913245569647,
+    11.999999999999998,
+    5.526200029243122,
+    11.999999999999998,
+    1.5,
+    1.5,
+    11.999999999999998,
+    5.21806798872428,
+    4.800579361294675,
+    5.422002853105465,
+    4.012027910383063,
+    4.5005188687690305,
+    4.887988653133005,
+    5.193389739128547,
+    4.604876612715909,
+    5.09549072941289
+  ],
+  "phi0": [
+    4.226104332182025,
+    6.07399467326227,
+    2.1905633529733035,
+    2.6962904794090328,
+    0.0,
+    0.0,
+    3.488886854486683,
+    6.156669587250729,
+    0.6678121152918202,
+    5.417065709707092,
+    6.139741661821827,
+    0.919209895715484,
+    2.1825249861688945,
+    0.9646868775930009,
+    6.237476466460991,
+    1.8461871005958808
+  ],
+  "pd_gain": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "pd_offset": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "meta": {
+    "source": "pic.fastchar.run",
+    "pds": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "n_bases": 2,
+    "ports": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "min_visibility": 0.1,
+    "min_amplitude": 0.011,
+    "min_r2": 0.5,
+    "n_ok": 10,
+    "n_swept": 15,
+    "chip_c": 25.0,
+    "gate_note": "visibility overridden by SNR>=12 and r2>=0.95; recovered dac9",
+    "fitted_this_run": [
+      6
+    ],
+    "dark_note": "pd_offset re-measured 2026-08-28 at 13 dBm with the switch dumped (P0), after the ADC reference moved from AVCC to INTERNAL2V56. It is the one absolute quantity in to_transfer: pd_gain and every optical scale cancel in the per-column normalisation, this does not.",
+    "dbm_of_normalisation": 13.0,
+    "remap_note": "2026-09-22 rewire: vpi/phi0 carried per HEATER onto its new DAC channel(s); bonded pairs share one heater's values. H18/H14/H6 lost their driver and their fits are dropped. pd_gain/pd_offset are per detector and did not move. Pre-rewire file kept as calib.pre-rewire.json. Source: mrunal/board_firmware_v2.md",
+    "provenance": "vpi/phi0 kept only for channels fitted AFTER the DAC chip-select fix (CS 10 -> 7, 2026-09-22). Earlier runs fitted thermal drift, not fringes, because the DAC was never selected and no heater drew current; those values were accepted at the time and are cleared here.",
+    "extrapolated": [
+      2,
+      3,
+      9
+    ],
+    "extrapolated_note": "H10 and H13 fit to the Vpi bound: their fringe never turns over in range, so 12.00 V is a LOWER BOUND and the fitted amplitude is the extrapolated full fringe, not an observed swing. The local phase slope is real; the half-wave point is not.",
+    "diode_c": 20.08479118347168,
+    "best_rails": [
+      [
+        1,
+        3
+      ],
+      [
+        2,
+        3
+      ]
+    ],
+    "calibrated_at": "2026-09-25 11:42",
+    "reanchored": {
+      "channels": [
+        2,
+        6,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ],
+      "levels": 5
+    },
+    "bootstrapped_from": "pic_data/calib.json"
+  }
+}

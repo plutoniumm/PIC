@@ -1,18 +1,9 @@
 """The predictor component: heater volts -> photodiode volts, without touching the chip.
 
-Two families, and the contrast between them is the point of a unitary device.
-
   TwinModel   the physics. Forty-four parameters -- an (Vpi, phi0) pair per heater plus a
               gain and offset per photodiode -- through a mesh that is unitary by
               construction. It extrapolates, it inverts in closed form, and every
               parameter is a thing you can measure on its own.
-
-  DpnnModel   the pruned MLP, the 6x6 approach carried over. Here it is the fallback for
-              whatever the physics does not capture, and it is small: the squared voltages
-              of the six channels a photodiode can see, plus the lit input port and the
-              laser telemetry, four photodiodes out, a couple of thousand parameters
-              against the 25,063 that chip needed. A 6x6 contraction had no closed form to
-              lean on, so the black box had to carry everything.
 
 Heavy imports are deferred, so `import pic` stays torch-free.
 """
@@ -23,7 +14,7 @@ from typing import Protocol, runtime_checkable
 
 import numpy as np
 
-from .config import NUM_ADC_RAW, NUM_DAC, OUT_PDS, volts_to_drive
+from .config import NUM_ADC_RAW, NUM_DAC, OUT_PDS
 
 
 @runtime_checkable
@@ -78,49 +69,11 @@ class MockModel(TwinModel):
         )
 
 
-class DpnnModel:
-    """The reduced pruned MLP surrogate, loaded from a `learn.train_hw` checkpoint.
-
-    The network works in the uniform drive command and needs to be told which input port
-    is lit; a `Predictor` takes neither, so this converts volts at the boundary and pins
-    the port to whatever the training buffer used most. Pass `op_port` to move it."""
-
-    def __init__(self, ckpt: str = "runs/dpnn", op_telemetry=None, op_port=None):
-        import os
-
-        if not os.path.exists(os.path.join(ckpt, "ckpt.pt")):
-            raise FileNotFoundError(
-                f"no checkpoint at {ckpt}/ckpt.pt -- train one with `python -m learn.train_hw`"
-            )
-        import torch
-
-        from learn.dpnn import MODEL_DACS, load_ckpt, load_physics, make_predict
-
-        self._torch = torch
-        self.model, self.norm, self.buf, self.meta = load_ckpt(ckpt)
-        self.channels = np.asarray(self.meta.get("channels", MODEL_DACS), int)
-        self._predict = make_predict(
-            self.model, self.norm, self.buf, op_telemetry, op_port, self.channels,
-            physics=load_physics(ckpt), residual=self.meta.get("residual", True),
-        )
-        self.pds = list(self.meta.get("pds", OUT_PDS))
-
-    def predict(self, V, port=None) -> np.ndarray:
-        y = self._predict(volts_to_drive(np.asarray(V, float).ravel()), port)
-        raw = np.zeros(NUM_ADC_RAW)
-        raw[self.pds] = y
-        return raw
-
-    @property
-    def n_params(self) -> int:
-        return int(self.meta.get("n_params", 0))
-
-
-_MODELS = {"mock": MockModel, "twin": TwinModel, "dpnn": DpnnModel}
+_MODELS = {"mock": MockModel, "twin": TwinModel}
 
 
 def make_model(spec, **kw):
-    """``'mock'|'twin'|'dpnn'`` -> a predictor; an instance passes through unchanged."""
+    """``'mock'|'twin'`` -> a predictor; an instance passes through unchanged."""
     if not isinstance(spec, str):
         return spec
     try:

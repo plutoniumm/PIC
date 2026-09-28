@@ -161,11 +161,89 @@ def cmd_selftest(a):
     )
     sd = ap["spd"]
     print(
-        f"spd       4 mock SPDs, each its own dark/max: Vpi {sd['vpi']:.3f} V fitted, DPNN "
-        f"trained, 4x4 to {sd['full'].matrix.value:.3f} full, "
+        f"spd       4 mock SPDs, each its own dark/max: Vpi {sd['vpi']:.3f} V fitted, physics "
+        f"fit trained, 4x4 to {sd['full'].matrix.value:.3f} full, "
         f"{sd['tile'].matrix.value:.3f} tiled; 1 SPD: all-output consumers refused by name"
     )
 
+    return 0
+
+
+def cmd_spdnorm(a):
+    """SPD normalisation in five steps: dark with the laser off, then each input port lit
+    once with every heater at its ceiling, one read per SPD. Each input couples its own
+    light into the chip and each SPD collects its own share, so the reference is kept per
+    (port, SPD) and a read divides by the lit port's own value."""
+    from spd.array import save_max, save_port_max
+
+    from .config import mirror_pairs
+
+    with pin_detectors("spd"), _rig(a) as rig:
+        b = rig.board
+        need_outputs(b, "SPD normalisation")
+        ids = b.spds.ids
+        if rig.laser.is_on():
+            raise SystemExit("laser is on; the dark needs it off")
+        n = 1 + NMODE
+        ev("pd", "step", "1/5 dark, laser off", k=0, n=n, step="dark")
+        rig._zero()
+        c = b._count(a.dark_s)
+        dark = {k: c[k].counts / c[k].seconds for k in ids}
+        ev("pd", "dark", "dark " + ", ".join(f"{k} {r:.1f}/s" for k, r in dark.items()), "ok")
+
+        top = mirror_pairs(np.array(VOLTAGE_MAX_CH, float))
+        ref = {k: {} for k in ids}
+        dur = NMODE * (a.count + 2) + a.settle + 120
+        with rig.session(duration_s=dur, power_dbm=a.dbm, calibrating=True) as s:
+            b.board.measure_raw(top)  # heaters only: the SPDs are read below
+            s.keepalive(a.settle)  # one heat step for all four ports, not one per port
+            for p in range(NMODE):
+                ev("pd", "step", f"{p + 2}/5 input P{p}", k=p + 1, n=n, step=f"P{p}")
+                rig.select_input(p)
+                s.keepalive(1.0)
+                s.check()
+                c = b._count(a.count)
+                for k in ids:
+                    ref[k][p] = c[k].counts / c[k].seconds
+                ev("pd", "max", f"P{p} " + ", ".join(f"{k} {ref[k][p]:.0f}/s" for k in ids),
+                   "ok", port=p)
+            rig._zero()
+        ev("pd", "step", "5/5 done", k=n, n=n, step="done")
+    for k in ids:
+        # a reference within 3 sigma of dark would divide reads by noise
+        low = [p for p in range(NMODE) if ref[k][p] - dark[k] < 3 * np.sqrt(max(dark[k], 1) / a.count)]
+        print(f"{k} PD{b.slots[k]}  dark {dark[k]:7.1f}  ref P0..P3 "
+              + " ".join(f"{ref[k][p]:8.0f}" for p in range(NMODE))
+              + (f"  near dark on P{low}" if low else ""))
+    if a.write:
+        save_max(darks=dark, rates={k: max(ref[k].values()) for k in ids})
+        save_port_max(ref)
+        ev("job", "wrote", "wrote pic_data/spd_max.json", "ok", path="pic_data/spd_max.json")
+    return 0
+
+
+def cmd_ports(a):
+    """Every USB serial device: which instrument it is, its chip id, and its port today."""
+    from serial.tools import list_ports
+
+    from .config import USB_SERIAL, _chip, spd_map
+
+    role = {v: k for k, v in USB_SERIAL.items()}
+    slot = spd_map()
+    rows = []
+    for p in sorted(list_ports.comports(), key=lambda p: p.device):
+        if not p.vid:
+            continue
+        chip = _chip(p.serial_number) or "?"
+        what = role.get(chip) or (f"spd PD{slot[chip]}" if chip in slot else "unknown")
+        rows.append((what, chip, p.device, f"{p.vid:04x}:{p.pid:04x}"))
+    for want in (*USB_SERIAL, *(f"spd PD{s}" for s in sorted(slot.values()))):
+        if want not in {r[0] for r in rows}:
+            rows.append((want, "-", "not connected", "-"))
+    head = ("component", "chip id", "port", "usb id")
+    w = [max(len(str(r[i])) for r in (head, *rows)) for i in range(4)]
+    for r in (head, tuple("-" * x for x in w), *rows):
+        print("  ".join(str(c).ljust(x) for c, x in zip(r, w)))
     return 0
 
 
@@ -760,7 +838,7 @@ def _jsonable(x):
 
 
 def cmd_fastchar(a):
-    """The parallel path. Same fits and same records as `char`, far fewer measurements."""
+    """The prescan path. Same fits and same records as `char`, far fewer measurements."""
     import json
     from pathlib import Path
 
@@ -987,7 +1065,16 @@ def cmd_capture(a):
         with _rig(a) as rig:
             rig.switch.dark()
             darks["off"] = dark(rig)  # laser off, mirror parked
-            per = a.settle + 0.15 * a.repeats + 0.2
+            if rig.batched:
+                per = a.settle + 0.15 * a.repeats + 0.2
+            else:
+                # the host visits each port: switch settle, one detector read (0.2 s for the
+                # SPDs) and the heater write it rides on. The batched figure above ran an
+                # SPD capture into the watchdog at 194/200 (2.4 s/state measured).
+                from .config import SWITCH_SETTLE_S
+
+                read_s = getattr(rig.board, "seconds", 0.15 * a.repeats)
+                per = a.settle + NMODE * (SWITCH_SETTLE_S + read_s + 0.3)
             with rig.session(duration_s=60 + len(V) * per * 2, power_dbm=a.dbm) as s:
                 rig.switch.dark()
                 darks["sw"] = dark(rig)  # laser on, mirror parked
@@ -1032,6 +1119,7 @@ def cmd_capture(a):
                         "note": f"{len(states)}/{len(V)} random states over the modelled "
                         "heaters, python -m pic capture",
                         "meta": {"seed": a.seed, "settle_s": a.settle},
+                        "vmax": list(VOLTAGE_MAX_CH),  # the fit refuses a capture under other ceilings
                     }
                 )
             )
@@ -1070,8 +1158,8 @@ def main(argv=None):
     common.add_argument(
         "--dbm",
         type=float,
-        default=8.0,
-        help="laser output power. 8 dBm is what the best archive set was "
+        default=None,
+        help="laser output power (default 5 dBm in SPD mode, 8 in PD mode). 8 dBm is what the best archive set was "
         "taken at and leaves the TIA headroom (brightest of 77,280 "
         "logged reads is 0.587 V); the 6x6's 13 dBm has never been "
         "put on this chip",
@@ -1091,6 +1179,17 @@ def main(argv=None):
     sub.add_parser(
         "selftest", help="run every model self-test; no hardware", parents=[common]
     ).set_defaults(fn=cmd_selftest)
+    sub.add_parser("ports", help="each USB instrument, its chip id and its port").set_defaults(
+        fn=cmd_ports
+    )
+    p = sub.add_parser(
+        "spdnorm", help="SPD dark, then every heater at max and each input read once", parents=[common]
+    )
+    p.add_argument("--write", action="store_true", help="write pic_data/spd_max.json")
+    p.add_argument("--settle", type=float, default=5.0)
+    p.add_argument("--count", type=float, default=2.0)
+    p.add_argument("--dark-s", dest="dark_s", type=float, default=10.0)
+    p.set_defaults(fn=cmd_spdnorm)
     sub.add_parser(
         "status", help="laser, TEC and calibration state", parents=[common]
     ).set_defaults(fn=cmd_status)
@@ -1191,7 +1290,7 @@ def main(argv=None):
     p = sub.add_parser(
         "fastchar",
         parents=[common],
-        help="prescan, schedule, then sweep heaters in parallel rounds",
+        help="prescan, then sweep each heater alone where it moved most",
     )
     p.add_argument("--write", action="store_true", help="write pic_data/calib.json")
     p.add_argument("--levels", type=int, default=21)
@@ -1432,6 +1531,8 @@ def main(argv=None):
     p.set_defaults(fn=cmd_capture)
 
     a = ap.parse_args(argv)
+    if getattr(a, "dbm", 0) is None:  # SPD counts were characterised at 5 dBm (dead time)
+        a.dbm = 5.0 if detector_mode() == "spd" else 8.0
     what = a.fn.__name__.removeprefix("cmd_")
     ev("job", "started", " ".join(sys.argv[1:] if argv is None else argv), cmd=what)
     try:

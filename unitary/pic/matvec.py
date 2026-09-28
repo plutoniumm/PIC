@@ -344,17 +344,24 @@ def measured_block_matmat(plan: BlockPlan, probe, X) -> tuple[np.ndarray, np.nda
     Xp[:N] = np.atleast_2d(X)
     Bh = np.zeros(((M + k - 1) // k * k, (N + k - 1) // k * k))
     Y = np.zeros(((M + k - 1) // k * k, Xp.shape[1]))
-    for (i, j), tile in _by_state(plan.tiles):
-        want = plan.B[i * k : (i + 1) * k, j * k : (j + 1) * k]
-        got = measured_matrix(tile, probe)
-        # PER TILE, not once for the assembled matrix: every tile is its own heater state
-        # with its own brightness, so a single global scalar leaves the differences between
-        # them behind as shape error in the sum. The scalar is measured off the photodiodes
-        # here, from the tile and its target only -- X never enters it.
-        _, a = shape_scale(got, want)
-        a = a if abs(a) > 1e-9 else 1.0
-        Bh[i * k : (i + 1) * k, j * k : (j + 1) * k] = got / a
-        Y[i * k : (i + 1) * k] += tile_matmat(tile, probe, Xp[j * k : (j + 1) * k]) / a
+    got, pred, part = {}, {}, {}
+    for (i, j), tile in _by_state(plan.tiles):  # one visit per heater program
+        got[i, j], pred[i, j] = measured_matrix(tile, probe), tile.predict()
+        part[i, j] = tile_matmat(tile, probe, Xp[j * k : (j + 1) * k])
+    # PER TILE: every tile is its own heater state with its own brightness. The scale is
+    # measured against the tile's own TABLE PREDICTION, never its target: fitting to the
+    # target let a badly hosted tile pick a near-zero scale and be divided up to 3x full
+    # scale (bench 2026-09-27). A tile whose reading does not even point along its own
+    # prediction gets the scale the tiles share.
+    shared = sum(float((g * pred[q]).sum()) for q, g in got.items()) / max(
+        sum(float((p * p).sum()) for p in pred.values()), 1e-18
+    )
+    shared = shared if shared > 0 else 1.0
+    for (i, j) in got:
+        _, a = shape_scale(got[i, j], pred[i, j])
+        a = a if a > 0 else shared
+        Bh[i * k : (i + 1) * k, j * k : (j + 1) * k] = got[i, j] / a
+        Y[i * k : (i + 1) * k] += part[i, j] / a
     return Bh[:M, :N], Y[:M]
 
 
@@ -918,7 +925,8 @@ def plan_from_table(
     1.1 and 25% for the plan fitted through the twin. More states is how that number falls;
     a better optimiser is not."""
     B = np.asarray(B, float)
-    rails = block_rails(B.shape[0]) if rails is None else rails
+    if rails is None:  # the table's own best pair, not the PD-era constant
+        rails = table_rails(transfers) if B.shape[0] == 2 else block_rails(B.shape[0])
     if mode == "split":
         pos = _pick_state(np.clip(B, 0, None), transfers, rails, floor)
         neg = _pick_state(np.clip(-B, 0, None), transfers, rails, floor)
@@ -950,7 +958,8 @@ def plan_block_from_table(
     """`theory.matmat.plan_block`, tile by tile, off the measured table."""
     B = np.atleast_2d(np.asarray(B, float))
     M, N = B.shape
-    rails = block_rails(k) if rails is None else rails
+    if rails is None:  # the table's own best pair, not the PD-era constant
+        rails = table_rails(transfers) if k == 2 else block_rails(k)
     Bp = np.zeros(((M + k - 1) // k * k, (N + k - 1) // k * k))
     Bp[:M, :N] = B
     tiles = {
@@ -967,6 +976,19 @@ def plan_block_from_table(
         if Bp[i * k : (i + 1) * k, j * k : (j + 1) * k].any()
     }
     return BlockPlan(B, k, rails, tiles)
+
+
+_RAILS_BY_TABLE = {}
+
+
+def table_rails(transfers: Transfers):
+    """The best 2x2 rail pair on THIS table, by `rank_rails`, cached per table file. The
+    stored `BEST_RAILS` was ranked on a PD-era table; a new readout or re-cabling moves it."""
+    key = (str(transfers.path), transfers.path.stat().st_mtime if transfers.path else None)
+    if key not in _RAILS_BY_TABLE:
+        top = rank_rails(transfers)[0]
+        _RAILS_BY_TABLE[key] = (tuple(top["out"]), tuple(top["in"]))
+    return _RAILS_BY_TABLE[key]
 
 
 def rank_rails(transfers: Transfers, k: int = 2, trials: int = 24, seed: int = 0) -> list[dict]:
@@ -1106,6 +1128,8 @@ def run(
     calib = calib or rig.calib
     box = box or bench_box(calib)
     _require_table(transfers, "matvec")
+    if rails is None and B.shape == (2, 2):
+        rails = table_rails(transfers)
     plan = plan_from_table(B, transfers, box, rails=rails, mode=mode, terms_k=terms_k)
     probe = rig_probe(
         rig, calib, power=power, dbm=dbm, normalise=normalise, repeats=repeats, cycles=cycles
@@ -1114,6 +1138,7 @@ def run(
         probe = CountedProbe(probe)
     rng = np.random.default_rng(seed)
     xs = [rng.normal(size=B.shape[1]) for _ in range(4)] if vectors is None else list(vectors)
+    xs = [np.asarray(x, float) / max(np.linalg.norm(x), 1e-12) for x in xs]  # unit norm
 
     measured = measured_matrix(plan, probe)
     m_shape, m_scale = shape_scale(measured, B)
@@ -1260,6 +1285,7 @@ def run_block(
         probe = CountedProbe(probe)
     rng = np.random.default_rng(seed)
     X = rng.normal(size=(B.shape[1], cols)) if X is None else np.atleast_2d(X)
+    X = X / np.maximum(np.linalg.norm(X, axis=0, keepdims=True), 1e-12)  # unit norm
     measured, Y = measured_block_matmat(plan, probe, X)
     err, sign = score(Y.ravel(), (B @ X).ravel())
     return {

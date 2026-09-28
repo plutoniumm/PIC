@@ -7,6 +7,7 @@ transport, a gate and markup. Run it, open the URL it prints, and the page talks
 
     python ui.py            # against the bench
     python ui.py --mock     # against the physical mock, no hardware
+    python ui.py --lan      # also reachable from the network (binds 0.0.0.0; default loopback)
     python ui.py --selftest # the gate below, on the mock, no server and no port
 
 `--mock` is the page's own toggle too, so one server serves both. A run opens the rig, does
@@ -66,6 +67,7 @@ import re
 import subprocess
 import sys
 import signal
+import socket
 import threading
 from collections import deque
 from contextlib import contextmanager
@@ -338,12 +340,15 @@ def run_once(payload, default_mock):
     zero = np.flatnonzero(~X.any(axis=0))
     if zero.size:
         raise ValueError(f"x{zero[0] + 1} is all zeros: there is nothing to multiply")
+    # unit norm: every input carries the same total light, so vectors are comparable
+    X = X / np.linalg.norm(X, axis=0, keepdims=True)
 
+    hosting = payload.get("hosting") or hosting_mode()
+    if hosting not in HOSTINGS:
+        raise ValueError(f"hosting must be one of {', '.join(HOSTINGS)}, got {hosting!r}")
     kind = "mock" if mock else "hw"
-    # One press runs both hostings on the same rig, same U, same x, back to back, so the two
-    # measurements differ by the method and not by the minute they were taken in.
-    #
-    # They approximate different things, and each is scored against its own ideal. `tile`
+    # One press runs the hosting chosen in Settings. The two approximate different things,
+    # and the one run is scored against its own ideal. `tile`
     # recovers signed Ux through the shift and differential passes. `full` has the mesh hold U
     # outright, and one lit port at a time returns intensity, so what it can measure is
     # |U|^2 x -- non-negative by construction. Scoring it against Ux would mark it wrong for
@@ -382,25 +387,18 @@ def run_once(payload, default_mock):
                         "the photodiodes rose. Check the key, the fibre and the coupling."
                     )
                 box = box_for(rig, mock=mock)
-                # the tiling needs every output; with SPDs on some of them only the full 4x4
-                # runs, on the rows that have a detector
-                try:
-                    need_outputs(rig, "the tiled hosting")
-                    tab, no_tile = table_for(rig, box, mock=mock), None
-                except MissingOutputs as e:
-                    tab, no_tile = None, str(e)
-                rn = apply_unitary(rig, U, X, transfers=tab, hosting="full", box=box)
-                rt = None if no_tile else apply_unitary(
-                    rig, U, X, transfers=tab, hosting="tile", box=box
-                )
+                tab = None
+                if hosting == "tile":
+                    # the tiling needs every output; with SPDs on some of them only full runs
+                    try:
+                        need_outputs(rig, "the tiled hosting")
+                    except MissingOutputs as e:
+                        raise MissingOutputs(f"{e}\n\nSwitch Settings -> Hosting to Full.")
+                    tab = table_for(rig, box, mock=mock)
+                res = apply_unitary(rig, U, X, transfers=tab, hosting=hosting, box=box)
                 spd = rig.detectors == "spd"
 
-    nan = np.full(4, np.nan)
-
-    def series(res, c):
-        if res is None:
-            return {"device": list(nan), "ideal": list(nan), "kept": [None] * 4,
-                    "rel": np.nan, "sign": np.nan, "fid": np.nan}
+    def series(c):
         yd, yc = res.Y_device[:, c], res.Y_cpu[:, c]
         m = np.isfinite(yd)  # an output with no detector is not a reading
         return {
@@ -412,17 +410,14 @@ def run_once(payload, default_mock):
             "fid": _overlap(yd[m], yc[m]),
         }
 
-    Td, dmeta = _dpnn_transfer(rn.raw["volts"])  # the mode's own checkpoint
     vecs = []
     for c in range(X.shape[1]):
         ux = U @ X[:, c]
         vecs.append(
             {
                 "x": [float(v) for v in X[:, c]],
-                "normal": series(rn, c),
-                "tiled": series(rt, c),
+                "pic": series(c),
                 "computed": [float(v) for v in ux],
-                "dpnn": None if Td is None else [float(v) for v in Td @ X[:, c]],
                 "null": bool(np.linalg.norm(ux) == 0),
             }
         )
@@ -431,46 +426,42 @@ def run_once(payload, default_mock):
         "orth_dev": dev,
         "vectors": vecs,
         "detectors": "spd" if spd else "pd",
-        "outputs": np.flatnonzero(np.isfinite(rn.measured).all(1)).tolist(),
-        "tiled_error": no_tile,
-        "programs": {"normal": rn.programs, "tiled": rt.programs if rt else 0},
-        "spread": {"normal": rn.spread, "tiled": rt.spread if rt else None},
-        "reach": float(rn.raw.get("reachable", float("nan"))),
-        "dpnn": dmeta,
-        # the transfer the chip measured and the one the DPNN predicts for the same volts
-        "T": np.asarray(rn.raw["T"]).tolist(),
-        "dpnn_T": None if Td is None else np.asarray(Td).tolist(),
+        "hosting": hosting,
+        "outputs": np.flatnonzero(np.isfinite(res.measured).all(1)).tolist(),
+        "programs": res.programs,
+        "spread": res.spread,
+        "reach": float(res.raw.get("reachable", float("nan"))),
+        "T": np.asarray(res.measured).tolist(),  # the transfer the chip measured
     }
     if not mock:  # into the mode's own log: an SPD run never moves a PD trend
-        _record_errors(vecs, rn.raw["T"], Td)
+        _record_errors(vecs, hosting)
     return out
 
 
 ERRORS_PATH = Path("pic_data/errors.jsonl")
+HOSTINGS = ("full", "tile")
+HOSTING_PATH = Path("pic_data/hosting.json")
+_PREDICTOR = {"full": "heaters", "tile": "table"}  # the errors.jsonl column each one feeds
 
 
-def _record_errors(vecs, T=None, Td=None):
-    """One line per bench run: the live error of each predictor, measured on the chip. The
-    full hosting leans only on the heater calibration, the tiled one on the transfer table,
-    and the DPNN is judged on the transfer matrix the chip measured for the full hosting --
-    not on T x, which with a signed x can nearly cancel and make a close T look far off."""
-    med = lambda xs: float(np.median(xs)) if xs else None
-    full = [v["normal"]["fid"] for v in vecs if np.isfinite(v["normal"]["fid"])]
-    tiled = [v["tiled"]["fid"] for v in vecs if np.isfinite(v["tiled"]["fid"])]
-    dpnn = (
-        [float(np.linalg.norm(np.subtract(Td, T)) / max(np.linalg.norm(T), 1e-12))]
-        if T is not None and Td is not None and np.isfinite(T).all()  # all rows read
-        else []
-    )
+def hosting_mode() -> str:
+    saved, _, _ = _read_json(HOSTING_PATH)
+    m = saved.get("mode") if isinstance(saved, dict) else None
+    return m if m in HOSTINGS else "full"
+
+
+def _record_errors(vecs, hosting):
+    """One line per bench run: the live error of the predictor the run leaned on, measured on
+    the chip. Full leans only on the heater calibration, tiled on the transfer table; the
+    other predictor was not exercised, so it gets no entry."""
+    fs = [v["pic"]["fid"] for v in vecs if np.isfinite(v["pic"]["fid"])]
     try:
         chip = TEC.mean()[0]
     except Exception:
         chip = None
     rec = {
         "t": time.time(),
-        "heaters": med(full),
-        "table": med(tiled),
-        "dpnn": -med(dpnn) if dpnn else None,
+        _PREDICTOR[hosting]: float(np.median(fs)) if fs else None,
         "chip_c": chip,
     }  # every column: higher is better
     p = data_path(ERRORS_PATH)
@@ -506,40 +497,6 @@ def _live(pid, since):
     )
     declined = len(vals) >= 2 * RECENT and p_worse(vals[-RECENT:], vals[:-RECENT]) < ALPHA
     return now, best, len(vals), declined
-
-
-DPNN_CKPT = Path("runs/hw")
-_DPNN = {}  # checkpoint mtime -> model, so a retrain is picked up without a restart
-
-
-def _dpnn_transfer(volts):
-    """The direct 4x4's transfer as the DPNN predicts it -> (T, meta), or (None, why).
-
-    The same readout path as `pic.apply._direct_4x4`: one port lit at a time, the stored dark
-    subtracted, then Sinkhorn, so the DPNN bar and the Full bar differ only by the model."""
-    ck = data_path(DPNN_CKPT) / "ckpt.pt"
-    if not ck.exists():
-        return None, {"error": f"no DPNN checkpoint at {ck}: python -m learn.train_hw"}
-    try:
-        import torch
-
-        from pic.model import DpnnModel
-        from theory.calib import Calibration
-        from theory.drift import sinkhorn
-
-        key = ck.stat().st_mtime
-        if key not in _DPNN:
-            _DPNN.clear()
-            _DPNN[key] = DpnnModel(str(ck.parent))
-        m = _DPNN[key]
-        dark = np.asarray(Calibration.load_or_nominal().pd_offset, float)[:4]
-        T = np.stack([m.predict(volts, port=j)[:4] for j in range(4)], axis=1)
-        T = np.clip(T - dark[:, None], 1e-12, None)
-        T = sinkhorn(torch.as_tensor(T, dtype=torch.float64)).numpy()
-        meta = json.loads((ck.parent / "meta.json").read_text())
-        return T, {"source": meta.get("source"), "r2": meta.get("r2_dpnn")}
-    except Exception as e:  # the run stands without it; the page says why the bar is missing
-        return None, {"error": f"{type(e).__name__}: {e}"}
 
 
 def _overlap(a, b) -> float:
@@ -752,6 +709,29 @@ def placement_text() -> str:
     return "\n".join(out)
 
 
+def _spd_rows():
+    """One row per mapped SPD from `pic spdnorm`: dark and the reference per input, counts/s."""
+    from pic.config import spd_map
+    from spd.array import MAX_PATH
+
+    d, _, _ = _read_json(str(MAX_PATH))
+    d = d or {}
+    out = []
+    for sid, slot in sorted(spd_map().items(), key=lambda kv: kv[1]):
+        e = d.get(sid) or {}
+        by = e.get("rate_by_port") or {}
+        out.append(
+            {
+                "i": slot,
+                "id": sid,
+                "dark": e.get("dark"),
+                "ports": [by.get(str(p)) for p in range(4)],  # one per input port
+                "at": e.get("rate_by_port_at"),
+            }
+        )
+    return out
+
+
 def calib_state():
     """`pic_data/calib.json` and `char_results.json` joined onto the live heater map.
 
@@ -936,6 +916,7 @@ def calib_state():
     return {
         "heaters": rows,
         "pds": pds,
+        "spds": _spd_rows() if detector_mode() == "spd" else None,
         "counts": counts,
         "warnings": warnings,
         "mesh": [list(p) for p in MESH],
@@ -1008,11 +989,15 @@ def _job_laser(evs):
 HISTORY = LOG_DIR / "history.json"  # how long each finished job took, for the next estimate
 
 
+# before a job has any history: startup, the TEC gate and the reads it is built from
+FIRST_GUESS = {"spdnorm": 60.0}  # 10 s dark + 5 s heat step + 4 x (2 s read + switch)
+
+
 def _expected(kind, mock):
-    """Median of this job's successful past durations on the same rig, or None."""
+    """Median of this job's successful past durations on the same rig, else a first guess."""
     h, _, _ = _read_json(HISTORY)
     s = [e["secs"] for e in (h or []) if e["kind"] == kind and e["mock"] == mock and e["rc"] == 0]
-    return float(np.median(s)) if s else None
+    return float(np.median(s)) if s else FIRST_GUESS.get(kind)
 
 
 def _record(rc):
@@ -1070,19 +1055,12 @@ def _progress(kind, evs, rows):
     done = sum(v == "done" for v in rows.values())
     if kind == "capture":
         return frac("table", "progress")
+    if kind == "spdnorm":
+        return frac("pd", "step")
     if kind == "fastchar":  # prescan is the first half, the per-heater fits the second
         return 0.5 * frac("heater", "prescan") + 0.5 * (done / len(rows) if rows else 0.0)
     if kind in ("char", "recal"):
         return done / len(rows) if rows else None
-    if kind == "learn.train_hw":
-        # rounds finished (k of n on the round event) plus how far into this round it is
-        r = next((e for e in reversed(evs) if e.get("c") == "dpnn" and e.get("s") == "round"), None)
-        if not r or not r.get("n"):
-            return 0.0
-        i = evs.index(r)
-        smp = [e for e in evs[i:] if e.get("c") == "dpnn" and e.get("s") == "sample" and e.get("n")]
-        within = min(1.0, smp[-1]["k"] / smp[-1]["n"]) if smp else 0.0
-        return min(1.0, (r["k"] + within) / r["n"])
     return None
 
 
@@ -1091,16 +1069,12 @@ def _stage(kind, evs, rows):
     last = lambda c, *s: next(
         (e for e in reversed(evs) if e.get("c") == c and e.get("s") in s and e.get("n")), None
     )
-    if kind == "learn.train_hw":
-        r = next((e for e in reversed(evs) if e.get("c") == "dpnn" and e.get("s") == "round"), None)
-        if not r:
-            return None
-        smp = [e for e in evs[evs.index(r) :] if e.get("s") == "sample" and e.get("n")]
-        pts = f" · {smp[-1]['k']}/{smp[-1]['n']} pts" if smp else ""
-        return f"round {r.get('round', r['k'] + 1)}/{r['n']}{pts}"
     if kind == "capture":
         e = last("table", "progress")
         return e and f"{e['k']}/{e['n']} states"
+    if kind == "spdnorm":  # dark, then P0..P3: which of the five it is on
+        e = next((e for e in reversed(evs) if e.get("c") == "pd" and e.get("s") == "step"), None)
+        return e and f"{e.get('step')} · step {min(e['k'] + 1, e['n'])}/{e['n']}"
     if kind in ("fastchar", "char", "recal"):
         done = sum(v == "done" for v in rows.values())
         e = last("heater", "prescan")
@@ -1218,7 +1192,7 @@ def _tec_ready(what):
 
 
 def _kind(cmd):
-    """`python -m pic fastchar ...` -> fastchar; `python -m learn.train_hw ...` -> learn.train_hw."""
+    """`python -m pic fastchar ...` -> fastchar; `python -m <pkg> ...` -> <pkg>."""
     p = cmd.split()
     return p[3] if p[2] == "pic" else p[2]
 
@@ -1259,7 +1233,7 @@ def _start_job(cmd, what, mock):
     return {"ok": True, "cmd": cmd, "pid": p.pid}
 
 
-CHAIN_LEVELS = ("sweep", "pd", "dpnn", "table")
+CHAIN_LEVELS = ("sweep", "pd", "table")
 CHAIN = {}  # the running sequence: steps, the step it is on, and whether Stop was pressed
 
 
@@ -1307,11 +1281,10 @@ def recal_request(payload):
             "recenter": ("python -m pic recal --write", "recenter"),
             "table": ("python -m pic sync", "table sync"),
             "capture": ("python -m pic capture --states 200", "table recapture"),
-            # the detectors with every heater at 0 V: dark level and full scale per PD
-            "pd": ("python -m pic calibrate --write", "PD sweep"),
-            # physics with input gain and rank-2 crosstalk: held-out R^2 0.95 at 200 points,
-            # 0.965 at 400 (bench, 2026-09-25); a checkpoint at 200, done at 400
-            "dpnn": ("python -m learn.train_hw --rounds 2 --n-per-round 200", "DPNN training"),
+            # the detectors' scale: PD dark and full scale, or SPD dark and max per input
+            "pd": ("python -m pic calibrate --write", "PD sweep")
+            if detector_mode() == "pd"
+            else ("python -m pic spdnorm --write", "SPD normalisation"),
         }.get(level, (None, None))
         if cmd is None:
             raise ValueError(f"no such calibration level: {level!r}")
@@ -1335,7 +1308,6 @@ def recal_request(payload):
     if payload.get("mock") is True:
         # a mock run must never overwrite the bench's calibration files
         cmd = cmd.replace(" --write", "") + " --mock"
-        cmd += " --out runs/mock" if "train_hw" in cmd else ""  # never over the bench model
         cmd += " --dry-run" if " sync" in cmd else ""
         r = _start_job(cmd, what, True)
         JOB["level"] = level
@@ -1387,6 +1359,13 @@ CHECKS = {
         "NUM_ADC_RAW and ADC_REF_V in pic/config.py. Opening the board leaves "
         "every DAC channel at 0 V",
     },
+    "dac": {
+        "name": "DAC pins",
+        "auto": True,
+        "tip": "`R` reads every DAC channel back after writing each a distinct small code "
+        "(<= 0.16 V, sub-mA): proves the chip is selected and holds what it is sent. Blind "
+        "to a broken wire or heater past the DAC pin. Re-run every 5 min while idle",
+    },
     "switch": {
         "name": "Optical switch",
         "auto": True,
@@ -1406,12 +1385,6 @@ CHECKS = {
         "tip": "key, interlocks, driver enable, setpoint and measured diode current. "
         "Read-only: nothing here enables the diode, and laser_status == 1 "
         "does not prove emission -- only a photodiode rise does",
-    },
-    "dpnn": {
-        "name": "DPNN",
-        "auto": True,
-        "tip": f"the surrogate at {DPNN_CKPT} ({data_path(DPNN_CKPT, 'spd')} in SPD mode): trained on the chip, and one inference (all four "
-        "ports at 0 V) that must come back finite",
     },
     "table": {
         "name": "Transfer table",
@@ -1454,7 +1427,7 @@ SPD_DARK_HZ = (2.0, 200.0)
 
 # Every one of these needs the board open, so they share one open rather than resetting the
 # Arduino once per row.
-BOARD_CHECKS = ("board", "switch", "pds")
+BOARD_CHECKS = ("board", "dac", "switch", "pds")
 STATUSES = ("pass", "warn", "fail", "unknown")
 
 
@@ -1565,6 +1538,37 @@ def _ck_ports(mock: bool):
     if missing:
         return _row("ports", "warn", "missing " + ", ".join(missing), detail=val)
     return _row("ports", "pass", ", ".join(r for _, r, _ in found), detail=val)
+
+
+def _ck_dac(board, banner, mock):
+    """Write each channel a distinct small voltage, read every DAC register back, zero.
+
+    Distinct codes, because a board that just opened holds zeros everywhere and a dead SDO
+    line also reads zeros: equal-to-zero would pass on exactly the fault being looked for.
+    Bonded pairs get their partner's value, as the firmware mirrors them."""
+    from pic.config import NUM_DAC, mirror_pairs
+    from pic.interface import PICError
+
+    v = mirror_pairs(0.01 * (1 + np.arange(NUM_DAC)))
+    try:
+        board.measure_raw(v)
+        rb = board.readback()
+    except PICError as e:
+        return _row("dac", "warn" if "no readback" in str(e) else "fail", str(e))
+    finally:
+        try:
+            board.set_zero()
+        except Exception:
+            pass
+    if any(r["id"] in (0, 0xFFFF) for r in rb):
+        return _row("dac", "fail", "no readback: check the DAC SDO wire")
+    # The chip id proves the DAC is selected and answering, which is the fault class this
+    # row exists for. The per-channel data registers read 0 on the bench (2026-09-27) while
+    # the heaters demonstrably drive, so their comparison is shown but not yet judged.
+    bad = [b for r in rb for b in r["bad"]]
+    ok, n = sum(r["ok"] for r in rb), sum(r["n"] for r in rb)
+    detail = f"channel registers {ok}/{n} match (not judged)"
+    return _row("dac", "pass", "DAC answering", detail=detail)
 
 
 def _ck_board(board, banner, mock):
@@ -1870,7 +1874,6 @@ _REC = {
     "table": lambda st, v: (
         "capture" if "worse than answering zero" in v else "table" if st != "pass" else None
     ),
-    "dpnn": lambda st, v: "dpnn" if st != "pass" else None,
     "pds": lambda st, v: "pd" if st != "pass" else None,
 }
 
@@ -1889,15 +1892,33 @@ def _ck_pds_pred():
     return ("warn" if not when or when[:10] != time.strftime("%Y-%m-%d") else "pass"), val
 
 
+def _ck_spds_pred():
+    """The SPDs as a predictor: every mapped SPD with a dark and a max for all four inputs,
+    and how fresh the oldest one is."""
+    from pic.config import spd_map
+    from spd.array import MAX_PATH
+
+    d, _, err = _read_json(str(MAX_PATH))
+    if d is None:
+        return "fail", err
+    ids = list(spd_map())
+    have = [k for k in ids if len((d.get(k) or {}).get("rate_by_port") or {}) == 4 and d[k].get("dark")]
+    when = min((d[k].get("rate_by_port_at", "") for k in have), default="")
+    val = f"{len(have)}/{len(ids)} SPDs normalised per input · last: {when or 'never'}"
+    if len(have) < len(ids):
+        return "fail", val
+    return ("warn" if when[:10] != time.strftime("%Y-%m-%d") else "pass"), val
+
+
 def predictors():
     """Each thing a run predicts from, with its age, best known error and what to do next.
     The same checks the diagnostics run, so the two tabs cannot disagree."""
     st, val = _ck_heaters()
     out = [{"id": "heaters", "name": "Heaters", "status": st, "value": val}]
-    if detector_mode() == "pd":  # the SPDs' scale is `python -m spd max`, not a PD sweep
-        pst, pval = _ck_pds_pred()
-        out.append({"id": "pds", "name": "Photodiodes", "status": pst, "value": pval})
-    for i in ("table", "dpnn"):
+    spd = detector_mode() == "spd"
+    pst, pval = _ck_spds_pred() if spd else _ck_pds_pred()
+    out.append({"id": "pds", "name": "SPDs" if spd else "Photodiodes", "status": pst, "value": pval})
+    for i in ("table",):
         r = _SOLO_FN[i](False)
         # the tile's own text, with the age and the quality the diagnostics card leaves out
         out.append({"id": i, "name": r["name"], "status": r["status"], "value": r.get("pred") or r["value"]})
@@ -1914,34 +1935,15 @@ _LEVEL_KIND = {
     "pd": "calibrate",
     "table": "sync",
     "capture": "capture",
-    "dpnn": "learn.train_hw",
 }
 
 
 def estimates():
-    est = {lv: _expected(k, False) for lv, k in _LEVEL_KIND.items()}
+    kinds = {**_LEVEL_KIND, "pd": "calibrate" if detector_mode() == "pd" else "spdnorm"}
+    est = {lv: _expected(k, False) for lv, k in kinds.items()}
     known = [est[lv] for lv in CHAIN_LEVELS]
     est["all"] = sum(known) if all(x is not None for x in known) else None
     return est
-
-
-def _ck_dpnn(mock):
-    """Is there a DPNN worth believing, and does it answer?"""
-
-    T, meta = _dpnn_transfer(np.zeros(16))
-    if T is None:
-        return _row("dpnn", "fail", meta["error"])
-    if not np.all(np.isfinite(T)):
-        return _row("dpnn", "fail", "inference returned NaN")
-    ck = (data_path(DPNN_CKPT) / "ckpt.pt").stat().st_mtime
-    pred = f"R² {meta.get('r2') or 0.0:.2f} · age: {ago(ck)}"
-    if meta.get("source") != "hw":
-        msg = "trained on the simulator"
-        return {**_row("dpnn", "fail", msg), "pred": f"{pred} · {msg}"}
-    if _live("dpnn", ck)[3]:
-        msg = "error vs chip rising, retrain"
-        return {**_row("dpnn", "warn", msg), "pred": f"{pred} · error vs chip rising"}
-    return {**_row("dpnn", "pass", "answering"), "pred": pred}
 
 
 def _ck_table(mock):
@@ -2024,11 +2026,10 @@ def _ck_tecspi(mock, **kw):
     return _row("tecspi", "pass", "LT8722 answering")
 
 
-_BOARD_FN = {"board": _ck_board, "switch": _ck_switch, "pds": _ck_pds}
+_BOARD_FN = {"board": _ck_board, "dac": _ck_dac, "switch": _ck_switch, "pds": _ck_pds}
 _SOLO_FN = {
     "ports": _ck_ports,
     "laser": _ck_laser,
-    "dpnn": _ck_dpnn,
     "table": _ck_table,
     "tecpins": _ck_tecpins,
     "tecspi": _ck_tecspi,
@@ -2302,6 +2303,19 @@ def detectors_set(b):
         raise Busy(f"a pic process is measuring (pid {', '.join(map(str, busy))})")
     set_detector_mode(mode)
     ev("pd", "detectors", f"detectors -> {mode.upper()}", mode=mode)
+    return {"ok": True, "mode": mode}
+
+
+def hosting_set(b):
+    """Pick the hosting a Run press uses. Never mid-job, as with the detectors."""
+    mode = b.get("mode")
+    if mode not in HOSTINGS:
+        raise ValueError(f"hosting must be one of {', '.join(HOSTINGS)}, got {mode!r}")
+    if _BOARD_LOCK.locked() or job_state().get("running"):
+        raise Busy("a job is running; switch hosting once it is done")
+    HOSTING_PATH.parent.mkdir(parents=True, exist_ok=True)
+    HOSTING_PATH.write_text(json.dumps({"mode": mode}))
+    ev("server", "hosting", f"hosting -> {mode}", mode=mode)
     return {"ok": True, "mode": mode}
 
 
@@ -2602,6 +2616,31 @@ def rig_state():
 _HANGUP = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
 
 
+def _lan_ips() -> list[str]:
+    """This machine's non-loopback IPv4 addresses, for the URLs a --lan server prints."""
+    import ipaddress
+
+    import psutil
+
+    ips = []
+    for addrs in psutil.net_if_addrs().values():
+        for a in addrs:
+            if a.family == socket.AF_INET:
+                ip = ipaddress.ip_address(a.address)
+                if not (ip.is_loopback or ip.is_link_local) and a.address not in ips:
+                    ips.append(a.address)
+    return ips
+
+
+def _urls(host: str, port: int) -> list[str]:
+    out = [f"http://127.0.0.1:{port}"]
+    if host in ("0.0.0.0", ""):
+        out += [f"http://{ip}:{port}" for ip in _lan_ips()]
+    elif host not in ("127.0.0.1", "localhost"):
+        out.append(f"http://{host}:{port}")
+    return out
+
+
 class Server(ThreadingHTTPServer):
     daemon_threads = True  # Ctrl-C does not wait on a poll that is mid-flight
 
@@ -2688,6 +2727,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(tec_now)
         elif route == "/api/detectors":
             self._json(lambda: {"mode": detector_mode()})
+        elif route == "/api/hosting":
+            self._json(lambda: {"mode": hosting_mode()})
         elif route == "/api/job":
             self._json(job_state)
         elif route == "/api/diag":
@@ -2725,6 +2766,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/job/stop",
             "/api/tec",
             "/api/detectors",
+            "/api/hosting",
         ):
             return self._json(lambda: _raise(ValueError(f"no such endpoint: {route}")), 404)
         try:
@@ -2739,6 +2781,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(lambda: hw_set(body) if "hw" in body else op_set(body))
         elif route == "/api/detectors":
             self._json(lambda: detectors_set(body))
+        elif route == "/api/hosting":
+            self._json(lambda: hosting_set(body))
         elif route == "/api/job/stop":
             self._json(job_stop)
         elif route == "/api/diag":
@@ -2757,26 +2801,57 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _selftest(cols: int = 3):
-    """Both detector modes, against a mode file of its own: the bench's choice stays put."""
+    """Both detector modes, against mode and hosting files of their own: the bench's choice
+    stays put."""
     import tempfile
 
     import pic.config as pc
 
-    keep = pc.DETECTOR_PATH
+    global HOSTING_PATH
+    keep, keep_h = pc.DETECTOR_PATH, HOSTING_PATH
     with tempfile.TemporaryDirectory() as d:
         pc.DETECTOR_PATH = str(Path(d) / "detector_mode.json")
+        HOSTING_PATH = Path(d) / "hosting.json"
         try:
             assert detector_mode() == "pd"  # no file: yesterday's workflow
+            _check_hosting(d)
             out = _selftest_pd(cols)
             _check_spd()
         finally:
-            pc.DETECTOR_PATH = keep
+            pc.DETECTOR_PATH, HOSTING_PATH = keep, keep_h
     return out
+
+
+def _check_hosting(d):
+    """The Settings switch: default full, refuses nonsense, persists; a run records only the
+    predictor it leaned on."""
+    global ERRORS_PATH
+    assert hosting_mode() == "full"  # no file
+    for bad in ({"mode": "tiled"}, {}):
+        try:
+            hosting_set(bad)
+            raise AssertionError(f"accepted {bad}")
+        except ValueError:
+            pass
+    assert hosting_set({"mode": "tile"})["mode"] == "tile" == hosting_mode()
+    assert json.loads(HOSTING_PATH.read_text()) == {"mode": "tile"}
+    assert hosting_set({"mode": "full"})["mode"] == "full" == hosting_mode()
+    keep = ERRORS_PATH
+    ERRORS_PATH = Path(d) / "errors.jsonl"
+    try:
+        vecs = [{"pic": {"fid": f}} for f in (0.9, float("nan"), 0.7, 0.8)]
+        _record_errors(vecs, "full")
+        _record_errors(vecs, "tile")
+        a, b = map(json.loads, ERRORS_PATH.read_text().splitlines())
+    finally:
+        ERRORS_PATH = keep
+    assert a["heaters"] == 0.8 and "table" not in a, a
+    assert b["table"] == 0.8 and "heaters" not in b, b
 
 
 def _check_spd():
     """SPD mode on four mock SPDs: both hostings on every output, the Tools card naming each
-    slot's detector, the mode's own DPNN path. Then one SPD, as the bench has it today: the
+    slot's detector. Then one SPD, as the bench has it today: the
     full 4x4 on its row, the tiling refused by name."""
     from pic import interface
 
@@ -2790,33 +2865,38 @@ def _check_spd():
     rng = np.random.default_rng(1)
     U, _ = np.linalg.qr(rng.normal(size=(4, 4)))
     req = {"U": U.ravel().tolist(), "X": rng.normal(size=(2, 4)).tolist()}
-    out = run_once(req, True)
-    assert out["detectors"] == "spd" and out["outputs"] == [0, 1, 2, 3], out["outputs"]
-    assert out["tiled_error"] is None and out["programs"]["tiled"] == 4, out
-    # the mode's own checkpoint, never the photodiodes'
-    assert out["dpnn"].get("error") is None or "spd" in out["dpnn"]["error"], out["dpnn"]
-    for v in out["vectors"]:
-        assert all(np.isfinite(v["normal"]["device"])) and all(np.isfinite(v["tiled"]["device"]))
-    json.dumps(_nan_to_none(out), allow_nan=False)  # what the page receives
+    for h, n in (("full", 1), ("tile", 4)):
+        hosting_set({"mode": h})
+        out = run_once(req, True)
+        assert out["detectors"] == "spd" and out["outputs"] == [0, 1, 2, 3], out["outputs"]
+        assert out["hosting"] == h and out["programs"] == n, out
+        for v in out["vectors"]:
+            assert all(np.isfinite(v["pic"]["device"])), (h, v)
+        json.dumps(_nan_to_none(out), allow_nan=False)  # what the page receives
     r = diag_run(["pds"], mock=True)[0]
     assert r["name"] == "SPDs" and r["status"] == "pass", r
     assert r["value"] == " · ".join(f"PD{k} MOCKSPD{k}" for k in range(4)), r
-    assert "pds" not in [p["id"] for p in predictors()]
+    assert next(p for p in predictors() if p["id"] == "pds")["name"] == "SPDs"  # spdnorm tile
 
     keep = interface.MOCK_SPDS
     interface.MOCK_SPDS = {k: v for k, v in keep.items() if v[0] == 1}
     try:
+        try:  # tiled with SPDs on one output is refused by name, pointing at the switch
+            run_once(req, True)
+            raise AssertionError("tiled ran on one SPD")
+        except MissingOutputs as e:
+            assert "PD1 only" in str(e) and "Hosting to Full" in str(e), str(e)
+        hosting_set({"mode": "full"})
         out = run_once(req, True)
         r = diag_run(["pds"], mock=True)[0]
     finally:
         interface.MOCK_SPDS = keep
-    assert out["outputs"] == [1] and "PD1 only" in out["tiled_error"], out
-    assert out["programs"]["tiled"] == 0, out
+    assert out["outputs"] == [1] and out["programs"] == 1, out
     for v in out["vectors"]:
-        dev = np.asarray(v["normal"]["device"], float)
+        dev = np.asarray(v["pic"]["device"], float)
         assert np.flatnonzero(np.isfinite(dev)).tolist() == [1], dev
-        assert all(np.isnan(v["tiled"]["device"])) and np.isfinite(v["normal"]["fid"]), v
-        assert [k is None for k in v["normal"]["kept"]] == [r != 1 for r in range(4)]
+        assert np.isfinite(v["pic"]["fid"]), v
+        assert [k is None for k in v["pic"]["kept"]] == [r != 1 for r in range(4)]
     json.dumps(_nan_to_none(out), allow_nan=False)
     assert r["status"] == "pass" and r["value"] == "PD0 none · PD1 MOCKSPD1 · PD2 none · PD3 none", r
     detectors_set({"mode": "pd"})
@@ -2849,28 +2929,39 @@ def _selftest_pd(cols: int = 3):
             assert "tolerance" in str(e) and f"{orth_dev(bad):.3e}" in str(e), str(e)
 
     Xc = rng.normal(size=(cols, 4)).tolist()
-    out = run_once({"U": Uo.ravel().tolist(), "X": Xc}, True)
     legacy = run_once({"U": Uo.ravel().tolist(), "x": [1, 0, 0, 0]}, True)
-    assert len(legacy["vectors"]) == 1
+    assert len(legacy["vectors"]) == 1 and legacy["hosting"] == "full"
+    try:
+        run_once({"U": Uo.ravel().tolist(), "x": [1, 0, 0, 0], "hosting": "both"}, True)
+        raise AssertionError("accepted hosting=both")
+    except ValueError as e:
+        assert "hosting" in str(e), str(e)
 
-    # one press runs both: the mesh holding U (one program) and U tiled (four), same x
-    assert out["programs"] == {"normal": 1, "tiled": 4}, out["programs"]
-    assert out["rails_out"] == [0, 1, 2, 3], out["rails_out"]
-    V = out["vectors"]
-    assert len(V) == cols
-    for k in ("normal", "tiled"):
-        sp = out["spread"][k]
-        assert sp["n"] == cols and sp["min"] <= sp["median"] <= sp["max"], (k, sp)
-    for i, v in enumerate(V):
-        assert v["x"] == [float(q) for q in Xc[i]], i
-        for k in ("normal", "tiled"):
-            m = v[k]
-            assert len(m["device"]) == len(m["ideal"]) == len(m["kept"]) == 4, (k, i)
-            assert abs(np.mean(m["kept"]) - m["sign"]) < 1e-12, (k, i)
-        # each measured series is scored against its OWN ideal: the computed bar is Ux,
-        # tiled approximates that, and normal can only approximate |U|^2 x
-        assert np.allclose(v["tiled"]["ideal"], v["computed"]), i
-        assert np.allclose(v["normal"]["ideal"], np.abs(Uo) ** 2 @ np.asarray(Xc[i])), i
+    # one press runs the hosting Settings holds: the mesh holding U (one program), or U
+    # tiled (four); each scored against its own ideal
+    runs = {}
+    for h, n in (("full", 1), ("tile", 4)):
+        hosting_set({"mode": h})
+        o = runs[h] = run_once({"U": Uo.ravel().tolist(), "X": Xc}, True)
+        assert o["hosting"] == h and o["programs"] == n, (h, o["programs"])
+        assert o["rails_out"] == [0, 1, 2, 3], o["rails_out"]
+        sp = o["spread"]
+        assert sp["n"] == cols and sp["min"] <= sp["median"] <= sp["max"], (h, sp)
+        V = o["vectors"]
+        assert len(V) == cols
+        for i, v in enumerate(V):
+            want = np.asarray(Xc[i], float) / np.linalg.norm(Xc[i])
+            assert np.allclose(v["x"], want), i
+            assert set(v) == {"x", "pic", "computed", "null"}, v.keys()
+            m = v["pic"]
+            assert len(m["device"]) == len(m["ideal"]) == len(m["kept"]) == 4, (h, i)
+            assert abs(np.mean(m["kept"]) - m["sign"]) < 1e-12, (h, i)
+            # tiled approximates Ux; full can only approximate |U|^2 x
+            ideal = v["computed"] if h == "tile" else np.abs(Uo) ** 2 @ want
+            assert np.allclose(m["ideal"], ideal), (h, i)
+        json.dumps(_nan_to_none(o), allow_nan=False)
+    hosting_set({"mode": "full"})
+    out = runs["tile"]
 
     s = calib_state()
     _check_calib(s)
@@ -2949,10 +3040,10 @@ def _selftest_pd(cols: int = 3):
         f"4 dp {orth_dev(np.round(Uo, 4)):.1e} refused, "
         f"6 dp {orth_dev(np.round(Uo, 6)):.1e} accepted"
     )
-    for h in ("normal", "tiled"):
-        sp = out["spread"][h]
+    for h, o in runs.items():
+        sp = o["spread"]
         print(
-            f"{h}: {len(out['vectors'])} vectors, {out['programs'][h]} program(s), rel err "
+            f"{h}: {len(o['vectors'])} vectors, {o['programs']} program(s), rel err "
             f"min {sp['min']:.3f} median {sp['median']:.3f} max {sp['max']:.3f}, sign "
             f"{sp['sign_mean']:.0%} mean / {sp['sign_min']:.0%} worst"
         )
@@ -3089,7 +3180,7 @@ def _check_states():
             },
             {"tec": "settling", "job": "running"},
         ),
-        ({"job": {"running": True, "waiting": True, "what": "DPNN"}}, {"job": "waiting for TEC"}),
+        ({"job": {"running": True, "waiting": True, "what": "capture"}}, {"job": "waiting for TEC"}),
         (
             {"job": {"running": False, "rc": 1, "what": "capture", "reason": "TECError: x"}},
             {"job": "failed"},
@@ -3292,7 +3383,12 @@ def main():
         "the endpoint drives current through a heater.",
     )
     p.add_argument("--port", type=int, default=8744)
+    # Loopback by default: anyone who reaches this page can drive the laser and heaters.
+    p.add_argument("--host", default="127.0.0.1", help="address to bind (default loopback only)")
+    p.add_argument("--lan", action="store_true", help="bind 0.0.0.0: reachable from the network")
     a = p.parse_args()
+    if a.lan:
+        a.host = "0.0.0.0"
     if not a.selftest:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         fh = open(LOG_DIR / "server.log", "a")
@@ -3332,13 +3428,16 @@ def main():
             ev("server", "tec", "holding the TEC port; jobs read it through the server", "ok")
         except Exception as e:
             ev("server", "tec", "TEC not opened", "error", error=_short(e))
-    srv = Server(("127.0.0.1", a.port), Handler)
+    srv = Server((a.host, a.port), Handler)
+    urls = _urls(a.host, a.port)
     ev(
         "server",
         "listening",
-        f"UI at http://127.0.0.1:{a.port} (ctrl-c to stop)",
-        "ok",
+        f"UI at {'  '.join(urls)} (ctrl-c to stop)",
+        "ok" if a.host in ("127.0.0.1", "localhost") else "warn",
         armed=bool(a.arm),
+        host=a.host,
+        urls=urls,
     )
     try:
         srv.serve_forever()

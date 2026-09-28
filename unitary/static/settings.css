@@ -17,13 +17,17 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px;
+  padding: 14px;
   border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--well);
+  border-radius: var(--r-tile);
+  background: var(--tile);
+  box-shadow:
+    inset 0 1px 0 rgba(230, 250, 253, 0.05),
+    0 6px 16px -12px rgba(0, 0, 0, 0.9);
   transition:
     opacity 0.3s,
-    border-color 0.3s;
+    border-color 0.3s,
+    box-shadow 0.3s;
 }
 .ptile.s-pass {
   --st: var(--ok);
@@ -42,7 +46,10 @@
       color-mix(in srgb, var(--st) 14%, transparent),
       transparent 70%
     ),
-    var(--well);
+    var(--tile);
+  box-shadow:
+    inset 0 1px 0 rgba(230, 250, 253, 0.05),
+    0 0 24px -12px var(--st);
 }
 .ptop {
   display: flex;
@@ -122,6 +129,8 @@
   font-size: 28px;
   font-weight: 500;
   line-height: 1.1;
+  color: var(--ink);
+  letter-spacing: -0.01em;
 }
 .pq small {
   font-size: 16px;
@@ -141,6 +150,10 @@
   display: block;
   height: 100%;
   border-radius: 3px;
+}
+.pmeter i,
+.pseg i.on {
+  box-shadow: 0 0 8px -1px color-mix(in srgb, var(--st) 70%, transparent);
 }
 /* the threshold: the fill has to pass this line */
 .pmeter s {
@@ -280,6 +293,7 @@
   display: block;
   height: 100%;
   background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
   transition: width 1.8s linear;
 }
 .pjob.bad {
@@ -327,8 +341,9 @@ tr.q-running td:first-child {
 .bgroup {
   display: inline-flex;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--r-ctl);
   overflow: hidden;
+  background: var(--pane-2);
 }
 .bgroup button {
   border: 0;
@@ -346,4 +361,20 @@ tr.q-running td:first-child {
   align-items: center;
   gap: 8px;
   margin-left: auto; /* header actions together on the right; the CTA last */
+}
+/* Mode: the two switches and the TEC target on one line, the number last */
+.mrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+.mrow .dbm {
+  margin-left: auto;
+}
+.mrow .dbm input {
+  height: var(--btn);
+}
+.eyebrow.sub {
+  margin-top: 22px;
 }

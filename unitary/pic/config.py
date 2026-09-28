@@ -69,7 +69,7 @@ def pin_detectors(mode: str):
 
 
 def data_path(p, mode=None) -> Path:
-    """`p` as the detector mode in force owns it. Calibration, fits, transfer tables, DPNN
+    """`p` as the detector mode in force owns it. Calibration, fits, transfer tables, surrogate
     checkpoints and the error log are all readout-specific, so SPD mode keeps its own under
     pic_data/spd/ and runs/spd/, and flipping back to PD finds PD's exactly as they were."""
     p = Path(p)

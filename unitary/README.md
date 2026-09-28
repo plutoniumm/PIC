@@ -18,11 +18,13 @@ Or directly, on any OS (Windows has no `make`):
 ```bash
 python bootstrap.py          # .venv with numpy, scipy, pyserial, psutil, torch (uv if installed)
 python bootstrap.py run      # UI on http://127.0.0.1:8744, armed; turns the laser off on start
+python bootstrap.py run --lan  # also reachable from the network; prints http://<lan-ip>:8744
 python bootstrap.py test     # every self-test, no hardware
 ```
 
-On macOS and Linux `make`, `make run` and `make test` do the same. Everything runs in Python's
-UTF-8 mode (`-X utf8`), because Windows' default cp1252 cannot carry the ±, ° and φ in our logs.
+On macOS and Linux `make`, `make run` and `make test` do the same (`make run ARGS=--lan`).
+`--lan` exposes laser and heater control to anyone on the network: use it on a trusted LAN only.
+Everything runs in Python's UTF-8 mode (`-X utf8`), because Windows' default cp1252 cannot carry the ±, ° and φ in our logs.
 
 CLI, from inside this directory: `.venv/bin/python -X utf8 -m pic {selftest,status,measure,tec,
 char,fastchar,capture,program,matvec,...} [--mock]` (`.venv\Scripts\python.exe` on Windows). In a
@@ -63,11 +65,11 @@ output with no SPD.
 | Readout law | `pd_gain`/`pd_offset` in calib.json | identity; per-SPD dark/max in `pic_data/spd_max.json` |
 | Calibration, fits | `pic_data/calib.json`, `char_results.json` | `pic_data/spd/…` (first load starts from PD's heater law) |
 | Transfer tables | `pic_data/sessions/` | `pic_data/spd/sessions/` |
-| DPNN | `runs/hw`, `runs/table` | `runs/spd/hw`, `runs/spd/table` |
+| Physics fit (`learn.train_hw`) | `runs/hw`, `runs/table` | `runs/spd/hw`, `runs/spd/table` |
 | Error log | `pic_data/errors.jsonl` | `pic_data/spd/errors.jsonl` |
 
 `pic.config.data_path` does the routing; flipping back to PD finds PD's files untouched.
-Everything that needs all four outputs (char, fastchar, recal, DPNN training, capture/sync,
+Everything that needs all four outputs (char, fastchar, recal, physics-fit training, capture/sync,
 tiled runs, normalise sweep) refuses with fewer SPDs and names the missing outputs; the full
 4x4 run then returns the covered rows only. An SPD on USB that is not in `pic_data/spd_map.json`
 is refused by id. `python -m pic selftest` runs the whole SPD pipeline on four mock SPDs.
@@ -83,7 +85,7 @@ is refused by id. `python -m pic selftest` runs the whole SPD pipeline on four m
    dark with the switch parked). All heaters at max is not the brightest state.
 6. Settings → Detectors → SPD. Tools → SPDs card must pass (every slot mapped, on USB, dark
    2–200 /s, dark+max stored).
-7. Characterize (fastchar), then DPNN training and table capture, then runs.
+7. Characterize (fastchar), then table capture, then runs.
 
 ### Bench facts, 2026-09-26
 
@@ -100,7 +102,7 @@ is refused by id. `python -m pic selftest` runs the whole SPD pipeline on four m
 ### Not yet run on hardware
 
 - Everything SPD-mode beyond one SPD's counts per input port: `assign`, per-id `max`, `dark`,
-  the SPDs card, SPD characterization/DPNN/table/runs, more than one SPD at once, dropout handling.
+  the SPDs card, SPD characterization/table/runs, more than one SPD at once, dropout handling.
 - Fit gates are in volts (`characterize.MIN_AMPLITUDE_V` 11 mV, fastchar's ADC-step noise floor)
   and apply unchanged to SPD's 0..1 values; mock SPD fits match PD fits, the bench is unchecked.
 - The TEC hardware-target input (Settings). The Tools TEC pins/SPI rows: checked once by a direct
