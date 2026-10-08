@@ -633,7 +633,9 @@ def cmd_recal(a):
         raise SystemExit(f"no {res_path} -- run `python -m pic char --write` first")
     res = json.loads(res_path.read_text())
     cal = Calibration.load_or_nominal()
-    fits = {int(k): v for k, v in res.items() if v.get("ok")}
+    from .layout import SWEEP_DACS
+
+    fits = {int(k): v for k, v in res.items() if v.get("ok") and int(k) in SWEEP_DACS}
     if not fits:
         raise SystemExit("no characterized channels to re-anchor")
 

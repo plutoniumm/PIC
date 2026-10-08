@@ -21,10 +21,10 @@ from .acquisition import settled_read
 from .config import ADC_BITS, ADC_REF_V, VOLTAGE_MAX_CH
 from .characterize import NO_FIT, best_fringe, fringe, read_noise
 from .config import mirror_pairs
-from .layout import ACTIVE_DACS, LABEL_OF_DAC, N_HEATERS
+from .layout import LABEL_OF_DAC, N_HEATERS, SWEEP_DACS
 from .log import ev
 from theory.clements import NMODE
-from theory.stat import accepts, p_amplitude, p_shape
+from theory.stat import accepts, p_amplitude, p_shape, range_floor
 
 # Three, now that the ceiling is 4.95 V and every fitted Vpi is 3.9-7.5: the widest span on
 # this mesh is under one pi, and three samples cannot alias a fringe that never repeats. Five
@@ -140,7 +140,7 @@ def run(
     from .interface import need_outputs
 
     need_outputs(pic, "heater characterization")
-    channels = [int(c) for c in (ACTIVE_DACS if channels is None else channels)]
+    channels = [int(c) for c in (SWEEP_DACS if channels is None else channels)]
     # Lit, so RIN is in it: that is correct, because RIN is exactly what limits a fringe on
     # a bright detector. PD0 carries ~23 mV of it and its traces are pure scatter, so a rank
     # that ignored it read every heater on a detector that could not resolve one.
@@ -184,9 +184,25 @@ def run(
                 port=int(ports[pi]),
             )
 
+    # A heater that moved no detector in the prescan is named and skipped, not swept and
+    # fitted to noise.
+    floor = range_floor(noise, PRESCAN_LEVELS, fps[channels[0]].size // NMODE)
     results = {}
     for c in channels:
         pi, bi, pd = best[c]
+        if not np.any(fps[c] > floor[None, None, :]):
+            results[c] = {**NO_FIT, "ok": False, "no_signal": True, "label": LABEL_OF_DAC[c]}
+            if verbose:
+                ev(
+                    "heater",
+                    "fit",
+                    f"{LABEL_OF_DAC[c]:<14} no signal: depth {1e3 * fps[c].max():.1f}mV is noise",
+                    "warn",
+                    pad=_pad(c),
+                    dac=c,
+                    ok=False,
+                )
+            continue
         members = {c: pd}  # one heater per sweep, never a shared round
         if switch is not None:
             switch.select(ports[pi])

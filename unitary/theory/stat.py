@@ -62,6 +62,20 @@ def p_worse(recent, earlier) -> float:
     return float(mannwhitneyu(recent, earlier, alternative="less").pvalue)
 
 
+def range_floor(sigma, n: int, m: int = 1, alpha: float = ALPHA):
+    """The max-minus-min that `n` reads of pure noise exceed with probability `alpha`, when
+    the largest of `m` such ranges is the one looked at.
+
+    A range above r needs some pair of reads more than r apart, and a pair's difference is
+    N(0, 2 sigma^2), so a union bound over the n(n-1)/2 pairs and the m cells gives it.
+    Conservative on purpose: what falls below it is skipped, not fitted."""
+    from statistics import NormalDist
+
+    pairs = n * (n - 1) // 2
+    z = NormalDist().inv_cdf(1.0 - alpha / (2.0 * pairs * m))
+    return np.sqrt(2.0) * z * np.asarray(sigma, float)
+
+
 def accepts(p_amp: float, p_shp: float, alpha: float = ALPHA) -> bool:
     """A fit is real only if it clears BOTH tests: tall enough, and the right shape.
 
@@ -90,6 +104,10 @@ def _selftest(n: int = 21, seed: int = 0):
     # a fringe buried under noise a hundred times its size must NOT pass on shape alone
     buried = true + rng.normal(0, 0.15 * 100, n)
     assert not accepts(p_amplitude(n, 0.15, 0.15 * 100), p_shape(buried, true))
+
+    # the prescan's blind gate: noise-only ranges stay under the floor, at about alpha
+    r = np.ptp(rng.normal(0, sigma, (4000, 48, 3)), axis=2).max(axis=1)
+    assert np.mean(r > range_floor(sigma, 3, 48)) < 2 * ALPHA
     return "noise rejected, fringe accepted, buried fringe rejected"
 
 

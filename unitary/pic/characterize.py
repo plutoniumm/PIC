@@ -533,7 +533,7 @@ def characterize(
 
     from .acquisition import grid, settled_read
     from .config import OUT_PDS
-    from .layout import ACTIVE_DACS, LABEL_OF_DAC, N_HEATERS
+    from .layout import LABEL_OF_DAC, N_HEATERS, SWEEP_DACS
 
     pds = list(OUT_PDS) if pd is None else [int(pd)]
 
@@ -559,7 +559,7 @@ def characterize(
         return base_levels if top <= 0 else base_levels * (vmax / top)
 
     levels = base_levels
-    channels = ACTIVE_DACS if channels is None else np.asarray(channels, int)
+    channels = SWEEP_DACS if channels is None else np.asarray(channels, int)
     bases = random_bases(3, channels=channels) if bases is None else list(bases)
     ports = [None] if switch is None else list(range(NMODE)) if ports is None else list(ports)
     role = LABEL_OF_DAC

@@ -66,6 +66,13 @@ AUX_DACS = np.sort(DAC_OF_HEATER[AUX_IDX])
 WIRED = np.array(sorted(WIRED_DACS), int)
 # what a sweep can actually drive today: wired channels that the mesh model uses
 REACHABLE_DACS = np.array(sorted(set(WIRED.tolist()) & set(ACTIVE_DACS.tolist())), int)
+# What a heater sweep covers. An input phase ahead of a first-column MZI is a global phase
+# with one port lit at a time: no detector sees it without homodyne, so it is never swept.
+from theory.clements import COLUMN as _COLUMN
+from theory.layout import PHI_DAC as _PHI_DAC
+
+BLIND_DACS = np.array(sorted(d for k, d in _PHI_DAC.items() if _COLUMN[k] == 0), int)
+SWEEP_DACS = np.setdiff1d(ACTIVE_DACS, BLIND_DACS)
 LABEL_OF_DAC = {d: HEATERS[d].label for d in range(N_HEATERS)}
 
 

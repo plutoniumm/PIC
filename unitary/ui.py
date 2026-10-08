@@ -537,14 +537,9 @@ def _reject_reason(fit, gates) -> str:
     return "rejected by characterize.passes: " + ("; ".join(why) or "no clause recorded")
 
 
-def _blind():
-    from theory.clements import COLUMN
-    from theory.layout import PHI_DAC
+from pic.layout import BLIND_DACS, SWEEP_DACS
 
-    return {d for k, d in PHI_DAC.items() if COLUMN[k] == 0}
-
-
-_BLIND = _blind()  # the column-0 input phases, invisible behind a 1x4 switch
+_BLIND = set(BLIND_DACS.tolist())  # the column-0 input phases, invisible behind a 1x4 switch
 
 
 def _pd_noise(j):
@@ -801,18 +796,14 @@ def calib_state():
     for h in HEATERS:
         if h.h in MIRROR_OF:  # one heater on two wires: drawn and listed once
             continue
+        if h.h in _BLIND:  # no detector sees it, so nothing sweeps it and nothing lists it
+            continue
         dacs = [h.h] + sorted(p for p, q in MIRROR_OF.items() if q == h.h)
         vpi = vpi_v[h.h] if h.h < len(vpi_v) else None
         phi0 = phi0_v[h.h] if h.h < len(phi0_v) else None
         nominal = vpi is not None and abs(vpi - VPI_NOMINAL) < 1e-9 and not phi0
         fit = fits.get(h.h)
         status, why = heater_status(fit, nominal, gates)
-        if h.h in _BLIND:
-            status, why = "grey", (
-                "not observable: an input phase before a first-column MZI is a global phase "
-                "when one port is lit at a time, so no detector sees it and no measurement "
-                "this rig makes depends on it"
-            )
         vmax = VOLTAGE_MAX_CH[h.h]
         # Span at the ceiling the rig clamps this channel to today, not the one the old
         # sweep happened to reach: a bonded pair sources twice the current into one heater,
@@ -1157,7 +1148,6 @@ def job_stop():
 def _targets(cmd):
     """The rows a calibration command will touch, so the tables can show them queued."""
     from pic.layout import LABEL_OF_DAC
-    from theory.layout import MIRROR_OF
 
     pad = lambda d: LABEL_OF_DAC[d].split(":")[0]
     m = re.search(r"--channels (\S+)", cmd)
@@ -1167,10 +1157,10 @@ def _targets(cmd):
     if m:
         return [f"PD{m.group(1)}"]
     if " fastchar" in cmd:
-        return sorted({pad(d) for d in LABEL_OF_DAC if d not in MIRROR_OF})
+        return sorted({pad(int(d)) for d in SWEEP_DACS})
     if " recal" in cmd:
         res, _, _ = _read_json(data_path(CHAR_PATH))
-        return sorted({pad(int(k)) for k, f in (res or {}).items() if f.get("ok")})
+        return sorted({pad(int(k)) for k, f in (res or {}).items() if f.get("ok") and int(k) in SWEEP_DACS})
     return []  # sync touches the transfer table, not a row
 
 
@@ -3116,7 +3106,7 @@ def _check_diagram(s):
         else:
             raise AssertionError(r)
     assert sorted(drawn.get("theta", [])) == sorted(THETA_DAC.values()), drawn
-    assert sorted(drawn.get("phi", [])) == sorted(PHI_DAC.values()), drawn
+    assert sorted(drawn.get("phi", [])) == sorted(set(PHI_DAC.values()) - _BLIND), drawn
 
 
 def _check_live():
@@ -3346,10 +3336,10 @@ def _check_calib(s):
     from theory.layout import HEATERS, MIRROR_OF, N_PHYSICAL_HEATERS, DAC_HEATER
 
     # a bonded pair is one heater, so it is one row and one dot
-    assert len(s["heaters"]) == N_PHYSICAL_HEATERS, len(s["heaters"])
+    assert len(s["heaters"]) == N_PHYSICAL_HEATERS - len(_BLIND), len(s["heaters"])
     assert all(DAC_HEATER[p] == DAC_HEATER[q] for p, q in MIRROR_OF.items())
     seen = sorted(d for r in s["heaters"] for d in r["dacs"])
-    assert seen == list(range(len(HEATERS))), seen
+    assert seen == sorted(set(range(len(HEATERS))) - _BLIND), seen
     for r in s["heaters"]:
         assert r["status"] in ("green", "yellow", "red", "grey"), r
         assert r["why"], r
